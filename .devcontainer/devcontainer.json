@@ -1,0 +1,21 @@
+{
+	"name": "Node.js CLI Development",
+	"image": "mcr.microsoft.com/devcontainers/javascript-node:lts",
+	"customizations": {
+		"vscode": {
+			"extensions": [
+				"dbaeumer.vscode-eslint",
+				"esbenp.prettier-vscode",
+				"vscjava.vscode-node-debug2"
+			]
+		}
+	},
+	"remoteUser": "node",
+	"features": {
+		"ghcr.io/devcontainers/features/common-utils:1": {
+			"installZsh": true,
+			"configureZshAsDefaultShell": true,
+			"upgradePackages": true
+		}
+	}
+}
