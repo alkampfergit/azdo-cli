@@ -9,7 +9,13 @@
   "files": [
     "dist"
   ],
-  "scripts": {},
+  "scripts": {
+    "build": "tsup",
+    "lint": "eslint src/",
+    "typecheck": "tsc --noEmit",
+    "format": "prettier --check src/",
+    "test": "vitest run"
+  },
   "license": "MIT",
   "dependencies": {
     "commander": "^14.0.3"
