@@ -32,6 +32,8 @@ jobs:
     needs: build
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
+    permissions:
+      id-token: write
 
     steps:
       - uses: actions/checkout@v4
@@ -72,9 +74,7 @@ jobs:
         run: npm version "${{ steps.version.outputs.version }}" --no-git-tag-version
 
       - name: Publish to npm
-        run: npm publish --tag "${{ steps.version.outputs.tag }}"
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish --tag "${{ steps.version.outputs.tag }}" --provenance --access public
 
   release:
     needs: publish
