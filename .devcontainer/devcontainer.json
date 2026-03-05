@@ -1,21 +1,42 @@
 {
-	"name": "Node.js CLI Development",
-	"image": "mcr.microsoft.com/devcontainers/javascript-node:lts",
-	"customizations": {
-		"vscode": {
-			"extensions": [
-				"dbaeumer.vscode-eslint",
-				"esbenp.prettier-vscode",
-				"vscjava.vscode-node-debug2"
-			]
-		}
-	},
-	"remoteUser": "node",
-	"features": {
-		"ghcr.io/devcontainers/features/common-utils:1": {
-			"installZsh": true,
-			"configureZshAsDefaultShell": true,
-			"upgradePackages": true
-		}
-	}
+    "name": "Node.js CLI Development",
+    "image": "mcr.microsoft.com/devcontainers/typescript-node:22",
+    "customizations": {
+        "vscode": {
+            "extensions": [
+                "dbaeumer.vscode-eslint",
+                "esbenp.prettier-vscode",
+                "vscjava.vscode-node-debug2",
+                "ms-dotnettools.csdevkit",
+                "ms-dotnettools.csharp",
+                "github.copilot",
+                "planet57.vscode-beads",
+                "anthropic.claude-code"
+            ],
+            "settings": {
+                "terminal.integrated.defaultProfile.linux": "zsh",
+                "terminal.integrated.profiles.linux": {
+                    "zsh": {
+                        "path": "/usr/bin/zsh"
+                    }
+                }
+            }
+        }
+    },
+    "remoteUser": "node",
+    "features": {
+        "ghcr.io/devcontainers/features/common-utils:1": {
+            "installZsh": true,
+            "configureZshAsDefaultShell": true,
+            "upgradePackages": true
+        },
+        "ghcr.io/devcontainers/features/dotnet:2": {},
+        "ghcr.io/devcontainers/features/node:1": {
+            "version": "lts"
+        },
+        "ghcr.io/devcontainers/features/github-cli:1": {
+            "version": "latest"
+        }
+    },
+    "postCreateCommand": "bash .devcontainer/postcreate.sh"
 }
