@@ -1,29 +1,30 @@
 ---
 name: beads-expert
 description: >
-  Use this skill whenever the user wants to create, import, organize, or refine a backlog in Beads
-  (Steve Yegge's issue tracking tool). Trigger for ANY of these situations: writing new issues from
-  scratch, importing backlog from a markdown file, converting requirements or specs into Beads issues,
-  analyzing a codebase to generate or enrich a backlog, setting up issue dependencies (blocks/depends-on),
-  defining priorities and labels, or generating a Claude Code prompt to automate backlog import.
-  Also trigger when the user want to implement a backlog and whenever the user mention 'use beads'.
+  Manage backlogs using Beads (bd), Steve Yegge's file-based issue tracker.
+  Use when the user wants to create, import, organize, or refine issues,
+  convert specs or markdown into Beads issues, set up dependencies, define
+  priorities and labels, implement backlog items, or whenever the user
+  mentions 'use beads'. Works by running bd CLI commands to create, link,
+  and track issues with dependency graphs.
 ---
 
 # Beads Backlog Skill
 
-Beads is a lightweight, file-based issue tracker by Steve Yegge, designed to integrate with AI coding
-agents like Claude Code. Issues are stored as structured files (`~/.beads/` by default), tracked with
-short IDs like `bd-a1b2c3`, and manipulated via the `bd` CLI.
+Beads is a lightweight, file-based issue tracker designed for AI coding agents.
+Issues are stored as structured files (`.beads/`), tracked with short IDs like
+`bd-a1b2c3`, and manipulated via the `bd` CLI.
 
 ## When to use each workflow
 
-| User wants to… | Go to |
+| User wants to... | Go to |
 |---|---|
-| Write issues manually from a description | [Manual Issue Authoring](#manual-issue-authoring) |
+| Write issues from a description | [Manual Issue Authoring](#manual-issue-authoring) |
 | Import a markdown backlog file | [Markdown Import Workflow](#markdown-import-workflow) |
-| Use code analysis to enrich issues | [Code-Aware Backlog Generation](#code-aware-backlog-generation) |
-| Generate a Claude Code prompt for automation | [Claude Code Prompt Generator](#claude-code-prompt-generator) |
+| Analyze code to enrich issues | [Code-Aware Backlog Generation](#code-aware-backlog-generation) |
 | Set up dependencies between issues | [Dependency Modeling](#dependency-modeling) |
+| Implement work from the backlog | [Implementation Workflow](#implementation-workflow) |
+| Generate a Claude Code import prompt | [references/prompt-generator.md](references/prompt-generator.md) |
 
 ---
 
@@ -39,32 +40,27 @@ Priority:    0 (critical) | 1 (high) | 2 (normal) | 3 (low)
 Status:      open | in-progress | blocked | closed
 Labels:      comma-separated tags (e.g., backend, api, auth)
 Description: What and why. Include acceptance criteria.
-Depends on:  [bd-xxxx, ...] — must be done first
-Blocks:      [bd-xxxx, ...] — computed from reverse of depends-on
-Discovered from: bd-xxxx  — optional causal link
+Depends on:  [bd-xxxx, ...] -- must be done first
+Blocks:      [bd-xxxx, ...] -- computed from reverse of depends-on
+Discovered from: bd-xxxx  -- optional causal link
 ```
 
 ### Key CLI commands
 
 ```bash
-# Create an issue
 bd create --title "..." --type feature --priority 2 --label "api,backend"
-
-# Add description/notes interactively
-bd edit bd-a1b2
-
-# Set dependencies
-bd link bd-child --depends-on bd-parent
-bd link bd-child --blocks bd-other
-
-# View
-bd show bd-a1b2            # detailed view
-bd list --status open      # list all open
-bd ready                   # issues with no blockers
-
-# Close
-bd close bd-a1b2 --note "Done in PR #42"
+bd edit bd-a1b2                          # add description/notes interactively
+bd link bd-child --depends-on bd-parent  # set dependency
+bd link bd-child --blocks bd-other       # reverse dependency
+bd show bd-a1b2                          # detailed view
+bd list --status open                    # list open issues
+bd ready                                 # issues with no blockers
+bd update bd-a1b2 --status in_progress   # claim work
+bd close bd-a1b2 --note "Done in PR #42" # close with note
+bd sync                                  # sync with git
 ```
+
+For full `bd show` options, see [references/bd-show-guide.md](references/bd-show-guide.md).
 
 ---
 
@@ -75,7 +71,7 @@ When the user describes a feature, story, or bug, convert it into a well-formed 
 ### Issue writing rules
 
 1. **Title**: imperative verb, max ~60 chars. E.g., *"Add JWT refresh token rotation"*, not *"JWT issue"*.
-2. **Type**: choose the most specific — `bug` for regressions, `spike` for research/unknowns, `chore` for non-functional work.
+2. **Type**: choose the most specific -- `bug` for regressions, `spike` for research/unknowns, `chore` for non-functional work.
 3. **Description**: use this template:
 
 ```
@@ -94,7 +90,7 @@ Implementation hints, relevant files, constraints.
 5. **Priority**: default to 2 (normal). Only use 0 for production-blocking issues.
 6. **Dependencies**: always think about what must exist first before this issue can start.
 
-### Output format when Claude generates issues
+### Output format
 
 When writing issues for the user (not yet in Beads), present them as a structured list:
 
@@ -116,17 +112,17 @@ Then offer to generate the `bd create` commands or a Claude Code prompt to impor
 
 ## Markdown Import Workflow
 
-Use this when the user has an existing markdown backlog file to import into Beads.
+Use when the user has an existing markdown backlog file to import into Beads.
 
-### Step 1 — Analyze the markdown
+### Step 1 -- Analyze the markdown
 
 Read the file and identify:
-- Items (headings, bullets, checkboxes) → map to issues
+- Items (headings, bullets, checkboxes) to map to issues
 - Hierarchy (parent bullets = epics, children = tasks)
 - Implicit dependencies (item B references item A by name)
 - Existing metadata (priority markers like `P0`, `[bug]`, labels in brackets)
 
-### Step 2 — Produce an issue plan
+### Step 2 -- Produce an issue plan
 
 Before touching `bd`, output a structured plan:
 
@@ -138,22 +134,20 @@ Epics (no parent): X
 Tasks (with parent dependency): Y
 
 Issues:
-  1. [feature] "Title of issue 1"  → no deps
-  2. [feature] "Title of issue 2"  → depends on #1
-  3. [bug]     "Title of issue 3"  → no deps
+  1. [feature] "Title of issue 1"  -> no deps
+  2. [feature] "Title of issue 2"  -> depends on #1
+  3. [bug]     "Title of issue 3"  -> no deps
 ```
 
 Ask the user to confirm or adjust before proceeding.
 
-### Step 3 — Generate bd commands
+### Step 3 -- Generate bd commands
 
 ```bash
-# Example sequence
 ID1=$(bd create --title "Setup authentication module" --type feature --priority 2 --label "auth,backend" --json | jq -r '.id')
 ID2=$(bd create --title "Implement login endpoint" --type feature --priority 2 --label "auth,api" --json | jq -r '.id')
 bd link $ID2 --depends-on $ID1
 
-# Add descriptions via heredoc
 bd note $ID1 << 'EOF'
 ## Context
 Foundation module needed before any auth endpoints.
@@ -164,7 +158,7 @@ Foundation module needed before any auth endpoints.
 EOF
 ```
 
-### Step 4 — Verify import
+### Step 4 -- Verify import
 
 ```bash
 bd list --status open
@@ -179,13 +173,13 @@ Use when the user wants to analyze a codebase to discover missing work, TODOs, o
 
 ### Analysis checklist
 
-When given access to a code folder, Claude should examine:
+When given access to a code folder, examine:
 
-1. **TODO/FIXME/HACK comments** — each is a candidate `bug` or `chore` issue
-2. **Test gaps** — untested public methods → `task` issues for test coverage
-3. **Incomplete implementations** — `throw new NotImplementedException()`, empty stubs → `feature`
-4. **Architecture mismatches** — backlog items that touch code that doesn't exist yet → add prerequisite issues
-5. **Dependency order** — if issue B touches a class that issue A creates, B depends on A
+1. **TODO/FIXME/HACK comments** -- each is a candidate `bug` or `chore` issue
+2. **Test gaps** -- untested public methods -> `task` issues for test coverage
+3. **Incomplete implementations** -- `throw new NotImplementedException()`, empty stubs -> `feature`
+4. **Architecture mismatches** -- backlog items that touch code that doesn't exist yet -> add prerequisite issues
+5. **Dependency order** -- if issue B touches a class that issue A creates, B depends on A
 
 ### Enrichment pattern
 
@@ -217,93 +211,112 @@ Good dependency graphs prevent blocked sprints. Follow these rules:
 
 **Feature chain** (most common):
 ```
-[Setup infra] ← [Create DB schema] ← [Implement service] ← [Add API endpoint] ← [Write tests]
+[Setup infra] <- [Create DB schema] <- [Implement service] <- [Add API endpoint] <- [Write tests]
 ```
 
 **Parallel work after shared foundation**:
 ```
-[Create User model] ← [Implement login]
-                   ← [Implement registration]
-                   ← [Implement profile]
+[Create User model] <- [Implement login]
+                    <- [Implement registration]
+                    <- [Implement profile]
 ```
 
 **Bug discovered during feature**:
 ```
-[Implement file upload] → discovered → [Fix MIME type validation bug]
+[Implement file upload] -> discovered -> [Fix MIME type validation bug]
 ```
 
 ### Dependency validation
 
 After modeling, run:
 ```bash
-bd ready   # if this is empty and there are open issues → circular deps or all blocked
+bd ready   # if empty and there are open issues -> circular deps or all blocked
 bd list --status blocked   # review blocked issues
 ```
 
 ---
 
-## Claude Code Prompt Generator
+## Implementation Workflow
 
-When the user needs a ready-to-use prompt for Claude Code to automate backlog import, generate the following prompt template. Fill in placeholders based on what the user told you.
+Use when the user wants to pick up and implement work from the backlog.
 
+### Step 1 -- Find work
+
+```bash
+bd ready                    # show unblocked issues
+bd list --priority 0        # check for critical items first
 ```
-You are a backlog import agent. Your job is to read a markdown backlog file and the project source code, then create a complete, dependency-linked backlog in Beads.
 
-## Inputs
-- Backlog file: <PATH_TO_MARKDOWN>
-- Source folder: <PATH_TO_SOURCE>
-- Beads installed and initialized (bd init already run)
+Pick the highest-priority unblocked issue. If multiple issues share the same
+priority, prefer ones that unblock the most dependents.
 
-## Your workflow
+### Step 2 -- Claim an issue
 
-### Phase 1: Analysis
-1. Read the markdown file fully.
-2. Scan the source folder: find TODOs, empty stubs, incomplete features, test gaps.
-3. Build an internal map: each backlog item + relevant source files + discovered issues.
-
-### Phase 2: Plan
-4. Produce a numbered list of all issues to create with: title, type, priority, labels, parent dependency index.
-5. Show the plan. Wait for my approval before proceeding.
-
-### Phase 3: Import
-6. Create issues in dependency order (parents first) using:
-   `bd create --title "..." --type <type> --priority <0-3> --label "<labels>" --json`
-   Capture the returned ID for each issue.
-7. Link dependencies:
-   `bd link <child-id> --depends-on <parent-id>`
-8. Add descriptions with full context using `bd note <id>`.
-   Each description must include: Context, Acceptance Criteria, Relevant Files, Technical Notes.
-
-### Phase 4: Verify
-9. Run `bd list --status open` and confirm count matches plan.
-10. Run `bd ready` and report which issues are immediately actionable.
-11. Show a summary: total issues, dependency graph roots, first recommended issue to tackle.
-
-## Issue writing rules
-- Titles: imperative verb + noun, max 60 chars
-- Types: feature | bug | task | spike | chore
-- Labels: use consistent domain tags (backend, frontend, api, db, auth, infra, test, docs, perf)
-- Priority 0 only for production-blocking bugs
-- Every issue must have at least 2 acceptance criteria
-- Surface all code TODOs and stubs as separate issues with `discovered-from` links
-
-Begin with Phase 1. Do not create any issues until I approve the plan in Phase 2.
+```bash
+bd update <id> --status in_progress
 ```
+
+### Step 3 -- Understand the issue
+
+Run `bd show <id>` and extract:
+- **Acceptance criteria** -- these are the definition of done
+- **Technical notes** -- implementation hints, relevant files
+- **Dependencies** -- verify all `depends-on` issues are actually closed
+
+If the issue lacks acceptance criteria or is unclear, ask the user to clarify
+before writing code.
+
+### Step 4 -- Implement
+
+1. **Read relevant code** -- start with files mentioned in the issue's technical
+   notes. If none are listed, use the codebase structure to locate the right area.
+2. **Make changes** -- implement each acceptance criterion. Keep changes focused
+   on what the issue asks for.
+3. **Write/update tests** -- every acceptance criterion should have a
+   corresponding test. Run the project's test suite to verify.
+4. **Run linting/checks** -- execute the project's lint and build commands
+   (check CLAUDE.md for the right commands).
+
+### Step 5 -- Verify acceptance criteria
+
+Walk through each acceptance criterion from the issue:
+- If all pass: proceed to close
+- If any fail: fix before closing
+- If a criterion is ambiguous or untestable: flag it to the user
+
+### Step 6 -- Close and follow up
+
+Create a git commit referencing the issue, then close it with a note:
+
+```bash
+bd close <id> --note "Implemented in commit <sha>"
+bd sync   # sync state with git
+```
+
+After closing, check if this unblocks other issues:
+```bash
+bd ready   # new issues may now be unblockable
+```
+
+If newly unblocked issues exist, inform the user and offer to continue with
+the next one.
 
 ---
 
-## Quick Reference
+## Troubleshooting
 
-```bash
-bd init                          # initialize beads in current repo
-bd create --title "..." --type feature --priority 2 --label "x,y" --json
-bd note <id>                     # open editor to add description
-bd link <id> --depends-on <id>   # set dependency
-bd show <id>                     # full details
-bd list                          # all issues
-bd ready                         # unblocked issues
-bd close <id> --note "..."       # close with note
-bd export --format markdown      # export all to markdown
-```
+**Issue: `bd` command not found**
+Cause: Beads CLI not installed
+Solution: Install beads per project setup docs
 
-For full `bd show` command options, see `references/bd-show-guide.md`.
+**Issue: `bd ready` returns empty but open issues exist**
+Cause: Circular dependencies or all issues are blocked
+Solution: Run `bd list --status blocked` and review dependency chains
+
+**Issue: `bd create` fails with JSON parse error**
+Cause: Special characters in title or label
+Solution: Escape quotes in title, use simple comma-separated labels
+
+**Issue: `bd sync` conflicts**
+Cause: Multiple users modified issues concurrently
+Solution: Resolve JSONL conflicts manually, then re-run `bd sync`

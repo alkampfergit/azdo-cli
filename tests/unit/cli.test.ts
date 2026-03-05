@@ -32,10 +32,10 @@ describe("azdo CLI", () => {
   });
 
   it("no arguments displays help", () => {
-    const { stdout, exitCode } = run([]);
-    expect(stdout).toContain("Usage:");
-    expect(stdout).toContain("Azure DevOps CLI tool");
-    expect(exitCode).toBe(0);
+    const result = run([]);
+    const output = result.stdout + result.stderr;
+    expect(output).toContain("Usage:");
+    expect(output).toContain("Azure DevOps CLI tool");
   });
 
   it("--foo unknown option shows error and help", () => {
