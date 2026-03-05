@@ -15,6 +15,7 @@
     - .specify/templates/tasks-template.md ✅ no changes needed (generic)
   Follow-up TODOs: None
 -->
+This project use GitFlow for branch strategy, prefix spec branches with feature/
 
 # azdo-cli Constitution
 
