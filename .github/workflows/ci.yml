@@ -27,3 +27,51 @@ jobs:
       - run: npm run build
 
       - run: npm test
+
+  publish:
+    needs: build
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: npm
+          registry-url: https://registry.npmjs.org
+
+      - run: npm ci
+
+      - run: npm run build
+
+      - name: Set version and tag
+        id: version
+        run: |
+          BASE_VERSION=$(node -p "require('./package.json').version")
+          BRANCH="${GITHUB_REF_NAME}"
+          RUN="${GITHUB_RUN_NUMBER}"
+
+          if [ "$BRANCH" = "master" ]; then
+            TAG="latest"
+            VERSION="$BASE_VERSION"
+          elif [ "$BRANCH" = "develop" ]; then
+            TAG="next"
+            VERSION="${BASE_VERSION}-next.${RUN}"
+          else
+            TAG="dev"
+            SAFE_BRANCH=$(echo "$BRANCH" | sed 's/[^a-zA-Z0-9]/-/g')
+            VERSION="${BASE_VERSION}-dev.${SAFE_BRANCH}.${RUN}"
+          fi
+
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Set package version
+        run: npm version "${{ steps.version.outputs.version }}" --no-git-tag-version
+
+      - name: Publish to npm
+        run: npm publish --tag "${{ steps.version.outputs.tag }}"
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
