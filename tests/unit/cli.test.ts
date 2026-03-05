@@ -38,9 +38,10 @@ describe("azdo CLI", () => {
     expect(exitCode).toBe(0);
   });
 
-  it("--foo unknown option shows error", () => {
+  it("--foo unknown option shows error and help", () => {
     const { stderr, exitCode } = run(["--foo"]);
     expect(stderr).toContain("unknown option");
+    expect(stderr).toContain("Usage:");
     expect(exitCode).toBe(1);
   });
 });
