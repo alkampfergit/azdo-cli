@@ -29,4 +29,21 @@ fi
 
 # Install beads
 echo "Installing beads..."
-curl -fsSL https://raw.githubusercontent.com/steveyegge/beads/main/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/steveyegge/beads/v0.49.6/scripts/install.sh | bash
+
+# Install uv (Astral) and GitHub spec-kit via uv tool
+# uv provides a universal version manager; we install via official script
+if ! command -v uv >/dev/null 2>&1; then
+    echo "Installing uv..."
+    curl -LsSf https://astral.sh/uv/install.sh | sh
+else
+    echo "uv already installed, skipping."
+fi
+
+# use uv to install github spec-kit command-line tool
+if command -v uv >/dev/null 2>&1; then
+    echo "Installing github spec-kit via uv..."
+    uv tool install specify-cli --from git+https://github.com/github/spec-kit.git || true
+else
+    echo "uv not available, cannot install spec-kit."
+fi
