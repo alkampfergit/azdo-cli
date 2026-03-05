@@ -11,7 +11,8 @@
                 "ms-dotnettools.csharp",
                 "github.copilot",
                 "planet57.vscode-beads",
-                "anthropic.claude-code"
+                "anthropic.claude-code",
+                "github.vscode-github-actions"
             ],
             "settings": {
                 "terminal.integrated.defaultProfile.linux": "zsh",
