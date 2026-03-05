@@ -1,0 +1,14 @@
+{
+  "name": "azdo-cli",
+  "version": "0.1.0",
+  "description": "Azure DevOps CLI tool",
+  "type": "module",
+  "bin": {
+    "azdo": "./dist/index.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {},
+  "license": "MIT"
+}
