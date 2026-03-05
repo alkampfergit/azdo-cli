@@ -55,16 +55,17 @@ jobs:
           BRANCH="${GITHUB_REF_NAME}"
           RUN="${GITHUB_RUN_NUMBER}"
 
+          SAFE_BRANCH=$(echo "$BRANCH" | sed 's/[^a-zA-Z0-9-]/-/g')
+
           if [ "$BRANCH" = "master" ]; then
             TAG="latest"
             VERSION="$BASE_VERSION"
           elif [ "$BRANCH" = "develop" ]; then
             TAG="next"
-            VERSION="${BASE_VERSION}-next.${RUN}"
+            VERSION="${BASE_VERSION}-${SAFE_BRANCH}.${RUN}"
           else
             TAG="dev"
-            SAFE_BRANCH=$(echo "$BRANCH" | sed 's/[^a-zA-Z0-9]/-/g')
-            VERSION="${BASE_VERSION}-dev.${SAFE_BRANCH}.${RUN}"
+            VERSION="${BASE_VERSION}-${SAFE_BRANCH}.${RUN}"
           fi
 
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"

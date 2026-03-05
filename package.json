@@ -1,6 +1,6 @@
 {
   "name": "azdo-cli",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Azure DevOps CLI tool",
   "type": "module",
   "bin": {
@@ -15,6 +15,10 @@
     "typecheck": "tsc --noEmit",
     "format": "prettier --check src/",
     "test": "vitest run"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/alkampfergit/azdo-cli.git"
   },
   "license": "MIT",
   "dependencies": {

@@ -20,7 +20,7 @@ function run(args: string[]): { stdout: string; stderr: string; exitCode: number
 describe("azdo CLI", () => {
   it("--version outputs correct version", () => {
     const { stdout, exitCode } = run(["--version"]);
-    expect(stdout.trim()).toBe("0.1.0");
+    expect(stdout.trim()).toBe("0.2.0");
     expect(exitCode).toBe(0);
   });
 
