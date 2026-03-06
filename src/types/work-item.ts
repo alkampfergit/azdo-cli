@@ -27,3 +27,17 @@ export interface CliConfig {
   project?: string;
   fields?: string[];
 }
+
+export interface JsonPatchOperation {
+  op: 'add' | 'remove' | 'replace' | 'test';
+  path: string;
+  value?: string;
+}
+
+export interface UpdateResult {
+  id: number;
+  rev: number;
+  title: string;
+  fieldName: string;
+  fieldValue: string | null;
+}

@@ -1,4 +1,4 @@
-import type { WorkItem, AzdoContext } from '../types/work-item.js';
+import type { WorkItem, AzdoContext, JsonPatchOperation, UpdateResult } from '../types/work-item.js';
 
 const DEFAULT_FIELDS: readonly string[] = [
   'System.Title',
@@ -111,5 +111,61 @@ export async function getWorkItem(context: AzdoContext, id: number, pat: string,
     extraFields: extraFields && extraFields.length > 0
       ? buildExtraFields(data.fields, extraFields)
       : null,
+  };
+}
+
+export async function updateWorkItem(
+  context: AzdoContext,
+  id: number,
+  pat: string,
+  fieldName: string,
+  operations: JsonPatchOperation[],
+): Promise<UpdateResult> {
+  const url = `https://dev.azure.com/${context.org}/${context.project}/_apis/wit/workitems/${id}?api-version=7.1`;
+  const token = Buffer.from(`:${pat}`).toString('base64');
+
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      method: 'PATCH',
+      headers: {
+        Authorization: `Basic ${token}`,
+        'Content-Type': 'application/json-patch+json',
+      },
+      body: JSON.stringify(operations),
+    });
+  } catch {
+    throw new Error('NETWORK_ERROR');
+  }
+
+  if (response.status === 401) throw new Error('AUTH_FAILED');
+  if (response.status === 403) throw new Error('PERMISSION_DENIED');
+  if (response.status === 404) throw new Error('NOT_FOUND');
+
+  if (response.status === 400) {
+    let serverMessage = 'Unknown error';
+    try {
+      const body = (await response.json()) as { message?: string };
+      if (body.message) serverMessage = body.message;
+    } catch {
+      // ignore parse errors
+    }
+    throw new Error(`UPDATE_REJECTED: ${serverMessage}`);
+  }
+
+  if (!response.ok) {
+    throw new Error(`HTTP_${response.status}`);
+  }
+
+  const data = (await response.json()) as AzdoWorkItemResponse;
+  const lastOp = operations[operations.length - 1];
+  const fieldValue = lastOp.value ?? null;
+
+  return {
+    id: data.id,
+    rev: data.rev,
+    title: data.fields['System.Title'],
+    fieldName,
+    fieldValue,
   };
 }
