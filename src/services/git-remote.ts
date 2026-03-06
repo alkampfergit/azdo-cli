@@ -18,7 +18,12 @@ export function parseAzdoRemote(url: string): AzdoContext | null {
   for (const pattern of patterns) {
     const match = url.match(pattern);
     if (match) {
-      return { org: match[1], project: match[2] };
+      const project = match[2];
+      // DefaultCollection is not a real project — skip this match
+      if (/^DefaultCollection$/i.test(project)) {
+        return { org: match[1], project: '' };
+      }
+      return { org: match[1], project: project };
     }
   }
   return null;
@@ -33,7 +38,7 @@ export function detectAzdoContext(): AzdoContext {
   }
 
   const context = parseAzdoRemote(remoteUrl);
-  if (!context) {
+  if (!context || (!context.org && !context.project)) {
     throw new Error('Git remote "origin" is not an Azure DevOps URL. Provide --org and --project explicitly.');
   }
 

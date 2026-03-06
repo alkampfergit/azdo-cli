@@ -115,15 +115,27 @@ export function createGetItemCommand(): Command {
 
         try {
           // Step 3 — Resolve context
+          // Priority: CLI flags > config file > git remote auto-detection
           if (options.org && options.project) {
             context = { org: options.org, project: options.project };
           } else {
-            try {
-              context = detectAzdoContext();
-            } catch {
-              const config = loadConfig();
-              if (config.org && config.project) {
-                context = { org: config.org, project: config.project };
+            const config = loadConfig();
+            if (config.org && config.project) {
+              context = { org: config.org, project: config.project };
+            } else {
+              // Try git remote, then merge with config for missing pieces
+              let gitContext: AzdoContext | null = null;
+              try {
+                gitContext = detectAzdoContext();
+              } catch {
+                // not in a git repo or not an azdo remote
+              }
+
+              const org = config.org || gitContext?.org;
+              const project = config.project || gitContext?.project;
+
+              if (org && project) {
+                context = { org, project };
               } else {
                 throw new Error(
                   'Could not determine org/project. Use --org and --project flags, work from an Azure DevOps git repo, or run "azdo config set org/project".',
