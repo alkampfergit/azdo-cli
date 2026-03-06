@@ -136,13 +136,16 @@ describe('config get', () => {
 });
 
 describe('config list', () => {
-  it('shows "No settings configured." when empty', async () => {
+  it('shows all settings with "(not set)" when empty', async () => {
     const { createConfigCommand } = await import('../../src/commands/config.js');
     const cmd = createConfigCommand();
     const { stdout } = captureOutput(() => {
       cmd.parse(['list'], { from: 'user' });
     });
-    expect(stdout).toContain('No settings configured.');
+    expect(stdout).toContain('org');
+    expect(stdout).toContain('(not set)');
+    expect(stdout).toContain('Azure DevOps organization name');
+    expect(stdout).toContain('azdo config wizard');
   });
 
   it('shows tabular output with settings', async () => {

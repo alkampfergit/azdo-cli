@@ -1,9 +1,11 @@
 import { Command } from 'commander';
+import { createInterface } from 'node:readline';
 import {
   setConfigValue,
   getConfigValue,
   unsetConfigValue,
   loadConfig,
+  SETTINGS,
 } from '../services/config-store.js';
 
 export function createConfigCommand(): Command {
@@ -73,18 +75,30 @@ export function createConfigCommand(): Command {
       if (options.json) {
         process.stdout.write(JSON.stringify(cfg) + '\n');
       } else {
-        const entries: [string, string][] = [];
-        if (cfg.org) entries.push(['org', cfg.org]);
-        if (cfg.project) entries.push(['project', cfg.project]);
-        if (cfg.fields && cfg.fields.length > 0)
-          entries.push(['fields', cfg.fields.join(',')]);
+        const keyWidth = 10;
+        const valueWidth = 30;
 
-        if (entries.length === 0) {
-          process.stdout.write('No settings configured.\n');
-        } else {
-          for (const [k, v] of entries) {
-            process.stdout.write(`${k.padEnd(10)}${v}\n`);
-          }
+        for (const setting of SETTINGS) {
+          const raw = cfg[setting.key];
+          const value =
+            raw === undefined
+              ? '(not set)'
+              : Array.isArray(raw)
+                ? raw.join(',')
+                : raw;
+          const marker = raw === undefined && setting.required ? ' *' : '';
+          process.stdout.write(
+            `${setting.key.padEnd(keyWidth)}${String(value).padEnd(valueWidth)}${setting.description}${marker}\n`,
+          );
+        }
+
+        const hasUnset = SETTINGS.some(
+          (s) => s.required && cfg[s.key] === undefined,
+        );
+        if (hasUnset) {
+          process.stdout.write(
+            '\n* = required but not configured. Run "azdo config wizard" to set up.\n',
+          );
         }
       }
     });
@@ -110,10 +124,67 @@ export function createConfigCommand(): Command {
       }
     });
 
+  const wizard = new Command('wizard');
+  wizard
+    .description('Interactive wizard to configure all settings')
+    .action(async () => {
+      if (!process.stdin.isTTY) {
+        process.stderr.write(
+          'Error: Wizard requires an interactive terminal.\n',
+        );
+        process.exit(1);
+      }
+
+      const cfg = loadConfig();
+      const rl = createInterface({
+        input: process.stdin,
+        output: process.stderr,
+      });
+
+      const ask = (prompt: string): Promise<string> =>
+        new Promise((resolve) => rl.question(prompt, resolve));
+
+      process.stderr.write('Azure DevOps CLI - Configuration Wizard\n');
+      process.stderr.write('=======================================\n\n');
+
+      for (const setting of SETTINGS) {
+        const current = cfg[setting.key];
+        const currentDisplay =
+          current === undefined
+            ? ''
+            : Array.isArray(current)
+              ? current.join(',')
+              : current;
+
+        const requiredTag = setting.required ? ' (required)' : ' (optional)';
+        process.stderr.write(`${setting.description}${requiredTag}\n`);
+        if (setting.example) {
+          process.stderr.write(`  Example: ${setting.example}\n`);
+        }
+
+        const defaultHint = currentDisplay ? ` [${currentDisplay}]` : '';
+        const answer = await ask(`  ${setting.key}${defaultHint}: `);
+        const trimmed = answer.trim();
+
+        if (trimmed) {
+          setConfigValue(setting.key, trimmed);
+          process.stderr.write(`  -> Set "${setting.key}" to "${trimmed}"\n\n`);
+        } else if (currentDisplay) {
+          process.stderr.write(`  -> Kept "${setting.key}" as "${currentDisplay}"\n\n`);
+        } else {
+          process.stderr.write(`  -> Skipped "${setting.key}"\n\n`);
+        }
+      }
+
+      rl.close();
+      process.stderr.write('Configuration complete!\n');
+    });
+
   config.addCommand(set);
   config.addCommand(get);
   config.addCommand(list);
   config.addCommand(unset);
+  config.addCommand(wizard);
 
   return config;
 }
