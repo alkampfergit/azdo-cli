@@ -1,9 +1,21 @@
 import type { WorkItem, AzdoContext } from '../types/work-item.js';
 
+const DEFAULT_FIELDS: readonly string[] = [
+  'System.Title',
+  'System.State',
+  'System.WorkItemType',
+  'System.AssignedTo',
+  'System.Description',
+  'Microsoft.VSTS.Common.AcceptanceCriteria',
+  'Microsoft.VSTS.TCM.ReproSteps',
+  'System.AreaPath',
+  'System.IterationPath',
+];
+
 interface AzdoWorkItemResponse {
   id: number;
   rev: number;
-  fields: {
+  fields: Record<string, unknown> & {
     'System.Title': string;
     'System.State': string;
     'System.WorkItemType': string;
@@ -21,8 +33,27 @@ interface AzdoWorkItemResponse {
   };
 }
 
-export async function getWorkItem(context: AzdoContext, id: number, pat: string): Promise<WorkItem> {
-  const url = `https://dev.azure.com/${context.org}/${context.project}/_apis/wit/workitems/${id}?api-version=7.1`;
+function buildExtraFields(
+  fields: Record<string, unknown>,
+  requested: string[],
+): Record<string, string> | null {
+  const result: Record<string, string> = {};
+  for (const name of requested) {
+    const val = fields[name];
+    if (val !== undefined && val !== null) {
+      result[name] = String(val);
+    }
+  }
+  return Object.keys(result).length > 0 ? result : null;
+}
+
+export async function getWorkItem(context: AzdoContext, id: number, pat: string, extraFields?: string[]): Promise<WorkItem> {
+  let url = `https://dev.azure.com/${context.org}/${context.project}/_apis/wit/workitems/${id}?api-version=7.1`;
+
+  if (extraFields && extraFields.length > 0) {
+    const allFields = [...DEFAULT_FIELDS, ...extraFields];
+    url += `&fields=${allFields.join(',')}`;
+  }
   const token = Buffer.from(`:${pat}`).toString('base64');
 
   let response: Response;
@@ -77,5 +108,8 @@ export async function getWorkItem(context: AzdoContext, id: number, pat: string)
     areaPath: data.fields['System.AreaPath'],
     iterationPath: data.fields['System.IterationPath'],
     url: data._links.html.href,
+    extraFields: extraFields && extraFields.length > 0
+      ? buildExtraFields(data.fields, extraFields)
+      : null,
   };
 }
