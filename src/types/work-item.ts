@@ -9,6 +9,7 @@ export interface WorkItem {
   areaPath: string;
   iterationPath: string;
   url: string;
+  extraFields: Record<string, string> | null;
 }
 
 export interface AzdoContext {
@@ -19,4 +20,10 @@ export interface AzdoContext {
 export interface AuthCredential {
   pat: string;
   source: 'env' | 'credential-store' | 'prompt';
+}
+
+export interface CliConfig {
+  org?: string;
+  project?: string;
+  fields?: string[];
 }

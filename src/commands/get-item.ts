@@ -3,6 +3,7 @@ import type { AzdoContext, WorkItem } from '../types/work-item.js';
 import { getWorkItem } from '../services/azdo-client.js';
 import { resolvePat } from '../services/auth.js';
 import { detectAzdoContext } from '../services/git-remote.js';
+import { loadConfig } from '../services/config-store.js';
 
 export function stripHtml(html: string): string {
   let text = html;
@@ -48,6 +49,14 @@ export function formatWorkItem(workItem: WorkItem, short: boolean): string {
   }
 
   lines.push(`${label('URL:')}${workItem.url}`);
+
+  if (workItem.extraFields) {
+    for (const [refName, value] of Object.entries(workItem.extraFields)) {
+      const fieldLabel = refName.includes('.') ? refName.split('.').pop()! : refName;
+      lines.push(`${fieldLabel.padEnd(13)}${value}`);
+    }
+  }
+
   lines.push('');
 
   const descriptionText = workItem.description
@@ -77,10 +86,11 @@ export function createGetItemCommand(): Command {
     .option('--org <org>', 'Azure DevOps organization')
     .option('--project <project>', 'Azure DevOps project')
     .option('--short', 'show abbreviated output')
+    .option('--fields <fields>', 'comma-separated additional field reference names')
     .action(
       async (
         idStr: string,
-        options: { org?: string; project?: string; short?: boolean },
+        options: { org?: string; project?: string; short?: boolean; fields?: string },
       ) => {
         // Step 1 — Validate ID
         const id = parseInt(idStr, 10);
@@ -108,16 +118,32 @@ export function createGetItemCommand(): Command {
           if (options.org && options.project) {
             context = { org: options.org, project: options.project };
           } else {
-            context = detectAzdoContext();
+            try {
+              context = detectAzdoContext();
+            } catch {
+              const config = loadConfig();
+              if (config.org && config.project) {
+                context = { org: config.org, project: config.project };
+              } else {
+                throw new Error(
+                  'Could not determine org/project. Use --org and --project flags, work from an Azure DevOps git repo, or run "azdo config set org/project".',
+                );
+              }
+            }
           }
 
           // Step 4 — Resolve PAT
           const credential = await resolvePat();
 
-          // Step 5 — Fetch work item
-          const workItem = await getWorkItem(context, id, credential.pat);
+          // Step 5 — Resolve extra fields
+          const fieldsList: string[] | undefined = options.fields
+            ? options.fields.split(',').map((f: string) => f.trim())
+            : loadConfig().fields;
 
-          // Step 6 — Display output
+          // Step 6 — Fetch work item
+          const workItem = await getWorkItem(context, id, credential.pat, fieldsList);
+
+          // Step 7 — Display output
           const output = formatWorkItem(workItem, options.short ?? false);
           process.stdout.write(output + '\n');
         } catch (err: unknown) {
