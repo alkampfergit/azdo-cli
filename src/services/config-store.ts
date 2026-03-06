@@ -3,7 +3,39 @@ import path from 'node:path';
 import os from 'node:os';
 import type { CliConfig } from '../types/work-item.js';
 
-const VALID_KEYS: readonly string[] = ['org', 'project', 'fields'];
+export interface SettingDefinition {
+  key: keyof CliConfig;
+  description: string;
+  type: 'string' | 'string[]';
+  example: string;
+  required: boolean;
+}
+
+export const SETTINGS: readonly SettingDefinition[] = [
+  {
+    key: 'org',
+    description: 'Azure DevOps organization name',
+    type: 'string',
+    example: 'mycompany',
+    required: true,
+  },
+  {
+    key: 'project',
+    description: 'Azure DevOps project name',
+    type: 'string',
+    example: 'MyProject',
+    required: true,
+  },
+  {
+    key: 'fields',
+    description: 'Extra work item fields to include (comma-separated reference names)',
+    type: 'string[]',
+    example: 'System.Tags,Custom.Priority',
+    required: false,
+  },
+] as const;
+
+const VALID_KEYS: readonly string[] = SETTINGS.map((s) => s.key);
 
 export function getConfigPath(): string {
   return path.join(os.homedir(), '.azdo', 'config.json');
