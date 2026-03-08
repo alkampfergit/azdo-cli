@@ -66,6 +66,22 @@ describe('getWorkItemFieldValue', () => {
     );
   });
 
+  it('URL-encodes org/project and field name in API URL', async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      makeFieldResponse('Custom.Field Name', 'Test'),
+    );
+    await getWorkItemFieldValue(
+      { org: 'my org', project: 'my project' },
+      99,
+      pat,
+      'Custom.Field Name',
+    );
+    expect(fetch).toHaveBeenCalledWith(
+      'https://dev.azure.com/my%20org/my%20project/_apis/wit/workitems/99?api-version=7.1&fields=Custom.Field+Name',
+      expect.any(Object),
+    );
+  });
+
   it('sends correct Authorization header', async () => {
     vi.mocked(fetch).mockResolvedValue(
       makeFieldResponse('System.Title', 'Test'),
