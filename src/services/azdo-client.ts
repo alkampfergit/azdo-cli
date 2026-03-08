@@ -144,10 +144,7 @@ export async function getWorkItemFieldValue(
     return null;
   }
 
-  if (typeof value === 'object') {
-    return JSON.stringify(value);
-  }
-  return String(value);
+  return typeof value === 'object' ? JSON.stringify(value) : `${value}`;
 }
 
 export async function updateWorkItem(
