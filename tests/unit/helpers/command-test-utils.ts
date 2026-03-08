@@ -1,5 +1,6 @@
-import { vi } from 'vitest';
+import { it, expect, vi } from 'vitest';
 import type { Command } from 'commander';
+import type { Mock } from 'vitest';
 
 export function getStdout(): string {
   return vi.mocked(process.stdout.write).mock.calls
@@ -31,4 +32,34 @@ export function createCommandRunner(factory: () => Command) {
       throw err;
     }
   };
+}
+
+/**
+ * Generates `it.each` error handling tests for command test suites.
+ * @param mockFn - The mocked API function to make reject
+ * @param run - The command runner function
+ * @param baseArgs - Base args to pass to the command (e.g. ['42', 'System.Description'])
+ */
+export function describeCommandErrors(
+  mockFn: Mock,
+  run: (args: string[]) => Promise<void>,
+  baseArgs: string[],
+): void {
+  const errorCases: [string, string, string][] = [
+    ['AUTH_FAILED', 'Authentication failed', 'auth error'],
+    ['PERMISSION_DENIED', 'Access denied', 'permission error'],
+    ['NOT_FOUND', 'not found', 'not-found error'],
+    ['NETWORK_ERROR', 'Could not connect', 'network error'],
+    ['Something unexpected', 'Something unexpected', 'generic error'],
+  ];
+
+  it.each(errorCases)(
+    'writes %s as stderr message',
+    async (errorCode, expectedMessage) => {
+      mockFn.mockRejectedValue(new Error(errorCode));
+      await run(baseArgs);
+      expect(getStderr()).toContain(expectedMessage);
+      expect(process.exit).toHaveBeenCalledWith(1);
+    },
+  );
 }

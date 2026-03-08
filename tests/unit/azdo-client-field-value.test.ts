@@ -80,28 +80,20 @@ describe('getWorkItemFieldValue', () => {
     );
   });
 
-  it('throws AUTH_FAILED on 401', async () => {
-    vi.mocked(fetch).mockResolvedValue(makeErrorResponse(401));
-    await expect(getWorkItemFieldValue(ctx, 42, pat, 'System.Title')).rejects.toThrow('AUTH_FAILED');
-  });
+  const httpErrorCases: [number, string][] = [
+    [401, 'AUTH_FAILED'],
+    [403, 'PERMISSION_DENIED'],
+    [404, 'NOT_FOUND'],
+    [500, 'HTTP_500'],
+  ];
 
-  it('throws PERMISSION_DENIED on 403', async () => {
-    vi.mocked(fetch).mockResolvedValue(makeErrorResponse(403));
-    await expect(getWorkItemFieldValue(ctx, 42, pat, 'System.Title')).rejects.toThrow('PERMISSION_DENIED');
-  });
-
-  it('throws NOT_FOUND on 404', async () => {
-    vi.mocked(fetch).mockResolvedValue(makeErrorResponse(404));
-    await expect(getWorkItemFieldValue(ctx, 42, pat, 'System.Title')).rejects.toThrow('NOT_FOUND');
+  it.each(httpErrorCases)('throws %s on HTTP %i', async (status, expectedError) => {
+    vi.mocked(fetch).mockResolvedValue(makeErrorResponse(status));
+    await expect(getWorkItemFieldValue(ctx, 42, pat, 'System.Title')).rejects.toThrow(expectedError);
   });
 
   it('throws NETWORK_ERROR when fetch fails', async () => {
     vi.mocked(fetch).mockRejectedValue(new Error('ECONNREFUSED'));
     await expect(getWorkItemFieldValue(ctx, 42, pat, 'System.Title')).rejects.toThrow('NETWORK_ERROR');
-  });
-
-  it('throws HTTP_500 on unexpected status', async () => {
-    vi.mocked(fetch).mockResolvedValue(makeErrorResponse(500));
-    await expect(getWorkItemFieldValue(ctx, 42, pat, 'System.Title')).rejects.toThrow('HTTP_500');
   });
 });

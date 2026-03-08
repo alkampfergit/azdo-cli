@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createGetMdFieldCommand } from '../../src/commands/get-md-field.js';
-import { getStdout, getStderr, setupProcessSpies, createCommandRunner } from './helpers/command-test-utils.js';
+import { getStdout, getStderr, setupProcessSpies, createCommandRunner, describeCommandErrors } from './helpers/command-test-utils.js';
 
 vi.mock('../../src/services/azdo-client.js', () => ({
   getWorkItemFieldValue: vi.fn(),
@@ -33,20 +33,16 @@ afterEach(() => {
 
 describe('get-md-field command', () => {
   describe('input validation', () => {
-    it('errors on non-integer ID', async () => {
-      await run(['abc', 'System.Description']);
+    const invalidIds: [string, string][] = [
+      ['non-integer', 'abc'],
+      ['negative', '-1'],
+      ['zero', '0'],
+    ];
+
+    it.each(invalidIds)('errors on %s ID', async (_label, id) => {
+      await run([id, 'System.Description']);
       expect(getStderr()).toContain('Work item ID must be a positive integer');
       expect(process.exit).toHaveBeenCalledWith(1);
-    });
-
-    it('errors on negative ID', async () => {
-      await run(['-1', 'System.Description']);
-      expect(getStderr()).toContain('Work item ID must be a positive integer');
-    });
-
-    it('errors on zero ID', async () => {
-      await run(['0', 'System.Description']);
-      expect(getStderr()).toContain('Work item ID must be a positive integer');
     });
 
     it('errors when only --org provided without --project', async () => {
@@ -101,35 +97,10 @@ describe('get-md-field command', () => {
   });
 
   describe('error handling', () => {
-    it('writes auth error on AUTH_FAILED', async () => {
-      vi.mocked(getWorkItemFieldValue).mockRejectedValue(new Error('AUTH_FAILED'));
-      await run(['42', 'System.Description']);
-      expect(getStderr()).toContain('Authentication failed');
-      expect(process.exit).toHaveBeenCalledWith(1);
-    });
-
-    it('writes permission error on PERMISSION_DENIED', async () => {
-      vi.mocked(getWorkItemFieldValue).mockRejectedValue(new Error('PERMISSION_DENIED'));
-      await run(['42', 'System.Description']);
-      expect(getStderr()).toContain('Access denied');
-    });
-
-    it('writes not-found error on NOT_FOUND', async () => {
-      vi.mocked(getWorkItemFieldValue).mockRejectedValue(new Error('NOT_FOUND'));
-      await run(['42', 'System.Description']);
-      expect(getStderr()).toContain('not found');
-    });
-
-    it('writes network error on NETWORK_ERROR', async () => {
-      vi.mocked(getWorkItemFieldValue).mockRejectedValue(new Error('NETWORK_ERROR'));
-      await run(['42', 'System.Description']);
-      expect(getStderr()).toContain('Could not connect');
-    });
-
-    it('writes generic error for unknown errors', async () => {
-      vi.mocked(getWorkItemFieldValue).mockRejectedValue(new Error('Something unexpected'));
-      await run(['42', 'System.Description']);
-      expect(getStderr()).toContain('Something unexpected');
-    });
+    describeCommandErrors(
+      vi.mocked(getWorkItemFieldValue),
+      run,
+      ['42', 'System.Description'],
+    );
   });
 });
