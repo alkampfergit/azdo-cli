@@ -1,28 +1,26 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { getWorkItem, updateWorkItem } from '../../src/services/azdo-client.js';
-import type { AzdoContext } from '../../src/types/work-item.js';
+import { testContext as ctx, testPat as pat, makeFetchResponse, makeErrorResponse } from './helpers/api-test-utils.js';
 
-const ctx: AzdoContext = { org: 'testorg', project: 'testproject' };
-const pat = 'fake-pat';
+function makeWorkItemResponse(fields: Record<string, unknown>, status = 200) {
+  return makeFetchResponse({
+    id: 42,
+    rev: 1,
+    fields: {
+      'System.Title': 'Test Item',
+      'System.State': 'Active',
+      'System.WorkItemType': 'User Story',
+      'System.AreaPath': 'testproject\\Area',
+      'System.IterationPath': 'testproject\\Sprint 1',
+      ...fields,
+    },
+    _links: { html: { href: 'https://dev.azure.com/testorg/testproject/_workitems/edit/42' } },
+  }, status);
+}
 
-function makeResponse(fields: Record<string, unknown>, status = 200) {
-  return {
-    ok: status >= 200 && status < 300,
-    status,
-    json: async () => ({
-      id: 42,
-      rev: 1,
-      fields: {
-        'System.Title': 'Test Item',
-        'System.State': 'Active',
-        'System.WorkItemType': 'User Story',
-        'System.AreaPath': 'testproject\\Area',
-        'System.IterationPath': 'testproject\\Sprint 1',
-        ...fields,
-      },
-      _links: { html: { href: 'https://dev.azure.com/testorg/testproject/_workitems/edit/42' } },
-    }),
-  } as unknown as Response;
+async function fetchWorkItem(fields: Record<string, unknown>) {
+  vi.mocked(fetch).mockResolvedValue(makeWorkItemResponse(fields));
+  return getWorkItem(ctx, 42, pat);
 }
 
 describe('getWorkItem', () => {
@@ -35,41 +33,30 @@ describe('getWorkItem', () => {
   });
 
   it('returns work item with System.Description only', async () => {
-    vi.mocked(fetch).mockResolvedValue(makeResponse({
-      'System.Description': '<p>Some description</p>',
-    }));
-
-    const item = await getWorkItem(ctx, 42, pat);
+    const item = await fetchWorkItem({ 'System.Description': '<p>Some description</p>' });
     expect(item.id).toBe(42);
     expect(item.title).toBe('Test Item');
     expect(item.description).toBe('<p>Some description</p>');
   });
 
-  it('returns work item with AcceptanceCriteria only', async () => {
-    vi.mocked(fetch).mockResolvedValue(makeResponse({
-      'Microsoft.VSTS.Common.AcceptanceCriteria': '<p>AC here</p>',
-    }));
+  const singleDescFieldCases: [string, string, string][] = [
+    ['AcceptanceCriteria', 'Microsoft.VSTS.Common.AcceptanceCriteria', '<p>AC here</p>'],
+    ['ReproSteps', 'Microsoft.VSTS.TCM.ReproSteps', '<p>Steps to repro</p>'],
+  ];
 
-    const item = await getWorkItem(ctx, 42, pat);
-    expect(item.description).toBe('<p>AC here</p>');
-  });
-
-  it('returns work item with ReproSteps only', async () => {
-    vi.mocked(fetch).mockResolvedValue(makeResponse({
-      'Microsoft.VSTS.TCM.ReproSteps': '<p>Steps to repro</p>',
-    }));
-
-    const item = await getWorkItem(ctx, 42, pat);
-    expect(item.description).toBe('<p>Steps to repro</p>');
-  });
+  it.each(singleDescFieldCases)(
+    'returns work item with %s only',
+    async (_label, fieldName, fieldValue) => {
+      const item = await fetchWorkItem({ [fieldName]: fieldValue });
+      expect(item.description).toBe(fieldValue);
+    },
+  );
 
   it('concatenates multiple description fields with section headers', async () => {
-    vi.mocked(fetch).mockResolvedValue(makeResponse({
+    const item = await fetchWorkItem({
       'System.Description': '<p>Main desc</p>',
       'Microsoft.VSTS.Common.AcceptanceCriteria': '<p>AC content</p>',
-    }));
-
-    const item = await getWorkItem(ctx, 42, pat);
+    });
     expect(item.description).toContain('<h3>Description</h3>');
     expect(item.description).toContain('<p>Main desc</p>');
     expect(item.description).toContain('<h3>Acceptance Criteria</h3>');
@@ -77,74 +64,50 @@ describe('getWorkItem', () => {
   });
 
   it('concatenates all three description fields', async () => {
-    vi.mocked(fetch).mockResolvedValue(makeResponse({
+    const item = await fetchWorkItem({
       'System.Description': '<p>Desc</p>',
       'Microsoft.VSTS.Common.AcceptanceCriteria': '<p>AC</p>',
       'Microsoft.VSTS.TCM.ReproSteps': '<p>Repro</p>',
-    }));
-
-    const item = await getWorkItem(ctx, 42, pat);
+    });
     expect(item.description).toContain('<h3>Description</h3>');
     expect(item.description).toContain('<h3>Acceptance Criteria</h3>');
     expect(item.description).toContain('<h3>Repro Steps</h3>');
   });
 
   it('returns null description when no description fields present', async () => {
-    vi.mocked(fetch).mockResolvedValue(makeResponse({}));
-
-    const item = await getWorkItem(ctx, 42, pat);
+    const item = await fetchWorkItem({});
     expect(item.description).toBeNull();
   });
 
   it('maps assignedTo from displayName', async () => {
-    vi.mocked(fetch).mockResolvedValue(makeResponse({
-      'System.AssignedTo': { displayName: 'Alice' },
-    }));
-
-    const item = await getWorkItem(ctx, 42, pat);
+    const item = await fetchWorkItem({ 'System.AssignedTo': { displayName: 'Alice' } });
     expect(item.assignedTo).toBe('Alice');
   });
 
   it('returns null assignedTo when not assigned', async () => {
-    vi.mocked(fetch).mockResolvedValue(makeResponse({}));
-
-    const item = await getWorkItem(ctx, 42, pat);
+    const item = await fetchWorkItem({});
     expect(item.assignedTo).toBeNull();
   });
 
-  it('throws AUTH_FAILED on 401', async () => {
-    vi.mocked(fetch).mockResolvedValue({ ok: false, status: 401 } as Response);
+  const httpErrorCases: [number, string][] = [
+    [401, 'AUTH_FAILED'],
+    [403, 'PERMISSION_DENIED'],
+    [404, 'NOT_FOUND'],
+    [500, 'HTTP_500'],
+  ];
 
-    await expect(getWorkItem(ctx, 42, pat)).rejects.toThrow('AUTH_FAILED');
-  });
-
-  it('throws PERMISSION_DENIED on 403', async () => {
-    vi.mocked(fetch).mockResolvedValue({ ok: false, status: 403 } as Response);
-
-    await expect(getWorkItem(ctx, 42, pat)).rejects.toThrow('PERMISSION_DENIED');
-  });
-
-  it('throws NOT_FOUND on 404', async () => {
-    vi.mocked(fetch).mockResolvedValue({ ok: false, status: 404 } as Response);
-
-    await expect(getWorkItem(ctx, 42, pat)).rejects.toThrow('NOT_FOUND');
+  it.each(httpErrorCases)('throws %s on HTTP %i', async (status, expectedError) => {
+    vi.mocked(fetch).mockResolvedValue(makeErrorResponse(status));
+    await expect(getWorkItem(ctx, 42, pat)).rejects.toThrow(expectedError);
   });
 
   it('throws NETWORK_ERROR when fetch fails', async () => {
     vi.mocked(fetch).mockRejectedValue(new Error('ECONNREFUSED'));
-
     await expect(getWorkItem(ctx, 42, pat)).rejects.toThrow('NETWORK_ERROR');
   });
 
-  it('throws HTTP_500 on unexpected status', async () => {
-    vi.mocked(fetch).mockResolvedValue({ ok: false, status: 500 } as Response);
-
-    await expect(getWorkItem(ctx, 42, pat)).rejects.toThrow('HTTP_500');
-  });
-
   it('sends correct Authorization header', async () => {
-    vi.mocked(fetch).mockResolvedValue(makeResponse({}));
-
+    vi.mocked(fetch).mockResolvedValue(makeWorkItemResponse({}));
     await getWorkItem(ctx, 42, pat);
 
     const expectedToken = Buffer.from(`:${pat}`).toString('base64');
@@ -157,8 +120,7 @@ describe('getWorkItem', () => {
   });
 
   it('builds correct API URL', async () => {
-    vi.mocked(fetch).mockResolvedValue(makeResponse({}));
-
+    vi.mocked(fetch).mockResolvedValue(makeWorkItemResponse({}));
     await getWorkItem(ctx, 99, pat);
 
     expect(fetch).toHaveBeenCalledWith(
@@ -168,7 +130,7 @@ describe('getWorkItem', () => {
   });
 
   it('URL-encodes organization and project in API URL', async () => {
-    vi.mocked(fetch).mockResolvedValue(makeResponse({}));
+    vi.mocked(fetch).mockResolvedValue(makeWorkItemResponse({}));
 
     await getWorkItem({ org: 'my org', project: 'My Project' }, 99, pat);
 
@@ -179,7 +141,7 @@ describe('getWorkItem', () => {
   });
 
   it('URL-encodes fields query parameter', async () => {
-    vi.mocked(fetch).mockResolvedValue(makeResponse({}));
+    vi.mocked(fetch).mockResolvedValue(makeWorkItemResponse({}));
 
     await getWorkItem(ctx, 99, pat, ['Custom.Field Name']);
 
@@ -202,7 +164,7 @@ describe('updateWorkItem', () => {
   });
 
   it('URL-encodes organization and project in update URL', async () => {
-    vi.mocked(fetch).mockResolvedValue(makeResponse({}));
+    vi.mocked(fetch).mockResolvedValue(makeWorkItemResponse({}));
 
     await updateWorkItem(
       { org: 'my org', project: 'My Project' },

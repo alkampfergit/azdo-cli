@@ -6,6 +6,8 @@ import { createConfigCommand } from "./commands/config.js";
 import { createSetStateCommand } from "./commands/set-state.js";
 import { createAssignCommand } from "./commands/assign.js";
 import { createSetFieldCommand } from "./commands/set-field.js";
+import { createGetMdFieldCommand } from "./commands/get-md-field.js";
+import { createSetMdFieldCommand } from "./commands/set-md-field.js";
 
 const program = new Command();
 
@@ -17,6 +19,8 @@ program.addCommand(createConfigCommand());
 program.addCommand(createSetStateCommand());
 program.addCommand(createAssignCommand());
 program.addCommand(createSetFieldCommand());
+program.addCommand(createGetMdFieldCommand());
+program.addCommand(createSetMdFieldCommand());
 
 program.showHelpAfterError();
 
