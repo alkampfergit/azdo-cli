@@ -48,17 +48,20 @@ function buildExtraFields(
 }
 
 export async function getWorkItem(context: AzdoContext, id: number, pat: string, extraFields?: string[]): Promise<WorkItem> {
-  let url = `https://dev.azure.com/${context.org}/${context.project}/_apis/wit/workitems/${id}?api-version=7.1`;
+  const url = new URL(
+    `https://dev.azure.com/${encodeURIComponent(context.org)}/${encodeURIComponent(context.project)}/_apis/wit/workitems/${id}`,
+  );
+  url.searchParams.set('api-version', '7.1');
 
   if (extraFields && extraFields.length > 0) {
     const allFields = [...DEFAULT_FIELDS, ...extraFields];
-    url += `&fields=${allFields.join(',')}`;
+    url.searchParams.set('fields', allFields.join(','));
   }
   const token = Buffer.from(`:${pat}`).toString('base64');
 
   let response: Response;
   try {
-    response = await fetch(url, {
+    response = await fetch(url.toString(), {
       headers: {
         Authorization: `Basic ${token}`,
       },
@@ -121,12 +124,15 @@ export async function updateWorkItem(
   fieldName: string,
   operations: JsonPatchOperation[],
 ): Promise<UpdateResult> {
-  const url = `https://dev.azure.com/${context.org}/${context.project}/_apis/wit/workitems/${id}?api-version=7.1`;
+  const url = new URL(
+    `https://dev.azure.com/${encodeURIComponent(context.org)}/${encodeURIComponent(context.project)}/_apis/wit/workitems/${id}`,
+  );
+  url.searchParams.set('api-version', '7.1');
   const token = Buffer.from(`:${pat}`).toString('base64');
 
   let response: Response;
   try {
-    response = await fetch(url, {
+    response = await fetch(url.toString(), {
       method: 'PATCH',
       headers: {
         Authorization: `Basic ${token}`,

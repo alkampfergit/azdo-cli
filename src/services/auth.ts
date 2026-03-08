@@ -2,6 +2,11 @@ import { createInterface } from 'node:readline';
 import type { AuthCredential } from '../types/work-item.js';
 import { getPat, storePat } from './credential-store.js';
 
+export function normalizePat(rawPat: string): string | null {
+  const trimmedPat = rawPat.trim();
+  return trimmedPat.length > 0 ? trimmedPat : null;
+}
+
 export async function promptForPat(): Promise<string | null> {
   if (!process.stdin.isTTY) {
     return null;
@@ -63,8 +68,11 @@ export async function resolvePat(): Promise<AuthCredential> {
 
   const promptedPat = await promptForPat();
   if (promptedPat !== null) {
-    await storePat(promptedPat);
-    return { pat: promptedPat, source: 'prompt' };
+    const normalizedPat = normalizePat(promptedPat);
+    if (normalizedPat !== null) {
+      await storePat(normalizedPat);
+      return { pat: normalizedPat, source: 'prompt' };
+    }
   }
 
   throw new Error(
