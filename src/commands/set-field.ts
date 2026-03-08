@@ -3,6 +3,7 @@ import type { AzdoContext } from '../types/work-item.js';
 import { updateWorkItem } from '../services/azdo-client.js';
 import { resolvePat } from '../services/auth.js';
 import { resolveContext } from '../services/context.js';
+import { parseWorkItemId, validateOrgProjectPair, handleCommandError } from '../services/command-helpers.js';
 
 export function createSetFieldCommand(): Command {
   const command = new Command('set-field');
@@ -22,24 +23,10 @@ export function createSetFieldCommand(): Command {
         value: string,
         options: { org?: string; project?: string; json?: boolean },
       ) => {
-        const id = parseInt(idStr, 10);
-        if (!Number.isInteger(id) || id <= 0) {
-          process.stderr.write(
-            `Error: Work item ID must be a positive integer. Got: "${idStr}"\n`,
-          );
-          process.exit(1);
-        }
+        const id = parseWorkItemId(idStr);
+        validateOrgProjectPair(options);
 
-        const hasOrg = options.org !== undefined;
-        const hasProject = options.project !== undefined;
-        if (hasOrg !== hasProject) {
-          process.stderr.write(
-            'Error: --org and --project must both be provided, or both omitted.\n',
-          );
-          process.exit(1);
-        }
-
-        let context: AzdoContext;
+        let context: AzdoContext | undefined;
 
         try {
           context = resolveContext(options);
@@ -65,33 +52,7 @@ export function createSetFieldCommand(): Command {
             process.stdout.write(`Updated work item ${result.id}: ${field} -> ${value}\n`);
           }
         } catch (err: unknown) {
-          const error = err instanceof Error ? err : new Error(String(err));
-          const msg = error.message;
-
-          if (msg === 'AUTH_FAILED') {
-            process.stderr.write(
-              'Error: Authentication failed. Check that your PAT is valid and has the "Work Items (Read & Write)" scope.\n',
-            );
-          } else if (msg === 'PERMISSION_DENIED') {
-            process.stderr.write(
-              `Error: Access denied. Your PAT may lack write permissions for project "${context!.project}".\n`,
-            );
-          } else if (msg === 'NOT_FOUND') {
-            process.stderr.write(
-              `Error: Work item ${id} not found in ${context!.org}/${context!.project}.\n`,
-            );
-          } else if (msg.startsWith('UPDATE_REJECTED:')) {
-            const serverMsg = msg.replace('UPDATE_REJECTED: ', '');
-            process.stderr.write(`Error: Update rejected: ${serverMsg}\n`);
-          } else if (msg === 'NETWORK_ERROR') {
-            process.stderr.write(
-              'Error: Could not connect to Azure DevOps. Check your network connection.\n',
-            );
-          } else {
-            process.stderr.write(`Error: ${msg}\n`);
-          }
-
-          process.exit(1);
+          handleCommandError(err, id, context, 'write');
         }
       },
     );

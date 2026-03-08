@@ -2,8 +2,9 @@ import { Command } from 'commander';
 import type { AzdoContext, WorkItem } from '../types/work-item.js';
 import { getWorkItem } from '../services/azdo-client.js';
 import { resolvePat } from '../services/auth.js';
-import { detectAzdoContext } from '../services/git-remote.js';
+import { resolveContext } from '../services/context.js';
 import { loadConfig } from '../services/config-store.js';
+import { parseWorkItemId, validateOrgProjectPair, handleCommandError } from '../services/command-helpers.js';
 
 export function stripHtml(html: string): string {
   let text = html;
@@ -92,103 +93,25 @@ export function createGetItemCommand(): Command {
         idStr: string,
         options: { org?: string; project?: string; short?: boolean; fields?: string },
       ) => {
-        // Step 1 — Validate ID
-        const id = parseInt(idStr, 10);
-        if (!Number.isInteger(id) || id <= 0) {
-          process.stderr.write(
-            `Error: Work item ID must be a positive integer. Got: "${idStr}"\n`,
-          );
-          process.exit(1);
-        }
+        const id = parseWorkItemId(idStr);
+        validateOrgProjectPair(options);
 
-        // Step 2 — Validate org/project pair
-        const hasOrg = options.org !== undefined;
-        const hasProject = options.project !== undefined;
-        if (hasOrg !== hasProject) {
-          process.stderr.write(
-            'Error: --org and --project must both be provided, or both omitted.\n',
-          );
-          process.exit(1);
-        }
-
-        let context: AzdoContext;
+        let context: AzdoContext | undefined;
 
         try {
-          // Step 3 — Resolve context
-          // Priority: CLI flags > config file > git remote auto-detection
-          if (options.org && options.project) {
-            context = { org: options.org, project: options.project };
-          } else {
-            const config = loadConfig();
-            if (config.org && config.project) {
-              context = { org: config.org, project: config.project };
-            } else {
-              // Try git remote, then merge with config for missing pieces
-              let gitContext: AzdoContext | null = null;
-              try {
-                gitContext = detectAzdoContext();
-              } catch {
-                // not in a git repo or not an azdo remote
-              }
-
-              const org = config.org || gitContext?.org;
-              const project = config.project || gitContext?.project;
-
-              if (org && project) {
-                context = { org, project };
-              } else {
-                throw new Error(
-                  'Could not determine org/project. Use --org and --project flags, work from an Azure DevOps git repo, or run "azdo config set org/project".',
-                );
-              }
-            }
-          }
-
-          // Step 4 — Resolve PAT
+          context = resolveContext(options);
           const credential = await resolvePat();
 
-          // Step 5 — Resolve extra fields
           const fieldsList: string[] | undefined = options.fields
             ? options.fields.split(',').map((f: string) => f.trim())
             : loadConfig().fields;
 
-          // Step 6 — Fetch work item
           const workItem = await getWorkItem(context, id, credential.pat, fieldsList);
 
-          // Step 7 — Display output
           const output = formatWorkItem(workItem, options.short ?? false);
           process.stdout.write(output + '\n');
         } catch (err: unknown) {
-          const error = err instanceof Error ? err : new Error(String(err));
-          const msg = error.message;
-
-          if (msg === 'AUTH_FAILED') {
-            process.stderr.write(
-              'Error: Authentication failed. Check that your PAT is valid and has the "Work Items (read)" scope.\n',
-            );
-          } else if (msg === 'NOT_FOUND') {
-            process.stderr.write(
-              `Error: Work item ${id} not found in ${context!.org}/${context!.project}.\n`,
-            );
-          } else if (msg === 'PERMISSION_DENIED') {
-            process.stderr.write(
-              `Error: Access denied. Your PAT may lack permissions for project "${context!.project}".\n`,
-            );
-          } else if (msg === 'NETWORK_ERROR') {
-            process.stderr.write(
-              'Error: Could not connect to Azure DevOps. Check your network connection.\n',
-            );
-          } else if (
-            msg.includes('Not in a git repository') ||
-            msg.includes('is not an Azure DevOps URL') ||
-            msg.includes('Authentication cancelled')
-          ) {
-            process.stderr.write(`Error: ${msg}\n`);
-          } else {
-            process.stderr.write(`Error: ${msg}\n`);
-          }
-
-          process.exit(1);
+          handleCommandError(err, id, context, 'read');
         }
       },
     );
