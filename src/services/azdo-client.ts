@@ -12,6 +12,26 @@ const DEFAULT_FIELDS: readonly string[] = [
   'System.IterationPath',
 ];
 
+function authHeaders(pat: string): Record<string, string> {
+  const token = Buffer.from(`:${pat}`).toString('base64');
+  return { Authorization: `Basic ${token}` };
+}
+
+async function fetchWithErrors(url: string, init: RequestInit): Promise<Response> {
+  let response: Response;
+  try {
+    response = await fetch(url, init);
+  } catch {
+    throw new Error('NETWORK_ERROR');
+  }
+
+  if (response.status === 401) throw new Error('AUTH_FAILED');
+  if (response.status === 403) throw new Error('PERMISSION_DENIED');
+  if (response.status === 404) throw new Error('NOT_FOUND');
+
+  return response;
+}
+
 interface AzdoWorkItemResponse {
   id: number;
   rev: number;
@@ -57,22 +77,8 @@ export async function getWorkItem(context: AzdoContext, id: number, pat: string,
     const allFields = [...DEFAULT_FIELDS, ...extraFields];
     url.searchParams.set('fields', allFields.join(','));
   }
-  const token = Buffer.from(`:${pat}`).toString('base64');
 
-  let response: Response;
-  try {
-    response = await fetch(url.toString(), {
-      headers: {
-        Authorization: `Basic ${token}`,
-      },
-    });
-  } catch {
-    throw new Error('NETWORK_ERROR');
-  }
-
-  if (response.status === 401) throw new Error('AUTH_FAILED');
-  if (response.status === 403) throw new Error('PERMISSION_DENIED');
-  if (response.status === 404) throw new Error('NOT_FOUND');
+  const response = await fetchWithErrors(url.toString(), { headers: authHeaders(pat) });
 
   if (!response.ok) {
     throw new Error(`HTTP_${response.status}`);
@@ -124,22 +130,8 @@ export async function getWorkItemFieldValue(
   fieldName: string,
 ): Promise<string | null> {
   const url = `https://dev.azure.com/${context.org}/${context.project}/_apis/wit/workitems/${id}?api-version=7.1&fields=${fieldName}`;
-  const token = Buffer.from(`:${pat}`).toString('base64');
 
-  let response: Response;
-  try {
-    response = await fetch(url, {
-      headers: {
-        Authorization: `Basic ${token}`,
-      },
-    });
-  } catch {
-    throw new Error('NETWORK_ERROR');
-  }
-
-  if (response.status === 401) throw new Error('AUTH_FAILED');
-  if (response.status === 403) throw new Error('PERMISSION_DENIED');
-  if (response.status === 404) throw new Error('NOT_FOUND');
+  const response = await fetchWithErrors(url, { headers: authHeaders(pat) });
 
   if (!response.ok) {
     throw new Error(`HTTP_${response.status}`);
@@ -169,25 +161,15 @@ export async function updateWorkItem(
     `https://dev.azure.com/${encodeURIComponent(context.org)}/${encodeURIComponent(context.project)}/_apis/wit/workitems/${id}`,
   );
   url.searchParams.set('api-version', '7.1');
-  const token = Buffer.from(`:${pat}`).toString('base64');
 
-  let response: Response;
-  try {
-    response = await fetch(url.toString(), {
-      method: 'PATCH',
-      headers: {
-        Authorization: `Basic ${token}`,
-        'Content-Type': 'application/json-patch+json',
-      },
-      body: JSON.stringify(operations),
-    });
-  } catch {
-    throw new Error('NETWORK_ERROR');
-  }
-
-  if (response.status === 401) throw new Error('AUTH_FAILED');
-  if (response.status === 403) throw new Error('PERMISSION_DENIED');
-  if (response.status === 404) throw new Error('NOT_FOUND');
+  const response = await fetchWithErrors(url.toString(), {
+    method: 'PATCH',
+    headers: {
+      ...authHeaders(pat),
+      'Content-Type': 'application/json-patch+json',
+    },
+    body: JSON.stringify(operations),
+  });
 
   if (response.status === 400) {
     let serverMessage = 'Unknown error';
