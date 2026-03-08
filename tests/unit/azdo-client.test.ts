@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { getWorkItem } from '../../src/services/azdo-client.js';
+import { getWorkItem, updateWorkItem } from '../../src/services/azdo-client.js';
 import type { AzdoContext } from '../../src/types/work-item.js';
 
 const ctx: AzdoContext = { org: 'testorg', project: 'testproject' };
@@ -163,6 +163,57 @@ describe('getWorkItem', () => {
 
     expect(fetch).toHaveBeenCalledWith(
       'https://dev.azure.com/testorg/testproject/_apis/wit/workitems/99?api-version=7.1',
+      expect.any(Object),
+    );
+  });
+
+  it('URL-encodes organization and project in API URL', async () => {
+    vi.mocked(fetch).mockResolvedValue(makeResponse({}));
+
+    await getWorkItem({ org: 'my org', project: 'My Project' }, 99, pat);
+
+    expect(fetch).toHaveBeenCalledWith(
+      'https://dev.azure.com/my%20org/My%20Project/_apis/wit/workitems/99?api-version=7.1',
+      expect.any(Object),
+    );
+  });
+
+  it('URL-encodes fields query parameter', async () => {
+    vi.mocked(fetch).mockResolvedValue(makeResponse({}));
+
+    await getWorkItem(ctx, 99, pat, ['Custom.Field Name']);
+
+    expect(fetch).toHaveBeenCalledWith(
+      expect.stringContaining('fields='),
+      expect.any(Object),
+    );
+    const calledUrl = vi.mocked(fetch).mock.calls[0][0] as string;
+    expect(calledUrl).toContain('Custom.Field+Name');
+  });
+});
+
+describe('updateWorkItem', () => {
+  beforeEach(() => {
+    vi.spyOn(globalThis, 'fetch');
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('URL-encodes organization and project in update URL', async () => {
+    vi.mocked(fetch).mockResolvedValue(makeResponse({}));
+
+    await updateWorkItem(
+      { org: 'my org', project: 'My Project' },
+      42,
+      pat,
+      'System.State',
+      [{ op: 'add', path: '/fields/System.State', value: 'Active' }],
+    );
+
+    expect(fetch).toHaveBeenCalledWith(
+      'https://dev.azure.com/my%20org/My%20Project/_apis/wit/workitems/42?api-version=7.1',
       expect.any(Object),
     );
   });
