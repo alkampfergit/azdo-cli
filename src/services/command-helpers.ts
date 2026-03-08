@@ -40,7 +40,7 @@ export function handleCommandError(
   const error = err instanceof Error ? err : new Error(String(err));
   const msg = error.message;
 
-  const scopeLabel = scope === 'read' ? 'Work Items (Read)' : 'Work Items (Read & Write)';
+  const scopeLabel = scope === 'read' ? 'Work Items (read)' : 'Work Items (Read & Write)';
 
   if (msg === 'AUTH_FAILED') {
     process.stderr.write(

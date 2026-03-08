@@ -102,8 +102,8 @@ export function createSetMdFieldCommand(): Command {
         options: { org?: string; project?: string; json?: boolean; file?: string },
       ) => {
         const id = parseWorkItemId(idStr);
-        const content = resolveContent(inlineContent, options) ?? await readStdinContent();
         validateOrgProjectPair(options);
+        const content = resolveContent(inlineContent, options) ?? await readStdinContent();
 
         let context: AzdoContext | undefined;
         try {
