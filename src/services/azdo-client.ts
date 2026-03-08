@@ -129,9 +129,13 @@ export async function getWorkItemFieldValue(
   pat: string,
   fieldName: string,
 ): Promise<string | null> {
-  const url = `https://dev.azure.com/${context.org}/${context.project}/_apis/wit/workitems/${id}?api-version=7.1&fields=${fieldName}`;
+  const url = new URL(
+    `https://dev.azure.com/${encodeURIComponent(context.org)}/${encodeURIComponent(context.project)}/_apis/wit/workitems/${id}`,
+  );
+  url.searchParams.set('api-version', '7.1');
+  url.searchParams.set('fields', fieldName);
 
-  const response = await fetchWithErrors(url, { headers: authHeaders(pat) });
+  const response = await fetchWithErrors(url.toString(), { headers: authHeaders(pat) });
 
   if (!response.ok) {
     throw new Error(`HTTP_${response.status}`);
