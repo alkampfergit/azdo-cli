@@ -117,6 +117,47 @@ export async function getWorkItem(context: AzdoContext, id: number, pat: string,
   };
 }
 
+export async function getWorkItemFieldValue(
+  context: AzdoContext,
+  id: number,
+  pat: string,
+  fieldName: string,
+): Promise<string | null> {
+  const url = `https://dev.azure.com/${context.org}/${context.project}/_apis/wit/workitems/${id}?api-version=7.1&fields=${fieldName}`;
+  const token = Buffer.from(`:${pat}`).toString('base64');
+
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      headers: {
+        Authorization: `Basic ${token}`,
+      },
+    });
+  } catch {
+    throw new Error('NETWORK_ERROR');
+  }
+
+  if (response.status === 401) throw new Error('AUTH_FAILED');
+  if (response.status === 403) throw new Error('PERMISSION_DENIED');
+  if (response.status === 404) throw new Error('NOT_FOUND');
+
+  if (!response.ok) {
+    throw new Error(`HTTP_${response.status}`);
+  }
+
+  const data = (await response.json()) as { fields: Record<string, unknown> };
+  const value = data.fields[fieldName];
+
+  if (value === undefined || value === null || value === '') {
+    return null;
+  }
+
+  if (typeof value === 'object') {
+    return JSON.stringify(value);
+  }
+  return String(value);
+}
+
 export async function updateWorkItem(
   context: AzdoContext,
   id: number,

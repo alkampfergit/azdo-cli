@@ -1,28 +1,26 @@
 import { Command } from 'commander';
 import type { AzdoContext } from '../types/work-item.js';
-import { updateWorkItem } from '../services/azdo-client.js';
+import { getWorkItemFieldValue } from '../services/azdo-client.js';
 import { resolvePat } from '../services/auth.js';
 import { resolveContext } from '../services/context.js';
+import { toMarkdown } from '../services/md-convert.js';
 
-export function createSetFieldCommand(): Command {
-  const command = new Command('set-field');
+export function createGetMdFieldCommand(): Command {
+  const command = new Command('get-md-field');
 
   command
-    .description('Set any work item field by its reference name')
+    .description('Get a work item field value, converting HTML to markdown')
     .argument('<id>', 'work item ID')
-    .argument('<field>', 'field reference name (e.g., System.Title)')
-    .argument('<value>', 'new value for the field')
+    .argument('<field>', 'field reference name (e.g., System.Description)')
     .option('--org <org>', 'Azure DevOps organization')
     .option('--project <project>', 'Azure DevOps project')
-    .option('--json', 'output result as JSON')
     .action(
       async (
         idStr: string,
         field: string,
-        value: string,
-        options: { org?: string; project?: string; json?: boolean },
+        options: { org?: string; project?: string },
       ) => {
-        const id = parseInt(idStr, 10);
+        const id = Number.parseInt(idStr, 10);
         if (!Number.isInteger(id) || id <= 0) {
           process.stderr.write(
             `Error: Work item ID must be a positive integer. Got: "${idStr}"\n`,
@@ -45,24 +43,12 @@ export function createSetFieldCommand(): Command {
           context = resolveContext(options);
           const credential = await resolvePat();
 
-          const operations = [
-            { op: 'add' as const, path: `/fields/${field}`, value },
-          ];
+          const value = await getWorkItemFieldValue(context, id, credential.pat, field);
 
-          const result = await updateWorkItem(context, id, credential.pat, field, operations);
-
-          if (options.json) {
-            process.stdout.write(
-              JSON.stringify({
-                id: result.id,
-                rev: result.rev,
-                title: result.title,
-                field: result.fieldName,
-                value: result.fieldValue,
-              }) + '\n',
-            );
+          if (value === null) {
+            process.stdout.write('\n');
           } else {
-            process.stdout.write(`Updated work item ${result.id}: ${field} -> ${value}\n`);
+            process.stdout.write(toMarkdown(value) + '\n');
           }
         } catch (err: unknown) {
           const error = err instanceof Error ? err : new Error(String(err));
@@ -70,19 +56,16 @@ export function createSetFieldCommand(): Command {
 
           if (msg === 'AUTH_FAILED') {
             process.stderr.write(
-              'Error: Authentication failed. Check that your PAT is valid and has the "Work Items (Read & Write)" scope.\n',
+              'Error: Authentication failed. Check that your PAT is valid and has the "Work Items (Read)" scope.\n',
             );
           } else if (msg === 'PERMISSION_DENIED') {
             process.stderr.write(
-              `Error: Access denied. Your PAT may lack write permissions for project "${context!.project}".\n`,
+              `Error: Access denied. Your PAT may lack read permissions for project "${context!.project}".\n`,
             );
           } else if (msg === 'NOT_FOUND') {
             process.stderr.write(
               `Error: Work item ${id} not found in ${context!.org}/${context!.project}.\n`,
             );
-          } else if (msg.startsWith('UPDATE_REJECTED:')) {
-            const serverMsg = msg.replace('UPDATE_REJECTED: ', '');
-            process.stderr.write(`Error: Update rejected: ${serverMsg}\n`);
           } else if (msg === 'NETWORK_ERROR') {
             process.stderr.write(
               'Error: Could not connect to Azure DevOps. Check your network connection.\n',
