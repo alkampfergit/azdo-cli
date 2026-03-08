@@ -1,18 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { getWorkItemFieldValue } from '../../src/services/azdo-client.js';
-import type { AzdoContext } from '../../src/types/work-item.js';
-
-const ctx: AzdoContext = { org: 'testorg', project: 'testproject' };
-const pat = 'fake-pat';
+import { testContext as ctx, testPat as pat, makeFetchResponse, makeErrorResponse } from './helpers/api-test-utils.js';
 
 function makeFieldResponse(fieldName: string, value: unknown, status = 200) {
-  return {
-    ok: status >= 200 && status < 300,
-    status,
-    json: async () => ({
-      fields: { [fieldName]: value },
-    }),
-  } as unknown as Response;
+  return makeFetchResponse({ fields: { [fieldName]: value } }, status);
 }
 
 describe('getWorkItemFieldValue', () => {
@@ -41,11 +32,9 @@ describe('getWorkItemFieldValue', () => {
   });
 
   it('returns null when field value is undefined', async () => {
-    vi.mocked(fetch).mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => ({ fields: {} }),
-    } as unknown as Response);
+    vi.mocked(fetch).mockResolvedValue(
+      makeFetchResponse({ fields: {} }),
+    );
     const result = await getWorkItemFieldValue(ctx, 42, pat, 'System.Description');
     expect(result).toBeNull();
   });
@@ -92,17 +81,17 @@ describe('getWorkItemFieldValue', () => {
   });
 
   it('throws AUTH_FAILED on 401', async () => {
-    vi.mocked(fetch).mockResolvedValue({ ok: false, status: 401 } as Response);
+    vi.mocked(fetch).mockResolvedValue(makeErrorResponse(401));
     await expect(getWorkItemFieldValue(ctx, 42, pat, 'System.Title')).rejects.toThrow('AUTH_FAILED');
   });
 
   it('throws PERMISSION_DENIED on 403', async () => {
-    vi.mocked(fetch).mockResolvedValue({ ok: false, status: 403 } as Response);
+    vi.mocked(fetch).mockResolvedValue(makeErrorResponse(403));
     await expect(getWorkItemFieldValue(ctx, 42, pat, 'System.Title')).rejects.toThrow('PERMISSION_DENIED');
   });
 
   it('throws NOT_FOUND on 404', async () => {
-    vi.mocked(fetch).mockResolvedValue({ ok: false, status: 404 } as Response);
+    vi.mocked(fetch).mockResolvedValue(makeErrorResponse(404));
     await expect(getWorkItemFieldValue(ctx, 42, pat, 'System.Title')).rejects.toThrow('NOT_FOUND');
   });
 
@@ -112,7 +101,7 @@ describe('getWorkItemFieldValue', () => {
   });
 
   it('throws HTTP_500 on unexpected status', async () => {
-    vi.mocked(fetch).mockResolvedValue({ ok: false, status: 500 } as Response);
+    vi.mocked(fetch).mockResolvedValue(makeErrorResponse(500));
     await expect(getWorkItemFieldValue(ctx, 42, pat, 'System.Title')).rejects.toThrow('HTTP_500');
   });
 });

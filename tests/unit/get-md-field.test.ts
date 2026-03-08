@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createGetMdFieldCommand } from '../../src/commands/get-md-field.js';
+import { getStdout, getStderr, setupProcessSpies, createCommandRunner } from './helpers/command-test-utils.js';
 
 vi.mock('../../src/services/azdo-client.js', () => ({
   getWorkItemFieldValue: vi.fn(),
@@ -17,42 +18,18 @@ import { getWorkItemFieldValue } from '../../src/services/azdo-client.js';
 import { resolvePat } from '../../src/services/auth.js';
 import { resolveContext } from '../../src/services/context.js';
 
+const run = createCommandRunner(createGetMdFieldCommand);
+
 beforeEach(() => {
   vi.mocked(resolveContext).mockReturnValue({ org: 'testorg', project: 'testproj' });
   vi.mocked(resolvePat).mockResolvedValue({ pat: 'test-pat', source: 'env' });
   vi.mocked(getWorkItemFieldValue).mockResolvedValue('<p>Hello</p>');
-  vi.spyOn(process, 'exit').mockImplementation((code?: number) => {
-    throw new Error(`EXIT_${code}`);
-  });
-  vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
-  vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+  setupProcessSpies();
 });
 
 afterEach(() => {
   vi.restoreAllMocks();
 });
-
-function getStdout(): string {
-  return vi.mocked(process.stdout.write).mock.calls
-    .map((c: [string]) => c[0])
-    .join('');
-}
-
-function getStderr(): string {
-  return vi.mocked(process.stderr.write).mock.calls
-    .map((c: [string]) => c[0])
-    .join('');
-}
-
-async function run(args: string[]): Promise<void> {
-  const cmd = createGetMdFieldCommand();
-  try {
-    await cmd.parseAsync(args, { from: 'user' });
-  } catch (err) {
-    if (err instanceof Error && err.message.startsWith('EXIT_')) return;
-    throw err;
-  }
-}
 
 describe('get-md-field command', () => {
   describe('input validation', () => {
