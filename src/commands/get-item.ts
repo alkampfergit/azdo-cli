@@ -49,6 +49,26 @@ export function stripHtml(html: string): string {
   return text.trim();
 }
 
+function convertRichText(html: string | null, markdown: boolean): string {
+  if (!html) return '';
+  return markdown ? toMarkdown(html) : stripHtml(html);
+}
+
+function formatExtraFields(extraFields: Record<string, string>, markdown: boolean): string[] {
+  return Object.entries(extraFields).map(([refName, value]) => {
+    const fieldLabel = refName.includes('.') ? refName.split('.').pop()! : refName;
+    const displayValue = markdown ? toMarkdown(value) : value;
+    return `${fieldLabel.padEnd(13)}${displayValue}`;
+  });
+}
+
+function summarizeDescription(text: string, label: (name: string) => string): string[] {
+  const descLines = text.split('\n').filter((l) => l.trim() !== '');
+  const firstThree = descLines.slice(0, 3);
+  const suffix = descLines.length > 3 ? '\n...' : '';
+  return [`${label('Description:')}${firstThree.join('\n')}${suffix}`];
+}
+
 export function formatWorkItem(workItem: WorkItem, short: boolean, markdown: boolean = false): string {
   const lines: string[] = [];
   const label = (name: string): string => name.padEnd(13);
@@ -67,25 +87,15 @@ export function formatWorkItem(workItem: WorkItem, short: boolean, markdown: boo
   lines.push(`${label('URL:')}${workItem.url}`);
 
   if (workItem.extraFields) {
-    for (const [refName, value] of Object.entries(workItem.extraFields)) {
-      const fieldLabel = refName.includes('.') ? refName.split('.').pop()! : refName;
-      const displayValue = markdown ? toMarkdown(value) : value;
-      lines.push(`${fieldLabel.padEnd(13)}${displayValue}`);
-    }
+    lines.push(...formatExtraFields(workItem.extraFields, markdown));
   }
 
   lines.push('');
 
-  const descriptionText = workItem.description
-    ? (markdown ? toMarkdown(workItem.description) : stripHtml(workItem.description))
-    : '';
+  const descriptionText = convertRichText(workItem.description, markdown);
 
   if (short) {
-    const descLines = descriptionText.split('\n').filter((l) => l.trim() !== '');
-    const firstThree = descLines.slice(0, 3);
-    const truncated = descLines.length > 3;
-    const descSummary = firstThree.join('\n') + (truncated ? '\n...' : '');
-    lines.push(`${label('Description:')}${descSummary}`);
+    lines.push(...summarizeDescription(descriptionText, label));
   } else {
     lines.push('Description:');
     lines.push(descriptionText);
@@ -125,9 +135,7 @@ export function createGetItemCommand(): Command {
 
           const workItem = await getWorkItem(context, id, credential.pat, fieldsList);
 
-          const markdownEnabled = options.markdown !== undefined
-            ? options.markdown
-            : (loadConfig().markdown ?? false);
+          const markdownEnabled = options.markdown ?? loadConfig().markdown ?? false;
           const output = formatWorkItem(workItem, options.short ?? false, markdownEnabled);
           process.stdout.write(output + '\n');
         } catch (err: unknown) {
