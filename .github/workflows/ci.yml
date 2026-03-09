@@ -13,6 +13,9 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
 
       - uses: actions/setup-node@v4
         with:
@@ -60,7 +63,12 @@ jobs:
 
           if [ "$BRANCH" = "master" ]; then
             TAG="latest"
-            VERSION="$BASE_VERSION"
+            HEAD_TAG=$(git tag --points-at HEAD | grep -E '^v?[0-9]+\.[0-9]+\.[0-9]+([.-].*)?$' | head -n 1)
+            if [ -z "$HEAD_TAG" ]; then
+              echo "No version tag found on HEAD for master branch."
+              exit 1
+            fi
+            VERSION="${HEAD_TAG#v}"
           elif [ "$BRANCH" = "develop" ]; then
             TAG="next"
             VERSION="${BASE_VERSION}-${SAFE_BRANCH}.${RUN}"
@@ -89,10 +97,19 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
 
       - name: Get version
         id: version
-        run: echo "version=$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
+        run: |
+          HEAD_TAG=$(git tag --points-at HEAD | grep -E '^v?[0-9]+\.[0-9]+\.[0-9]+([.-].*)?$' | head -n 1)
+          if [ -z "$HEAD_TAG" ]; then
+            echo "No version tag found on HEAD for master branch."
+            exit 1
+          fi
+          echo "version=${HEAD_TAG#v}" >> "$GITHUB_OUTPUT"
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
