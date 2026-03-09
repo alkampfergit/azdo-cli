@@ -70,9 +70,11 @@ jobs:
           fi
 
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "base_version=$BASE_VERSION" >> "$GITHUB_OUTPUT"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Set package version
+        if: steps.version.outputs.version != steps.version.outputs.base_version
         run: npm version "${{ steps.version.outputs.version }}" --no-git-tag-version
 
       - name: Publish to npm
