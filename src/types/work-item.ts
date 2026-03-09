@@ -26,6 +26,7 @@ export interface CliConfig {
   org?: string;
   project?: string;
   fields?: string[];
+  markdown?: boolean;
 }
 
 export interface JsonPatchOperation {

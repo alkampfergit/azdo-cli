@@ -48,7 +48,7 @@ export function stripHtml(html: string): string {
   return text.trim();
 }
 
-export function formatWorkItem(workItem: WorkItem, short: boolean): string {
+export function formatWorkItem(workItem: WorkItem, short: boolean, markdown: boolean = false): string {
   const lines: string[] = [];
   const label = (name: string): string => name.padEnd(13);
 
