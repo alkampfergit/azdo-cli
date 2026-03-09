@@ -6,6 +6,20 @@ import { resolveContext } from '../services/context.js';
 import { loadConfig } from '../services/config-store.js';
 import { parseWorkItemId, validateOrgProjectPair, handleCommandError } from '../services/command-helpers.js';
 
+export function parseRequestedFields(raw?: string | string[]): string[] | undefined {
+  if (raw === undefined) return undefined;
+
+  const source = Array.isArray(raw) ? raw : [raw];
+  const tokens = source
+    .flatMap((entry) => entry.split(/[,\s]+/))
+    .map((field) => field.trim())
+    .filter((field) => field.length > 0);
+
+  if (tokens.length === 0) return undefined;
+
+  return Array.from(new Set(tokens));
+}
+
 export function stripHtml(html: string): string {
   let text = html;
 
@@ -102,16 +116,16 @@ export function createGetItemCommand(): Command {
           context = resolveContext(options);
           const credential = await resolvePat();
 
-          const fieldsList: string[] | undefined = options.fields
-            ? options.fields.split(',').map((f: string) => f.trim())
-            : loadConfig().fields;
+          const fieldsList = options.fields !== undefined
+            ? parseRequestedFields(options.fields)
+            : parseRequestedFields(loadConfig().fields);
 
           const workItem = await getWorkItem(context, id, credential.pat, fieldsList);
 
           const output = formatWorkItem(workItem, options.short ?? false);
           process.stdout.write(output + '\n');
         } catch (err: unknown) {
-          handleCommandError(err, id, context, 'read');
+          handleCommandError(err, id, context, 'read', false);
         }
       },
     );

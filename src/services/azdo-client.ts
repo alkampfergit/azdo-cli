@@ -32,6 +32,22 @@ async function fetchWithErrors(url: string, init: RequestInit): Promise<Response
   return response;
 }
 
+async function readResponseMessage(response: Response): Promise<string | null> {
+  try {
+    const body = (await response.json()) as { message?: unknown };
+    if (typeof body.message === 'string' && body.message.trim() !== '') {
+      return body.message.trim();
+    }
+  } catch {
+    // Ignore JSON parse errors from non-JSON error payloads
+  }
+  return null;
+}
+
+function normalizeFieldList(fields: string[]): string[] {
+  return Array.from(new Set(fields.map((f) => f.trim()).filter((f) => f.length > 0)));
+}
+
 interface AzdoWorkItemResponse {
   id: number;
   rev: number;
@@ -73,12 +89,21 @@ export async function getWorkItem(context: AzdoContext, id: number, pat: string,
   );
   url.searchParams.set('api-version', '7.1');
 
-  if (extraFields && extraFields.length > 0) {
-    const allFields = [...DEFAULT_FIELDS, ...extraFields];
+  const normalizedExtraFields = extraFields ? normalizeFieldList(extraFields) : [];
+
+  if (normalizedExtraFields.length > 0) {
+    const allFields = normalizeFieldList([...DEFAULT_FIELDS, ...normalizedExtraFields]);
     url.searchParams.set('fields', allFields.join(','));
   }
 
   const response = await fetchWithErrors(url.toString(), { headers: authHeaders(pat) });
+
+  if (response.status === 400) {
+    const serverMessage = await readResponseMessage(response);
+    if (serverMessage) {
+      throw new Error(`BAD_REQUEST: ${serverMessage}`);
+    }
+  }
 
   if (!response.ok) {
     throw new Error(`HTTP_${response.status}`);
@@ -117,8 +142,8 @@ export async function getWorkItem(context: AzdoContext, id: number, pat: string,
     areaPath: data.fields['System.AreaPath'],
     iterationPath: data.fields['System.IterationPath'],
     url: data._links.html.href,
-    extraFields: extraFields && extraFields.length > 0
-      ? buildExtraFields(data.fields, extraFields)
+    extraFields: normalizedExtraFields.length > 0
+      ? buildExtraFields(data.fields, normalizedExtraFields)
       : null,
   };
 }
@@ -136,6 +161,13 @@ export async function getWorkItemFieldValue(
   url.searchParams.set('fields', fieldName);
 
   const response = await fetchWithErrors(url.toString(), { headers: authHeaders(pat) });
+
+  if (response.status === 400) {
+    const serverMessage = await readResponseMessage(response);
+    if (serverMessage) {
+      throw new Error(`BAD_REQUEST: ${serverMessage}`);
+    }
+  }
 
   if (!response.ok) {
     throw new Error(`HTTP_${response.status}`);
@@ -173,13 +205,7 @@ export async function updateWorkItem(
   });
 
   if (response.status === 400) {
-    let serverMessage = 'Unknown error';
-    try {
-      const body = (await response.json()) as { message?: string };
-      if (body.message) serverMessage = body.message;
-    } catch {
-      // ignore parse errors
-    }
+    const serverMessage = await readResponseMessage(response) ?? 'Unknown error';
     throw new Error(`UPDATE_REJECTED: ${serverMessage}`);
   }
 

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import type { WorkItem } from '../../src/types/work-item.js';
-import { formatWorkItem } from '../../src/commands/get-item.js';
+import { formatWorkItem, parseRequestedFields } from '../../src/commands/get-item.js';
 
 function makeWorkItem(overrides: Partial<WorkItem> = {}): WorkItem {
   return {
@@ -224,5 +224,29 @@ describe('getWorkItem with extra fields', () => {
     });
 
     fetchSpy.mockRestore();
+  });
+});
+
+describe('parseRequestedFields', () => {
+  it('splits comma-separated values', () => {
+    expect(parseRequestedFields('System.Tags,Custom.Priority')).toEqual([
+      'System.Tags',
+      'Custom.Priority',
+    ]);
+  });
+
+  it('splits whitespace-separated values from legacy config entries', () => {
+    expect(parseRequestedFields(['Custom.BusinessDescription PrxmJarvis.Appuntidelteam'])).toEqual([
+      'Custom.BusinessDescription',
+      'PrxmJarvis.Appuntidelteam',
+    ]);
+  });
+
+  it('trims and deduplicates values', () => {
+    expect(parseRequestedFields(' System.Tags, System.Tags ')).toEqual(['System.Tags']);
+  });
+
+  it('returns undefined for empty input', () => {
+    expect(parseRequestedFields(' ,  ')).toBeUndefined();
   });
 });

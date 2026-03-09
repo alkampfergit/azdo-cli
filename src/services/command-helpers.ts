@@ -36,7 +36,8 @@ export function handleCommandError(
   id: number,
   context?: AzdoContext,
   scope: 'read' | 'write' = 'write',
-): never {
+  exit = true,
+): void {
   const error = err instanceof Error ? err : new Error(String(err));
   const msg = error.message;
 
@@ -58,6 +59,9 @@ export function handleCommandError(
     process.stderr.write(
       'Error: Could not connect to Azure DevOps. Check your network connection.\n',
     );
+  } else if (msg.startsWith('BAD_REQUEST:')) {
+    const serverMsg = msg.replace('BAD_REQUEST: ', '');
+    process.stderr.write(`Error: Request rejected: ${serverMsg}\n`);
   } else if (msg.startsWith('UPDATE_REJECTED:')) {
     const serverMsg = msg.replace('UPDATE_REJECTED: ', '');
     process.stderr.write(`Error: Update rejected: ${serverMsg}\n`);
@@ -65,5 +69,9 @@ export function handleCommandError(
     process.stderr.write(`Error: ${msg}\n`);
   }
 
-  process.exit(1);
+  if (exit) {
+    process.exit(1);
+  } else {
+    process.exitCode = 1;
+  }
 }

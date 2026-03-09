@@ -101,6 +101,16 @@ describe('getWorkItem', () => {
     await expect(getWorkItem(ctx, 42, pat)).rejects.toThrow(expectedError);
   });
 
+  it('throws BAD_REQUEST with server message on HTTP 400', async () => {
+    vi.mocked(fetch).mockResolvedValue(makeFetchResponse({
+      message: 'TF401232: Work item field reference is invalid: Foo.Bar',
+    }, 400));
+
+    await expect(getWorkItem(ctx, 42, pat, ['Foo.Bar'])).rejects.toThrow(
+      'BAD_REQUEST: TF401232: Work item field reference is invalid: Foo.Bar',
+    );
+  });
+
   it('throws NETWORK_ERROR when fetch fails', async () => {
     vi.mocked(fetch).mockRejectedValue(new Error('ECONNREFUSED'));
     await expect(getWorkItem(ctx, 42, pat)).rejects.toThrow('NETWORK_ERROR');
@@ -151,6 +161,19 @@ describe('getWorkItem', () => {
     );
     const calledUrl = vi.mocked(fetch).mock.calls[0][0] as string;
     expect(calledUrl).toContain('Custom.Field+Name');
+  });
+
+  it('normalizes extra fields by trimming, removing empties, and deduplicating', async () => {
+    vi.mocked(fetch).mockResolvedValue(makeWorkItemResponse({
+      'System.Tags': 'tag1,tag2',
+    }));
+
+    await getWorkItem(ctx, 99, pat, [' System.Tags ', '', 'System.Tags']);
+
+    const calledUrl = vi.mocked(fetch).mock.calls[0][0] as string;
+    expect(calledUrl).toContain('fields=');
+    expect(calledUrl).not.toContain('%2C%2C');
+    expect(calledUrl.match(/System\.Tags/g)?.length).toBe(1);
   });
 });
 
