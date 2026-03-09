@@ -1,13 +1,9 @@
 <!--
   Sync Impact Report
   ==================
-  Version change: N/A → 1.0.0 (initial ratification)
-  Modified principles: N/A (initial creation)
-  Added sections:
-    - Core Principles (5 principles)
-    - Technology Stack
-    - Development Workflow
-    - Governance
+  Version change: 1.0.0 → 1.1.0
+  Modified principles: N/A
+  Added sections: N/A
   Removed sections: N/A
   Templates requiring updates:
     - .specify/templates/plan-template.md ✅ no changes needed (generic)
@@ -97,6 +93,9 @@ This project use GitFlow for branch strategy, prefix spec branches with feature/
 - The `master` branch MUST always be in a publishable state.
 - Feature work MUST happen on feature branches and merge via
   pull request.
+- After every completed SpecKit spec run, `README.md` MUST be
+  reviewed and updated to reflect the implemented functionality,
+  commands, options, and usage examples before merge.
 
 ## Governance
 
@@ -111,4 +110,4 @@ This project use GitFlow for branch strategy, prefix spec branches with feature/
 - All pull requests SHOULD verify compliance with these principles
   during review.
 
-**Version**: 1.0.0 | **Ratified**: 2026-03-04 | **Last Amended**: 2026-03-04
+**Version**: 1.1.0 | **Ratified**: 2026-03-04 | **Last Amended**: 2026-03-09
