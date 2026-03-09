@@ -4,6 +4,7 @@ import { getWorkItem } from '../services/azdo-client.js';
 import { resolvePat } from '../services/auth.js';
 import { resolveContext } from '../services/context.js';
 import { loadConfig } from '../services/config-store.js';
+import { toMarkdown } from '../services/md-convert.js';
 import { parseWorkItemId, validateOrgProjectPair, handleCommandError } from '../services/command-helpers.js';
 
 export function parseRequestedFields(raw?: string | string[]): string[] | undefined {
@@ -75,7 +76,7 @@ export function formatWorkItem(workItem: WorkItem, short: boolean, markdown: boo
   lines.push('');
 
   const descriptionText = workItem.description
-    ? stripHtml(workItem.description)
+    ? (markdown ? toMarkdown(workItem.description) : stripHtml(workItem.description))
     : '';
 
   if (short) {
@@ -122,7 +123,8 @@ export function createGetItemCommand(): Command {
 
           const workItem = await getWorkItem(context, id, credential.pat, fieldsList);
 
-          const output = formatWorkItem(workItem, options.short ?? false);
+          const markdownEnabled = loadConfig().markdown ?? false;
+          const output = formatWorkItem(workItem, options.short ?? false, markdownEnabled);
           process.stdout.write(output + '\n');
         } catch (err: unknown) {
           handleCommandError(err, id, context, 'read', false);

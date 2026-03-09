@@ -93,6 +93,11 @@ export function setConfigValue(key: string, value: string): void {
 
   if (value === '') {
     delete config[key as keyof CliConfig];
+  } else if (key === 'markdown') {
+    if (value !== 'true' && value !== 'false') {
+      throw new Error(`Invalid value "${value}" for markdown. Must be "true" or "false".`);
+    }
+    config.markdown = value === 'true';
   } else if (key === 'fields') {
     config.fields = value.split(',').map((s) => s.trim());
   } else {
