@@ -50,6 +50,7 @@ export function describeCommandErrors(
     ['PERMISSION_DENIED', 'Access denied', 'permission error'],
     ['NOT_FOUND', 'not found', 'not-found error'],
     ['NETWORK_ERROR', 'Could not connect', 'network error'],
+    ['BAD_REQUEST: invalid field', 'Request rejected', 'bad-request error'],
     ['Something unexpected', 'Something unexpected', 'generic error'],
   ];
 
