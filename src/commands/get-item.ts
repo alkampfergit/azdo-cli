@@ -69,7 +69,8 @@ export function formatWorkItem(workItem: WorkItem, short: boolean, markdown: boo
   if (workItem.extraFields) {
     for (const [refName, value] of Object.entries(workItem.extraFields)) {
       const fieldLabel = refName.includes('.') ? refName.split('.').pop()! : refName;
-      lines.push(`${fieldLabel.padEnd(13)}${value}`);
+      const displayValue = markdown ? toMarkdown(value) : value;
+      lines.push(`${fieldLabel.padEnd(13)}${displayValue}`);
     }
   }
 
@@ -103,10 +104,11 @@ export function createGetItemCommand(): Command {
     .option('--project <project>', 'Azure DevOps project')
     .option('--short', 'show abbreviated output')
     .option('--fields <fields>', 'comma-separated additional field reference names')
+    .option('--markdown', 'convert rich text fields to markdown')
     .action(
       async (
         idStr: string,
-        options: { org?: string; project?: string; short?: boolean; fields?: string },
+        options: { org?: string; project?: string; short?: boolean; fields?: string; markdown?: boolean },
       ) => {
         const id = parseWorkItemId(idStr);
         validateOrgProjectPair(options);
@@ -123,7 +125,9 @@ export function createGetItemCommand(): Command {
 
           const workItem = await getWorkItem(context, id, credential.pat, fieldsList);
 
-          const markdownEnabled = loadConfig().markdown ?? false;
+          const markdownEnabled = options.markdown !== undefined
+            ? options.markdown
+            : (loadConfig().markdown ?? false);
           const output = formatWorkItem(workItem, options.short ?? false, markdownEnabled);
           process.stdout.write(output + '\n');
         } catch (err: unknown) {
