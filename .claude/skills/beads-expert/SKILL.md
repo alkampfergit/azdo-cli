@@ -2,6 +2,7 @@
 name: beads-expert
 description: >
   Manage backlogs using Beads (bd), Steve Yegge's file-based issue tracker.
+  Use when you need to use bd commandline to view the syntax.
   Use when the user wants to create, import, organize, or refine issues,
   convert specs or markdown into Beads issues, set up dependencies, define
   priorities and labels, implement backlog items, or whenever the user
@@ -49,16 +50,27 @@ Discovered from: bd-xxxx  -- optional causal link
 
 ```bash
 bd create --title "..." --type feature --priority 2 --label "api,backend"
-bd edit bd-a1b2                          # add description/notes interactively
-bd link bd-child --depends-on bd-parent  # set dependency
-bd link bd-child --blocks bd-other       # reverse dependency
+bd edit bd-a1b2                          # edit description in $EDITOR
+bd edit bd-a1b2 --acceptance             # edit acceptance criteria in $EDITOR
+bd edit bd-a1b2 --notes                  # edit notes in $EDITOR
+bd update bd-a1b2 --description "..."    # set description inline
+bd update bd-a1b2 --acceptance "..."     # set acceptance criteria inline
+bd update bd-a1b2 --notes "..."          # set notes inline
+bd dep add bd-child bd-parent            # set dependency (child depends on parent)
 bd show bd-a1b2                          # detailed view
 bd list --status open                    # list open issues
+bd list --label sonarcloud               # filter by label
 bd ready                                 # issues with no blockers
 bd update bd-a1b2 --status in_progress   # claim work
-bd close bd-a1b2 --note "Done in PR #42" # close with note
+bd close bd-a1b2                         # close issue
+bd comments add bd-a1b2 "Done in PR #42" # add a comment
 bd sync                                  # sync with git
 ```
+
+**Commands that do NOT exist** (common mistakes):
+- `bd note` -- use `bd update --notes` or `bd comments add` instead
+- `bd link` -- use `bd dep add` instead
+- `bd close --note` -- use `bd close` then `bd comments add` separately
 
 For full `bd show` options, see [references/bd-show-guide.md](references/bd-show-guide.md).
 
@@ -146,16 +158,12 @@ Ask the user to confirm or adjust before proceeding.
 ```bash
 ID1=$(bd create --title "Setup authentication module" --type feature --priority 2 --label "auth,backend" --json | jq -r '.id')
 ID2=$(bd create --title "Implement login endpoint" --type feature --priority 2 --label "auth,api" --json | jq -r '.id')
-bd link $ID2 --depends-on $ID1
+bd dep add $ID2 $ID1
 
-bd note $ID1 << 'EOF'
-## Context
-Foundation module needed before any auth endpoints.
-
-## Acceptance Criteria
-- [ ] Module initializes with config
-- [ ] JWT signing key loaded from env
-EOF
+# Add description and acceptance criteria via update
+bd update $ID1 --description "Foundation module needed before any auth endpoints." \
+  --acceptance "- [ ] Module initializes with config
+- [ ] JWT signing key loaded from env"
 ```
 
 ### Step 4 -- Verify import
@@ -203,9 +211,9 @@ Good dependency graphs prevent blocked sprints. Follow these rules:
 
 | Link type | Meaning | Command |
 |---|---|---|
-| `depends-on` | Cannot start until parent is done | `bd link child --depends-on parent` |
+| `depends-on` | Cannot start until parent is done | `bd dep add child parent` |
 | `blocks` | Computed reverse of depends-on | automatic |
-| `discovered-from` | Causal link, not ordering | `bd link new --discovered-from source` |
+| `discovered-from` | Causal link, not ordering | `bd dep add new --discovered-from source` |
 
 ### Dependency patterns
 

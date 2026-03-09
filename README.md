@@ -53,7 +53,7 @@ azdo set-state 12345 "Active"
 
 | Command | Purpose | Common Flags |
 | --- | --- | --- |
-| `azdo get-item <id>` | Read a work item | `--short`, `--fields`, `--org`, `--project` |
+| `azdo get-item <id>` | Read a work item | `--short`, `--fields`, `--markdown`, `--org`, `--project` |
 | `azdo set-state <id> <state>` | Change work item state | `--json`, `--org`, `--project` |
 | `azdo assign <id> [name]` | Assign or unassign owner | `--unassign`, `--json`, `--org`, `--project` |
 | `azdo set-field <id> <field> <value>` | Update any field | `--json`, `--org`, `--project` |
@@ -75,6 +75,12 @@ azdo get-item 12345 --short
 
 # Include extra fields for this call
 azdo get-item 12345 --fields "System.Tags,Microsoft.VSTS.Common.Priority"
+
+# Convert rich text fields to markdown
+azdo get-item 12345 --markdown
+
+# Disable markdown even if config is on
+azdo get-item 12345 --no-markdown
 ```
 
 ```bash
@@ -88,6 +94,14 @@ azdo assign 12345 --unassign
 # Set generic field
 azdo set-field 12345 System.Title "Updated title"
 ```
+
+### Markdown Display
+
+The `get-item` command can convert HTML rich-text fields to readable markdown. Resolution order:
+
+1. `--markdown` / `--no-markdown` flag (highest priority)
+2. Config setting: `azdo config set markdown true`
+3. Default: off (HTML stripped to plain text)
 
 ### Markdown Field Commands
 
@@ -113,6 +127,9 @@ azdo config list
 
 # Interactive setup
 azdo config wizard
+
+# Enable markdown display for all get-item calls
+azdo config set markdown true
 
 # Set/get/unset values
 azdo config set fields "System.Tags,Custom.Priority"
