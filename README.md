@@ -1,10 +1,21 @@
 # azdo-cli
 
-A command-line interface for Azure DevOps.
+Azure DevOps CLI focused on work item read/write workflows.
 
 [![npm version](https://img.shields.io/npm/v/azdo-cli)](https://www.npmjs.com/package/azdo-cli)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Quality Gate Status](https://sonarcloud.io/api/project_badges/measure?project=alkampfergit_azdo-cli&metric=alert_status)](https://sonarcloud.io/summary/new_code?id=alkampfergit_azdo-cli)
+
+## Features
+
+- Retrieve work items with readable output (`get-item`)
+- Update work item state (`set-state`)
+- Assign and unassign work items (`assign`)
+- Set any work item field by reference name (`set-field`)
+- Read rich-text fields as markdown (`get-md-field`)
+- Set rich-text fields as markdown from inline text, file, or stdin (`set-md-field`)
+- Persist org/project/default fields in local config (`config`)
+- Store PAT in OS credential store (or use `AZDO_PAT`)
 
 ## Installation
 
@@ -12,20 +23,121 @@ A command-line interface for Azure DevOps.
 npm install -g azdo-cli
 ```
 
-## Usage
+## Authentication and Context Resolution
+
+PAT resolution order:
+1. `AZDO_PAT` environment variable
+2. Stored credential from OS keyring
+3. Interactive PAT prompt (then stored for next runs)
+
+Org/project resolution order:
+1. `--org` + `--project` flags
+2. Saved config (`azdo config set org ...`, `azdo config set project ...`)
+3. Azure DevOps `origin` git remote auto-detection
+
+## Quick Start
 
 ```bash
-# Show help
-azdo --help
+# 1) Configure defaults once
+azdo config set org myorg
+azdo config set project myproject
 
-# Show version
-azdo --version
-azdo -v
+# 2) Read a work item
+azdo get-item 12345
+
+# 3) Update state
+azdo set-state 12345 "Active"
 ```
 
-## Current Status
+## Command Cheat Sheet
 
-This project is in early development (v0.2.0). The base CLI scaffold is in place with support for `--help` and `--version`. Azure DevOps commands (work items, pipelines, repos, etc.) will be added in future releases.
+| Command | Purpose | Common Flags |
+| --- | --- | --- |
+| `azdo get-item <id>` | Read a work item | `--short`, `--fields`, `--org`, `--project` |
+| `azdo set-state <id> <state>` | Change work item state | `--json`, `--org`, `--project` |
+| `azdo assign <id> [name]` | Assign or unassign owner | `--unassign`, `--json`, `--org`, `--project` |
+| `azdo set-field <id> <field> <value>` | Update any field | `--json`, `--org`, `--project` |
+| `azdo get-md-field <id> <field>` | Get field as markdown | `--org`, `--project` |
+| `azdo set-md-field <id> <field> [content]` | Set markdown field | `--file`, `--json`, `--org`, `--project` |
+| `azdo config <subcommand>` | Manage saved settings | `set`, `get`, `list`, `unset`, `wizard`, `--json` |
+| `azdo clear-pat` | Remove stored PAT | none |
+
+## Command Reference
+
+### Core
+
+```bash
+# Get full work item
+azdo get-item 12345
+
+# Get short view
+azdo get-item 12345 --short
+
+# Include extra fields for this call
+azdo get-item 12345 --fields "System.Tags,Microsoft.VSTS.Common.Priority"
+```
+
+```bash
+# Set state
+azdo set-state 12345 "Closed"
+
+# Assign / unassign
+azdo assign 12345 "someone@company.com"
+azdo assign 12345 --unassign
+
+# Set generic field
+azdo set-field 12345 System.Title "Updated title"
+```
+
+### Markdown Field Commands
+
+```bash
+# Read field and auto-convert HTML -> markdown
+azdo get-md-field 12345 System.Description
+
+# Set markdown inline
+azdo set-md-field 12345 System.Description "# Title\n\nSome **bold** text"
+
+# Set markdown from file
+azdo set-md-field 12345 System.Description --file ./description.md
+
+# Set markdown from stdin
+cat description.md | azdo set-md-field 12345 System.Description
+```
+
+### Configuration
+
+```bash
+# List settings
+azdo config list
+
+# Interactive setup
+azdo config wizard
+
+# Set/get/unset values
+azdo config set fields "System.Tags,Custom.Priority"
+azdo config get fields
+azdo config unset fields
+
+# JSON output
+azdo config list --json
+```
+
+### Credential Management
+
+```bash
+# Remove stored PAT from keyring
+azdo clear-pat
+```
+
+## JSON Output
+
+These commands support `--json` for machine-readable output:
+- `set-state`
+- `assign`
+- `set-field`
+- `set-md-field`
+- `config set|get|list|unset`
 
 ## Development
 
@@ -47,26 +159,10 @@ npm install
 | Command | Description |
 | --- | --- |
 | `npm run build` | Build the CLI with tsup |
-| `npm test` | Run tests with vitest |
+| `npm test` | Build and run tests with vitest |
 | `npm run lint` | Lint source files with ESLint |
 | `npm run typecheck` | Type-check with tsc (no emit) |
 | `npm run format` | Check formatting with Prettier |
-
-### Tech Stack
-
-- **TypeScript 5.x** (strict mode, ES modules)
-- **commander.js** — CLI framework
-- **tsup** — Bundler (single-file ESM output)
-- **vitest** — Test runner
-- **ESLint + Prettier** — Linting and formatting
-
-### Branch Strategy
-
-This project follows **GitFlow**:
-
-- `master` — stable releases
-- `develop` — integration branch
-- `feature/*` — feature branches off `develop`
 
 ## License
 
