@@ -19,12 +19,14 @@ sudo apt-get install -y git-flow
 echo "Configuring git aliases..."
 bash .devcontainer/setup-git-aliases.sh
 
-# Install Claude Code CLI
+# Install CLI tools that are distributed via npm
 if command -v npm >/dev/null 2>&1; then
     echo "Installing Claude Code CLI..."
     npm install -g @anthropic-ai/claude-code || true
+    echo "Installing OpenAI Codex..."
+    npm install -g @openai/codex || true
 else
-    echo "npm not available, skipping Claude Code CLI install."
+    echo "npm not available, skipping npm-based CLI installs."
 fi
 
 # Install beads
