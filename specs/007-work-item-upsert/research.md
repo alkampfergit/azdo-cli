@@ -27,7 +27,7 @@
 
 ## R3: Document Parsing Strategy
 
-**Decision**: Implement a small custom parser for the constrained task document format: an explicit YAML front matter block at the top for scalar fields, followed by level-2 markdown sections (`## Field Name`) for rich-text fields.
+**Decision**: Implement a small custom parser for the constrained task document format: an explicit YAML front matter block at the top for scalar fields, followed by level-2 markdown heading sections (`## Field Name`) for rich-text fields.
 
 **Rationale**: The repo currently keeps runtime dependencies minimal, and this feature only needs a narrow subset of YAML behavior: scalar strings, quoted strings, empty values, and `null`. A small parser keeps the bundle lean, makes application-specific validation clearer, and avoids pulling in a generic front matter library just to support a tightly constrained format.
 

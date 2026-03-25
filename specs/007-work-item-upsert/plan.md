@@ -5,7 +5,7 @@
 
 ## Summary
 
-Add a top-level `upsert` command that creates a new Azure DevOps Task when no ID is supplied and updates an existing Task when an ID is present. The command will accept exactly one markdown document source via `--content` or `--file`, parse YAML front matter into scalar field updates and level-2 markdown sections into rich-text field updates, normalize friendly field names and raw Azure DevOps reference names, reuse the existing auth/context resolution flow, validate a non-empty Title locally for create requests, surface additional Azure DevOps validation errors clearly, and delete imported files only after a confirmed successful create or update.
+Add a top-level `upsert` command that creates a new Azure DevOps Task when no ID is supplied and updates an existing Task when an ID is present. The command will accept exactly one markdown document source via `--content` or `--file`, parse YAML front matter into scalar field updates and level-2 markdown heading sections (`## Field Name`) into rich-text field updates, normalize friendly field names and raw Azure DevOps reference names, reuse the existing auth/context resolution flow, validate a non-empty Title locally for create requests, surface additional Azure DevOps validation errors clearly, and delete imported files only after a confirmed successful create or update.
 
 ## Technical Context
 

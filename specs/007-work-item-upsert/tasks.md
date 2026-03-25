@@ -39,18 +39,18 @@
 
 ## Phase 3: User Story 1 - Create or Update a Task from One Markdown Payload (Priority: P1) 🎯 MVP
 
-**Goal**: Users can create a new Task or update an existing Task from one inline markdown payload.
+**Goal**: Users can create a new Task or update an existing Task from one inline markdown payload containing simple field values.
 
-**Independent Test**: Run `azdo upsert --content <doc>` to create a Task and `azdo upsert <id> --content <doc>` to update it, verifying that declared scalar fields are applied and the command reports the resulting task ID.
+**Independent Test**: Run `azdo upsert --content <doc>` to create a Task and `azdo upsert <id> --content <doc>` to update it, verifying that declared scalar fields are applied, explicit empty or `null` scalar values clear those fields when allowed, and the command reports the resulting task ID.
 
 ### Implementation for User Story 1
 
-- [ ] T005 [P] [US1] Implement inline front-matter parsing, canonical field normalization for friendly names and raw Azure DevOps reference names, duplicate-field detection, actionable malformed or unmappable validation errors, and scalar patch planning in `src/services/task-document.ts`
+- [ ] T005 [P] [US1] Implement inline front-matter parsing, canonical field normalization for friendly names and raw Azure DevOps reference names, duplicate-field detection, actionable malformed or unmappable validation errors, scalar patch planning, and empty-or-null scalar clear semantics in `src/services/task-document.ts`
 - [ ] T006 [P] [US1] Add Task create transport and normalized create/update write responses in `src/services/azdo-client.ts`
-- [ ] T007 [US1] Implement the `azdo upsert [id] --content <markdown>` create/update flow in `src/commands/upsert.ts`, including non-empty Title validation for creates, reuse of existing `resolvePat` and `resolveContext` behavior, actionable create/update error handling, success output, and `--json` output
-- [ ] T008 [US1] Add inline create/update coverage in `tests/unit/upsert.test.ts` and create transport coverage in `tests/unit/azdo-client.test.ts`, including raw reference-name acceptance and existing auth/context resolution parity
+- [ ] T007 [US1] Implement the `azdo upsert [id] --content <markdown>` create/update flow in `src/commands/upsert.ts`, including non-empty Title validation for creates, simple-field clear handling for empty or `null` scalar values, reuse of existing `resolvePat` and `resolveContext` behavior, actionable create/update error handling, success output, and `--json` output
+- [ ] T008 [US1] Add inline create/update coverage in `tests/unit/upsert.test.ts` and create transport coverage in `tests/unit/azdo-client.test.ts`, including raw reference-name acceptance, simple-field clear semantics, and existing auth/context resolution parity
 
-**Checkpoint**: User Story 1 is independently functional. Inline payloads create and update Tasks with actionable success and error output.
+**Checkpoint**: User Story 1 is independently functional. Inline payloads create and update Tasks with actionable success and error output, including simple-field clear behavior.
 
 ---
 
@@ -73,15 +73,15 @@
 
 **Goal**: Users can combine scalar fields and markdown-rich fields in one task-definition document and have both applied in a single operation.
 
-**Independent Test**: Run `azdo upsert --content <doc>` with YAML front matter plus `## Description` and `## Acceptance Criteria` sections, verifying that scalar values are stored exactly and markdown sections are stored with markdown formatting and clear semantics.
+**Independent Test**: Run `azdo upsert --content <doc>` with YAML front matter plus level-2 markdown heading sections such as `## Description` and `## Acceptance Criteria`, verifying that scalar values are stored exactly and markdown sections are stored with markdown formatting and clear semantics.
 
 ### Implementation for User Story 3
 
-- [ ] T011 [P] [US3] Extend `src/services/task-document.ts` to parse `##` markdown sections, normalize rich-text aliases, and emit `/multilineFieldsFormat/<field>` operations for markdown fields
-- [ ] T012 [US3] Implement mixed scalar-plus-markdown application and explicit clear semantics in `src/commands/upsert.ts`
-- [ ] T013 [US3] Add mixed-document parsing and actionable invalid-input coverage in `tests/unit/task-document.test.ts` and `tests/unit/upsert.test.ts`, including malformed front matter, unknown friendly names, unmappable reference-name errors, duplicate fields, and clear semantics
+- [ ] T011 [P] [US3] Extend `src/services/task-document.ts` to parse level-2 markdown heading sections (`## Field Name`), normalize rich-text aliases, and emit `/multilineFieldsFormat/<field>` operations for markdown fields
+- [ ] T012 [US3] Implement mixed scalar-plus-markdown application and rich-text clear semantics for present but empty markdown sections in `src/commands/upsert.ts`
+- [ ] T013 [US3] Add mixed-document parsing and actionable invalid-input coverage in `tests/unit/task-document.test.ts` and `tests/unit/upsert.test.ts`, including malformed front matter, unknown friendly names, unmappable reference-name errors, duplicate fields, and rich-text clear semantics
 
-**Checkpoint**: User Story 3 is independently functional. One document can update scalar fields and rich-text fields together with explicit clear behavior.
+**Checkpoint**: User Story 3 is independently functional. One document can update scalar fields and rich-text fields together, including rich-text clear behavior.
 
 ---
 

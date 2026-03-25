@@ -29,7 +29,7 @@ azdo upsert [id] (--content <markdown> | --file <path>) [options]
 
 ### Document Format
 
-The document must start with explicit YAML front matter and may continue with level-2 markdown sections.
+The document must start with explicit YAML front matter and may continue with level-2 markdown heading sections (`## Field Name`).
 
 ```md
 ---

@@ -9,7 +9,7 @@
 
 ## Task Document Format
 
-The command expects one markdown document with explicit YAML front matter followed by optional markdown sections.
+The command expects one markdown document with explicit YAML front matter followed by optional level-2 markdown heading sections (`## Field Name`).
 
 ```md
 ---

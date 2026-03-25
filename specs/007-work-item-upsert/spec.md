@@ -9,7 +9,7 @@
 
 ### Session 2026-03-24
 
-- Q: What is the canonical task document format for the markdown payload? → A: Use YAML front matter for simple fields, followed by named markdown sections for rich-text fields.
+- Q: What is the canonical task document format for the markdown payload? → A: Use YAML front matter for simple fields, followed by level-2 markdown heading sections (`## Field Name`) for rich-text fields.
 - Q: How should fields be identified in the task document? → A: Allow friendly names for known common fields and reference names for any field.
 - Q: How should users explicitly clear a field during update? → A: In YAML, a field set to `null` or empty clears that simple field; a present but empty markdown section clears that rich-text field.
 
@@ -17,18 +17,18 @@
 
 ### User Story 1 - Create or Update a Task from One Markdown Payload (Priority: P1)
 
-A CLI user wants one `upsert` command that can either create a new Azure DevOps Task or update an existing one by supplying a single markdown payload that contains all field values together, including the title, assigned user, and any other supported fields.
+A CLI user wants one `upsert` command that can either create a new Azure DevOps Task or update an existing one by supplying a single markdown payload that contains all simple field values together, including the title, assigned user, and any other supported simple fields.
 
 **Why this priority**: This is the core value of the feature. It removes the need for multiple commands or repeated field-by-field updates and makes bulk task editing practical from the terminal.
 
-**Independent Test**: Can be fully tested by running `upsert` once without an ID to create a new Task and once with an existing ID to update that Task, verifying that all fields described in the markdown payload are applied correctly.
+**Independent Test**: Can be fully tested by running `upsert` once without an ID to create a new Task and once with an existing ID to update that Task, verifying that declared simple fields are applied correctly and that explicit empty or `null` scalar values clear those fields when allowed.
 
 **Acceptance Scenarios**:
 
 1. **Given** a valid markdown payload containing a title and other field values, **When** the user runs `azdo upsert` without an ID, **Then** a new Azure DevOps Task is created and the command reports the new task ID and the fields that were applied.
 2. **Given** an existing task ID and a valid markdown payload containing changed values, **When** the user runs `azdo upsert <id>`, **Then** the identified Task is updated and the command reports the task ID and the updated fields.
 3. **Given** an existing task ID and a markdown payload that omits some fields, **When** the user runs `azdo upsert <id>`, **Then** only the fields declared in the payload are changed and all other task fields remain unchanged.
-4. **Given** an existing task ID and a markdown payload that explicitly sets a simple field to empty or `null`, or provides an empty rich-text section, **When** the user runs `azdo upsert <id>`, **Then** the specified field is cleared if that field allows empty values.
+4. **Given** an existing task ID and a markdown payload that explicitly sets a simple field to empty or `null`, **When** the user runs `azdo upsert <id>`, **Then** the specified simple field is cleared if that field allows empty values.
 
 ---
 
@@ -61,6 +61,7 @@ A CLI user wants the markdown payload format to support both simple fields such 
 1. **Given** a markdown payload that defines simple fields such as Title, Assigned To, and State, **When** the user runs `azdo upsert`, **Then** each simple field is stored with the exact intended value.
 2. **Given** a markdown payload that defines rich-text fields with headings, lists, links, or other markdown formatting, **When** the user runs `azdo upsert`, **Then** the rich-text content is stored completely and remains readable as formatted task content.
 3. **Given** a markdown payload that mixes simple fields and rich-text fields, **When** the user runs `azdo upsert`, **Then** all declared fields are applied as part of the same command outcome.
+4. **Given** an existing task ID and a markdown payload that includes a present but empty rich-text section, **When** the user runs `azdo upsert <id>`, **Then** that rich-text field is cleared if the target field allows empty values.
 
 ### Edge Cases
 
@@ -85,7 +86,7 @@ A CLI user wants the markdown payload format to support both simple fields such 
 - **FR-007**: When the task definition is provided from a file and the upsert operation succeeds, the system MUST delete that source file after the success is confirmed.
 - **FR-008**: When the task definition is provided from a file and the upsert operation fails, the system MUST leave that source file untouched.
 - **FR-009**: The markdown task definition MUST use YAML front matter to declare simple Task field values.
-- **FR-010**: The markdown task definition MUST use named markdown sections after the front matter to declare multi-line rich-text field values.
+- **FR-010**: The markdown task definition MUST use level-2 markdown heading sections (`## Field Name`) after the front matter to declare multi-line rich-text field values.
 - **FR-011**: Users MUST be able to set common fields such as Title and Assigned To using friendly field names in the markdown task definition.
 - **FR-012**: Users MUST be able to set any other supported Task field using its Azure DevOps reference name in the same markdown task definition.
 - **FR-013**: For update operations, the system MUST modify only the fields explicitly declared in the supplied task definition.
@@ -99,7 +100,7 @@ A CLI user wants the markdown payload format to support both simple fields such 
 
 ### Key Entities *(include if feature involves data)*
 
-- **Task Upsert Document**: A single markdown document supplied inline or from a file that describes the desired Task field values. It begins with YAML front matter for simple fields and is followed by named markdown sections for longer rich-text fields.
+- **Task Upsert Document**: A single markdown document supplied inline or from a file that describes the desired Task field values. It begins with YAML front matter for simple fields and is followed by level-2 markdown heading sections (`## Field Name`) for longer rich-text fields.
 - **Task Field Entry**: One declared field/value pair inside the Task Upsert Document. A field entry is either a simple field declared in YAML front matter or a rich-text field declared as a named markdown section, using friendly names for common fields and reference names for any other supported fields.
 - **Upsert Result**: The outcome of one `upsert` command invocation. It identifies whether the operation created a new Task or updated an existing one and includes the resulting task ID.
 
