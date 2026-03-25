@@ -1,4 +1,10 @@
-import type { WorkItem, AzdoContext, JsonPatchOperation, UpdateResult } from '../types/work-item.js';
+import type {
+  WorkItem,
+  AzdoContext,
+  JsonPatchOperation,
+  UpdateResult,
+  WriteResult,
+} from '../types/work-item.js';
 
 const DEFAULT_FIELDS: readonly string[] = [
   'System.Title',
@@ -81,6 +87,31 @@ function buildExtraFields(
     }
   }
   return Object.keys(result).length > 0 ? result : null;
+}
+
+function writeHeaders(pat: string): Record<string, string> {
+  return {
+    ...authHeaders(pat),
+    'Content-Type': 'application/json-patch+json',
+  };
+}
+
+async function readWriteResponse(response: Response, errorCode: 'CREATE_REJECTED' | 'UPDATE_REJECTED'): Promise<WriteResult> {
+  if (response.status === 400) {
+    const serverMessage = await readResponseMessage(response) ?? 'Unknown error';
+    throw new Error(`${errorCode}: ${serverMessage}`);
+  }
+
+  if (!response.ok) {
+    throw new Error(`HTTP_${response.status}`);
+  }
+
+  const data = (await response.json()) as AzdoWorkItemResponse;
+  return {
+    id: data.id,
+    rev: data.rev,
+    fields: data.fields,
+  };
 }
 
 export async function getWorkItem(context: AzdoContext, id: number, pat: string, extraFields?: string[]): Promise<WorkItem> {
@@ -190,6 +221,46 @@ export async function updateWorkItem(
   fieldName: string,
   operations: JsonPatchOperation[],
 ): Promise<UpdateResult> {
+  const result = await applyWorkItemPatch(context, id, pat, operations);
+  const title = result.fields['System.Title'];
+  const lastOp = operations[operations.length - 1];
+  const fieldValue = lastOp.value ?? null;
+
+  return {
+    id: result.id,
+    rev: result.rev,
+    title: typeof title === 'string' ? title : '',
+    fieldName,
+    fieldValue,
+  };
+}
+
+export async function createWorkItem(
+  context: AzdoContext,
+  workItemType: string,
+  pat: string,
+  operations: JsonPatchOperation[],
+): Promise<WriteResult> {
+  const url = new URL(
+    `https://dev.azure.com/${encodeURIComponent(context.org)}/${encodeURIComponent(context.project)}/_apis/wit/workitems/$${encodeURIComponent(workItemType)}`,
+  );
+  url.searchParams.set('api-version', '7.1');
+
+  const response = await fetchWithErrors(url.toString(), {
+    method: 'POST',
+    headers: writeHeaders(pat),
+    body: JSON.stringify(operations),
+  });
+
+  return readWriteResponse(response, 'CREATE_REJECTED');
+}
+
+export async function applyWorkItemPatch(
+  context: AzdoContext,
+  id: number,
+  pat: string,
+  operations: JsonPatchOperation[],
+): Promise<WriteResult> {
   const url = new URL(
     `https://dev.azure.com/${encodeURIComponent(context.org)}/${encodeURIComponent(context.project)}/_apis/wit/workitems/${id}`,
   );
@@ -197,31 +268,9 @@ export async function updateWorkItem(
 
   const response = await fetchWithErrors(url.toString(), {
     method: 'PATCH',
-    headers: {
-      ...authHeaders(pat),
-      'Content-Type': 'application/json-patch+json',
-    },
+    headers: writeHeaders(pat),
     body: JSON.stringify(operations),
   });
 
-  if (response.status === 400) {
-    const serverMessage = await readResponseMessage(response) ?? 'Unknown error';
-    throw new Error(`UPDATE_REJECTED: ${serverMessage}`);
-  }
-
-  if (!response.ok) {
-    throw new Error(`HTTP_${response.status}`);
-  }
-
-  const data = (await response.json()) as AzdoWorkItemResponse;
-  const lastOp = operations[operations.length - 1];
-  const fieldValue = lastOp.value ?? null;
-
-  return {
-    id: data.id,
-    rev: data.rev,
-    title: data.fields['System.Title'],
-    fieldName,
-    fieldValue,
-  };
+  return readWriteResponse(response, 'UPDATE_REJECTED');
 }

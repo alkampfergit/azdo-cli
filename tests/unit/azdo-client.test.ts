@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { getWorkItem, updateWorkItem } from '../../src/services/azdo-client.js';
+import { createWorkItem, getWorkItem, updateWorkItem } from '../../src/services/azdo-client.js';
 import { testContext as ctx, testPat as pat, makeFetchResponse, makeErrorResponse } from './helpers/api-test-utils.js';
 
 function makeWorkItemResponse(fields: Record<string, unknown>, status = 200) {
@@ -201,5 +201,63 @@ describe('updateWorkItem', () => {
       'https://dev.azure.com/my%20org/My%20Project/_apis/wit/workitems/42?api-version=7.1',
       expect.any(Object),
     );
+  });
+});
+
+describe('createWorkItem', () => {
+  beforeEach(() => {
+    vi.spyOn(globalThis, 'fetch');
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('creates a task and returns the normalized write result', async () => {
+    vi.mocked(fetch).mockResolvedValue(makeWorkItemResponse({
+      'System.Title': 'Created task',
+      'System.WorkItemType': 'Task',
+    }));
+
+    const result = await createWorkItem(
+      ctx,
+      'Task',
+      pat,
+      [{ op: 'add', path: '/fields/System.Title', value: 'Created task' }],
+    );
+
+    expect(result).toEqual({
+      id: 42,
+      rev: 1,
+      fields: expect.objectContaining({
+        'System.Title': 'Created task',
+        'System.WorkItemType': 'Task',
+      }),
+    });
+
+    const expectedToken = Buffer.from(`:${pat}`).toString('base64');
+    expect(fetch).toHaveBeenCalledWith(
+      'https://dev.azure.com/testorg/testproject/_apis/wit/workitems/$Task?api-version=7.1',
+      expect.objectContaining({
+        method: 'POST',
+        headers: expect.objectContaining({
+          Authorization: `Basic ${expectedToken}`,
+          'Content-Type': 'application/json-patch+json',
+        }),
+      }),
+    );
+  });
+
+  it('propagates create API errors with the server message intact', async () => {
+    vi.mocked(fetch).mockResolvedValue(makeFetchResponse({
+      message: "Field 'System.AreaPath' is required.",
+    }, 400));
+
+    await expect(createWorkItem(
+      ctx,
+      'Task',
+      pat,
+      [{ op: 'add', path: '/fields/System.Title', value: 'Created task' }],
+    )).rejects.toThrow("CREATE_REJECTED: Field 'System.AreaPath' is required.");
   });
 });

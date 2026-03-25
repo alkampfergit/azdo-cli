@@ -12,6 +12,7 @@ Azure DevOps CLI focused on work item read/write workflows.
 - Update work item state (`set-state`)
 - Assign and unassign work items (`assign`)
 - Set any work item field by reference name (`set-field`)
+- Create or update Tasks from markdown documents (`upsert`)
 - Read rich-text fields as markdown (`get-md-field`)
 - Set rich-text fields as markdown from inline text, file, or stdin (`set-md-field`)
 - Persist org/project/default fields in local config (`config`)
@@ -47,6 +48,9 @@ azdo get-item 12345
 
 # 3) Update state
 azdo set-state 12345 "Active"
+
+# 4) Create or update a Task from markdown
+azdo upsert --content $'---\nTitle: Improve markdown import UX\nState: New\n---'
 ```
 
 ## Command Cheat Sheet
@@ -57,6 +61,7 @@ azdo set-state 12345 "Active"
 | `azdo set-state <id> <state>` | Change work item state | `--json`, `--org`, `--project` |
 | `azdo assign <id> [name]` | Assign or unassign owner | `--unassign`, `--json`, `--org`, `--project` |
 | `azdo set-field <id> <field> <value>` | Update any field | `--json`, `--org`, `--project` |
+| `azdo upsert [id]` | Create or update a Task from markdown | `--content`, `--file`, `--json`, `--org`, `--project` |
 | `azdo get-md-field <id> <field>` | Get field as markdown | `--org`, `--project` |
 | `azdo set-md-field <id> <field> [content]` | Set markdown field | `--file`, `--json`, `--org`, `--project` |
 | `azdo config <subcommand>` | Manage saved settings | `set`, `get`, `list`, `unset`, `wizard`, `--json` |
@@ -117,6 +122,83 @@ azdo set-md-field 12345 System.Description --file ./description.md
 
 # Set markdown from stdin
 cat description.md | azdo set-md-field 12345 System.Description
+```
+
+## azdo upsert
+
+`azdo upsert` accepts a single markdown task document and either creates a new Azure DevOps Task or updates an existing one. Omit `[id]` to create; pass `[id]` to update that work item in place.
+
+```bash
+# Create from inline content
+azdo upsert --content $'---\nTitle: Improve markdown import UX\nAssigned To: user@example.com\nState: New\n---'
+
+# Update from a file
+azdo upsert 12345 --file ./task-import.md
+
+# JSON output
+azdo upsert 12345 --content $'---\nSystem.Title: Improve markdown import UX\n---' --json
+```
+
+The command requires exactly one source flag:
+
+- `azdo upsert [id] --content <markdown>`
+- `azdo upsert [id] --file <path>`
+
+If `--file` succeeds, the source file is deleted after the Azure DevOps write completes. If parsing, validation, or the API call fails, the file is preserved. If deletion fails after a successful write, the command still succeeds and prints a warning.
+
+### Task Document Format
+
+The document starts with YAML front matter for scalar fields, followed by optional `##` heading sections for markdown rich-text fields.
+
+```md
+---
+Title: Improve markdown import UX
+Assigned To: user@example.com
+State: New
+Tags: cli; markdown
+Priority: null
+---
+
+## Description
+
+Implement a single-command task import flow.
+
+## Acceptance Criteria
+
+- Supports create when no ID is passed
+- Supports update when an ID is passed
+- Deletes imported files only after success
+```
+
+Supported friendly field names:
+
+- `Title`
+- `Assigned To` / `assignedTo`
+- `State`
+- `Description`
+- `Acceptance Criteria` / `acceptanceCriteria`
+- `Tags`
+- `Priority`
+
+Raw Azure DevOps reference names are also accepted anywhere a field name is expected, for example `System.Title` or `Microsoft.VSTS.Common.AcceptanceCriteria`.
+
+Clear semantics:
+
+- Scalar YAML fields with `null` or an empty value are treated as clears on update.
+- Rich-text heading sections with an empty body are treated as clears on update.
+- Omitted fields are untouched on update.
+
+`--json` output shape:
+
+```json
+{
+  "action": "created",
+  "id": 12345,
+  "fields": {
+    "System.Title": "Improve markdown import UX",
+    "System.Description": "Implement a single-command task import flow."
+  }
+}
 ```
 
 ### Configuration

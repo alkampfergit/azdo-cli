@@ -28,6 +28,7 @@ describe("azdo CLI", () => {
     const { stdout, exitCode } = run(["--help"]);
     expect(stdout).toContain("Usage:");
     expect(stdout).toContain("Azure DevOps CLI tool");
+    expect(stdout).toContain("upsert");
     expect(exitCode).toBe(0);
   });
 

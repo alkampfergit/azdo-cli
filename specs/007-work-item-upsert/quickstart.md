@@ -16,7 +16,8 @@ The command expects one markdown document with explicit YAML front matter follow
 Title: Improve markdown import UX
 Assigned To: user@example.com
 State: New
-System.Tags: cli; markdown
+Tags: cli; markdown
+Priority: null
 ---
 
 ## Description
@@ -34,6 +35,8 @@ Rules:
 - Front matter entries are treated as scalar field updates.
 - `##` sections are treated as markdown field updates.
 - Friendly names like `Title`, `Assigned To`, and `Acceptance Criteria` are normalized to Azure DevOps reference names.
+- Friendly names currently supported by the CLI are `Title`, `Assigned To`, `State`, `Description`, `Acceptance Criteria`, `Tags`, and `Priority`.
+- Raw Azure DevOps reference names such as `System.Title` are also accepted.
 - Empty scalar values or `null` request a clear.
 - Present but empty markdown sections request a clear.
 
@@ -41,14 +44,7 @@ Rules:
 
 ```bash
 # Create a new Task from inline content
-azdo upsert --content "---
-Title: Improve CLI docs
-Assigned To: user@example.com
----
-
-## Description
-
-Document the new upsert workflow."
+azdo upsert --content $'---\nTitle: Improve CLI docs\nAssigned To: user@example.com\n---\n\n## Description\n\nDocument the new upsert workflow.'
 
 # Update an existing Task from a file
 azdo upsert 12345 --file ./task-import.md
@@ -56,6 +52,11 @@ azdo upsert 12345 --file ./task-import.md
 # Machine-readable output
 azdo upsert 12345 --file ./task-import.md --json
 ```
+
+File cleanup behavior:
+- Successful `--file` upserts delete the source file after the Azure DevOps response succeeds.
+- Failed upserts leave the source file untouched.
+- If deletion fails after success, the command still reports success and emits a warning.
 
 ## Implementation Steps
 
@@ -68,7 +69,7 @@ azdo upsert 12345 --file ./task-import.md --json
 ## Key Implementation Notes
 
 1. Use `--content` instead of a positional inline document to avoid ambiguity with the optional work item ID.
-2. Use the same empty-string clearing convention already used by `assign --unassign` for explicit clears.
+2. Scalar clears use `null` or an empty YAML value; rich-text clears use an empty `##` section body.
 3. Emit `/multilineFieldsFormat/<field> = Markdown` for every section-derived field so Azure DevOps stores rich-text content as markdown.
 4. Delete `--file` inputs only after the Azure DevOps response confirms success.
 5. Keep the alias table explicit and small; accept raw reference names for everything else.

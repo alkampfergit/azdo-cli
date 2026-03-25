@@ -28,6 +28,31 @@ export function validateOrgProjectPair(options: { org?: string; project?: string
   }
 }
 
+export function validateSource(options: { content?: string; file?: string }): void {
+  const hasContent = options.content !== undefined;
+  const hasFile = options.file !== undefined;
+
+  if (hasContent === hasFile) {
+    process.stderr.write('Error: provide exactly one of --content or --file\n');
+    process.exit(1);
+  }
+}
+
+export function formatCreateError(err: unknown): string {
+  const error = err instanceof Error ? err : new Error(String(err));
+  const message = error.message.startsWith('CREATE_REJECTED:')
+    ? error.message.replace('CREATE_REJECTED:', '').trim()
+    : error.message;
+
+  const requiredMatches = [...message.matchAll(/field ['"]([^'"]+)['"]/gi)];
+  if (requiredMatches.length > 0) {
+    const fields = Array.from(new Set(requiredMatches.map((match) => match[1])));
+    return `Create rejected: ${message} (fields: ${fields.join(', ')})`;
+  }
+
+  return `Create rejected: ${message}`;
+}
+
 /**
  * Handle known Azure DevOps command errors with user-friendly messages.
  */
@@ -62,6 +87,8 @@ export function handleCommandError(
   } else if (msg.startsWith('BAD_REQUEST:')) {
     const serverMsg = msg.replace('BAD_REQUEST: ', '');
     process.stderr.write(`Error: Request rejected: ${serverMsg}\n`);
+  } else if (msg.startsWith('CREATE_REJECTED:')) {
+    process.stderr.write(`Error: ${formatCreateError(error)}\n`);
   } else if (msg.startsWith('UPDATE_REJECTED:')) {
     const serverMsg = msg.replace('UPDATE_REJECTED: ', '');
     process.stderr.write(`Error: Update rejected: ${serverMsg}\n`);
