@@ -124,26 +124,44 @@ function parseScalarFields(frontMatter: string, fields: ParsedField[], seen: Set
 }
 
 function parseRichTextSections(content: string, fields: ParsedField[], seen: Set<string>): void {
-  const headingPattern = /^##[ \t]+(.+?)\s*$/gm;
-  const matches = [...content.matchAll(headingPattern)];
+  const normalizedContent = content.replaceAll('\r\n', '\n');
+  const lines = normalizedContent.split('\n');
+  const headings: Array<{ lineIndex: number; rawName: string }> = [];
 
-  if (matches.length === 0) {
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index];
+    if (!line.startsWith('##')) {
+      continue;
+    }
+
+    const headingBody = line.slice(2);
+    if (headingBody.trim() === '' || !headingBody.startsWith(' ') && !headingBody.startsWith('\t')) {
+      continue;
+    }
+
+    headings.push({
+      lineIndex: index,
+      rawName: headingBody.trim(),
+    });
+  }
+
+  if (headings.length === 0) {
     return;
   }
 
-  const prefix = content.slice(0, matches[0].index);
-  if (prefix.trim() !== '') {
-    throw new Error('Unexpected content before the first markdown heading section');
+  for (let index = 0; index < headings[0].lineIndex; index += 1) {
+    if (lines[index].trim() !== '') {
+      throw new Error('Unexpected content before the first markdown heading section');
+    }
   }
 
-  for (let index = 0; index < matches.length; index += 1) {
-    const match = matches[index];
-    const rawName = match[1].trim();
+  for (let index = 0; index < headings.length; index += 1) {
+    const { lineIndex, rawName } = headings[index];
     const refName = assertKnownField(rawName, 'rich-text');
-    const bodyStart = (match.index ?? 0) + match[0].length;
-    const bodyEnd = index + 1 < matches.length ? matches[index + 1].index ?? content.length : content.length;
-    const rawBody = content.slice(bodyStart, bodyEnd).replace(/^\r?\n/, '');
-    const value = rawBody.trim() === '' ? null : rawBody.replace(/\s+$/u, '');
+    const bodyStart = lineIndex + 1;
+    const bodyEnd = index + 1 < headings.length ? headings[index + 1].lineIndex : lines.length;
+    const rawBody = lines.slice(bodyStart, bodyEnd).join('\n');
+    const value = rawBody.trim() === '' ? null : rawBody.trimEnd();
 
     pushField(fields, seen, refName, value, 'rich-text');
   }
