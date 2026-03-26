@@ -14,7 +14,8 @@
     "lint": "eslint src/",
     "typecheck": "tsc --noEmit",
     "format": "prettier --check src/",
-    "test": "npm run build && vitest run"
+    "test": "npm run build && vitest run tests/unit",
+    "test:integration": "npm run build && vitest run tests/integration"
   },
   "repository": {
     "type": "git",
