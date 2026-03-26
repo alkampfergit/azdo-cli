@@ -83,7 +83,7 @@ function buildExtraFields(
   for (const name of requested) {
     const val = fields[name];
     if (val !== undefined && val !== null) {
-      result[name] = String(val);
+      result[name] = typeof val === 'object' ? JSON.stringify(val) : String(val);
     }
   }
   return Object.keys(result).length > 0 ? result : null;
@@ -155,7 +155,7 @@ export async function getWorkItem(context: AzdoContext, id: number, pat: string,
 
   let combinedDescription: string | null = null;
   if (descriptionParts.length === 1) {
-    combinedDescription = descriptionParts[0].value;
+    combinedDescription = descriptionParts.at(0)?.value ?? null;
   } else if (descriptionParts.length > 1) {
     combinedDescription = descriptionParts
       .map((p) => `<h3>${p.label}</h3>${p.value}`)

@@ -25,26 +25,26 @@ export function stripHtml(html: string): string {
   let text = html;
 
   // Replace headings with labeled newlines
-  text = text.replace(/<h[1-6][^>]*>(.*?)<\/h[1-6]>/gi, '\n--- $1 ---\n');
+  text = text.replaceAll(/<h[1-6][^>]*>(.*?)<\/h[1-6]>/gi, '\n--- $1 ---\n');
 
   // Replace block-level and line-breaking tags with newlines first
-  text = text.replace(/<br\s*\/?>/gi, '\n');
-  text = text.replace(/<\/?(p|div)>/gi, '\n');
-  text = text.replace(/<li>/gi, '\n');
+  text = text.replaceAll(/<br\s*\/?>/gi, '\n');
+  text = text.replaceAll(/<\/?(p|div)>/gi, '\n');
+  text = text.replaceAll(/<li>/gi, '\n');
 
   // Remove all remaining HTML tags
-  text = text.replace(/<[^>]*>/g, '');
+  text = text.replaceAll(/<[^>]*>/g, '');
 
   // Decode common HTML entities
-  text = text.replace(/&amp;/g, '&');
-  text = text.replace(/&lt;/g, '<');
-  text = text.replace(/&gt;/g, '>');
-  text = text.replace(/&quot;/g, '"');
-  text = text.replace(/&#39;/g, "'");
-  text = text.replace(/&nbsp;/g, ' ');
+  text = text.replaceAll('&amp;', '&');
+  text = text.replaceAll('&lt;', '<');
+  text = text.replaceAll('&gt;', '>');
+  text = text.replaceAll('&quot;', '"');
+  text = text.replaceAll('&#39;', "'");
+  text = text.replaceAll('&nbsp;', ' ');
 
   // Collapse multiple consecutive newlines into double newline
-  text = text.replace(/\n{3,}/g, '\n\n');
+  text = text.replaceAll(/\n{3,}/g, '\n\n');
 
   return text.trim();
 }
@@ -70,18 +70,20 @@ function summarizeDescription(text: string, label: (name: string) => string): st
 }
 
 export function formatWorkItem(workItem: WorkItem, short: boolean, markdown: boolean = false): string {
-  const lines: string[] = [];
   const label = (name: string): string => name.padEnd(13);
-
-  lines.push(`${label('ID:')}${workItem.id}`);
-  lines.push(`${label('Type:')}${workItem.type}`);
-  lines.push(`${label('Title:')}${workItem.title}`);
-  lines.push(`${label('State:')}${workItem.state}`);
-  lines.push(`${label('Assigned To:')}${workItem.assignedTo ?? 'Unassigned'}`);
+  const lines: string[] = [
+    `${label('ID:')}${workItem.id}`,
+    `${label('Type:')}${workItem.type}`,
+    `${label('Title:')}${workItem.title}`,
+    `${label('State:')}${workItem.state}`,
+    `${label('Assigned To:')}${workItem.assignedTo ?? 'Unassigned'}`,
+  ];
 
   if (!short) {
-    lines.push(`${label('Area:')}${workItem.areaPath}`);
-    lines.push(`${label('Iteration:')}${workItem.iterationPath}`);
+    lines.push(
+      `${label('Area:')}${workItem.areaPath}`,
+      `${label('Iteration:')}${workItem.iterationPath}`,
+    );
   }
 
   lines.push(`${label('URL:')}${workItem.url}`);
@@ -129,9 +131,9 @@ export function createGetItemCommand(): Command {
           context = resolveContext(options);
           const credential = await resolvePat();
 
-          const fieldsList = options.fields !== undefined
-            ? parseRequestedFields(options.fields)
-            : parseRequestedFields(loadConfig().fields);
+          const fieldsList = options.fields === undefined
+            ? parseRequestedFields(loadConfig().fields)
+            : parseRequestedFields(options.fields);
 
           const workItem = await getWorkItem(context, id, credential.pat, fieldsList);
 

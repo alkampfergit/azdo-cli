@@ -16,7 +16,7 @@ const patterns: RegExp[] = [
 
 export function parseAzdoRemote(url: string): AzdoContext | null {
   for (const pattern of patterns) {
-    const match = url.match(pattern);
+    const match = pattern.exec(url);
     if (match) {
       const project = match[2];
       // DefaultCollection is not a real project — skip this match

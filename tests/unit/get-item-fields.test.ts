@@ -11,8 +11,8 @@ function makeWorkItem(overrides: Partial<WorkItem> = {}): WorkItem {
     type: 'User Story',
     assignedTo: 'Alice',
     description: '<p>Some description</p>',
-    areaPath: 'TestProject\\Area',
-    iterationPath: 'TestProject\\Sprint 1',
+    areaPath: String.raw`TestProject\Area`,
+    iterationPath: String.raw`TestProject\Sprint 1`,
     url: 'https://dev.azure.com/org/project/_workitems/edit/42',
     extraFields: null,
     ...overrides,
@@ -72,7 +72,7 @@ describe('formatWorkItem with extra fields', () => {
     expect(output).toContain('Title:       Test Item');
     expect(output).toContain('State:       Active');
     expect(output).toContain('Assigned To: Alice');
-    expect(output).toContain('Area:        TestProject\\Area');
+    expect(output).toContain(String.raw`Area:        TestProject\Area`);
     expect(output).toContain('Description:');
   });
 
@@ -99,8 +99,8 @@ describe('getWorkItem with extra fields', () => {
           'System.Title': 'Test',
           'System.State': 'Active',
           'System.WorkItemType': 'Bug',
-          'System.AreaPath': 'Project\\Area',
-          'System.IterationPath': 'Project\\Sprint',
+          'System.AreaPath': String.raw`Project\Area`,
+          'System.IterationPath': String.raw`Project\Sprint`,
           'System.Tags': 'tag1, tag2',
         },
         _links: { html: { href: 'https://example.com' } },
@@ -136,8 +136,8 @@ describe('getWorkItem with extra fields', () => {
           'System.Title': 'Test',
           'System.State': 'Active',
           'System.WorkItemType': 'Bug',
-          'System.AreaPath': 'Project\\Area',
-          'System.IterationPath': 'Project\\Sprint',
+          'System.AreaPath': String.raw`Project\Area`,
+          'System.IterationPath': String.raw`Project\Sprint`,
         },
         _links: { html: { href: 'https://example.com' } },
       }),
@@ -171,8 +171,8 @@ describe('getWorkItem with extra fields', () => {
           'System.Title': 'Test',
           'System.State': 'Active',
           'System.WorkItemType': 'Bug',
-          'System.AreaPath': 'Project\\Area',
-          'System.IterationPath': 'Project\\Sprint',
+          'System.AreaPath': String.raw`Project\Area`,
+          'System.IterationPath': String.raw`Project\Sprint`,
         },
         _links: { html: { href: 'https://example.com' } },
       }),
@@ -203,8 +203,8 @@ describe('getWorkItem with extra fields', () => {
           'System.Title': 'Test',
           'System.State': 'Active',
           'System.WorkItemType': 'Bug',
-          'System.AreaPath': 'Project\\Area',
-          'System.IterationPath': 'Project\\Sprint',
+          'System.AreaPath': String.raw`Project\Area`,
+          'System.IterationPath': String.raw`Project\Sprint`,
           'Microsoft.VSTS.Common.Priority': 2,
         },
         _links: { html: { href: 'https://example.com' } },
