@@ -99,8 +99,7 @@ export function formatWorkItem(workItem: WorkItem, short: boolean, markdown: boo
   if (short) {
     lines.push(...summarizeDescription(descriptionText, label));
   } else {
-    lines.push('Description:');
-    lines.push(descriptionText);
+    lines.push('Description:', descriptionText);
   }
 
   return lines.join('\n');

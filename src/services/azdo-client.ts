@@ -75,6 +75,14 @@ interface AzdoWorkItemResponse {
   };
 }
 
+function stringifyFieldValue(value: unknown): string {
+  if (typeof value === 'object' && value !== null) {
+    return JSON.stringify(value);
+  }
+
+  return String(value);
+}
+
 function buildExtraFields(
   fields: Record<string, unknown>,
   requested: string[],
@@ -83,7 +91,7 @@ function buildExtraFields(
   for (const name of requested) {
     const val = fields[name];
     if (val !== undefined && val !== null) {
-      result[name] = typeof val === 'object' ? JSON.stringify(val) : String(val);
+      result[name] = stringifyFieldValue(val);
     }
   }
   return Object.keys(result).length > 0 ? result : null;
@@ -211,7 +219,7 @@ export async function getWorkItemFieldValue(
     return null;
   }
 
-  return typeof value === 'object' ? JSON.stringify(value) : `${value}`;
+  return stringifyFieldValue(value);
 }
 
 export async function updateWorkItem(
@@ -223,8 +231,8 @@ export async function updateWorkItem(
 ): Promise<UpdateResult> {
   const result = await applyWorkItemPatch(context, id, pat, operations);
   const title = result.fields['System.Title'];
-  const lastOp = operations[operations.length - 1];
-  const fieldValue = lastOp.value ?? null;
+  const lastOp = operations.at(-1);
+  const fieldValue = lastOp?.value ?? null;
 
   return {
     id: result.id,
