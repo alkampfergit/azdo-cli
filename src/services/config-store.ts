@@ -6,7 +6,7 @@ import type { CliConfig } from '../types/work-item.js';
 export interface SettingDefinition {
   key: keyof CliConfig;
   description: string;
-  type: 'string' | 'string[]';
+  type: 'string' | 'string[]' | 'boolean';
   example: string;
   required: boolean;
 }
@@ -31,6 +31,13 @@ export const SETTINGS: readonly SettingDefinition[] = [
     description: 'Extra work item fields to include (comma-separated reference names)',
     type: 'string[]',
     example: 'System.Tags,Custom.Priority',
+    required: false,
+  },
+  {
+    key: 'markdown',
+    description: 'Convert rich text fields to markdown on display',
+    type: 'boolean',
+    example: 'true',
     required: false,
   },
 ] as const;
@@ -70,11 +77,11 @@ export function saveConfig(config: CliConfig): void {
 
 function validateKey(key: string): void {
   if (!VALID_KEYS.includes(key)) {
-    throw new Error(`Unknown setting key "${key}". Valid keys: org, project, fields`);
+    throw new Error(`Unknown setting key "${key}". Valid keys: ${VALID_KEYS.join(', ')}`);
   }
 }
 
-export function getConfigValue(key: string): string | string[] | undefined {
+export function getConfigValue(key: string): string | string[] | boolean | undefined {
   validateKey(key);
   const config = loadConfig();
   return config[key as keyof CliConfig];
@@ -86,6 +93,11 @@ export function setConfigValue(key: string, value: string): void {
 
   if (value === '') {
     delete config[key as keyof CliConfig];
+  } else if (key === 'markdown') {
+    if (value !== 'true' && value !== 'false') {
+      throw new Error(`Invalid value "${value}" for markdown. Must be "true" or "false".`);
+    }
+    config.markdown = value === 'true';
   } else if (key === 'fields') {
     config.fields = value.split(',').map((s) => s.trim());
   } else {

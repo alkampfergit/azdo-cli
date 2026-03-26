@@ -26,6 +26,7 @@ export interface CliConfig {
   org?: string;
   project?: string;
   fields?: string[];
+  markdown?: boolean;
 }
 
 export interface JsonPatchOperation {
@@ -40,4 +41,27 @@ export interface UpdateResult {
   title: string;
   fieldName: string;
   fieldValue: string | null;
+}
+
+export interface WriteResult {
+  id: number;
+  rev: number;
+  fields: Record<string, unknown>;
+}
+
+export interface UpsertResult {
+  action: 'created' | 'updated';
+  id: number;
+  fields: Record<string, unknown>;
+}
+
+export interface ParsedField {
+  refName: string;
+  value: string | null;
+  op: 'set' | 'clear';
+  kind: 'scalar' | 'rich-text';
+}
+
+export interface TaskDocument {
+  fields: ParsedField[];
 }

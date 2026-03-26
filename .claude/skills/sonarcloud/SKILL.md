@@ -48,27 +48,37 @@ gh pr checks <pr-number>
 
 ### Step 2 -- Read SonarCloud results
 
-SonarCloud reports via GitHub checks. To get details:
+**Primary method: SonarCloud public API** (most reliable, returns structured JSON):
 
 ```bash
-# Get check runs for the PR's head commit
-gh api repos/{owner}/{repo}/commits/{sha}/check-runs \
-  --jq '.check_runs[] | select(.app.slug == "sonarcloud") | {name, conclusion, output: .output.summary}'
-
-# Get PR comments from SonarCloud bot
-gh api repos/{owner}/{repo}/issues/{pr-number}/comments \
-  --jq '.[] | select(.user.login == "sonarcloud[bot]") | .body'
+# Get all issues for a PR -- no authentication needed for public projects
+curl -s "https://sonarcloud.io/api/issues/search?componentKeys={owner}_{repo}&pullRequest={pr-number}&statuses=OPEN,CONFIRMED&ps=50"
 ```
 
-### Step 3 -- Parse the SonarCloud summary
+This returns structured JSON with full issue details: rule, severity, message, file, line number, effort.
 
-The SonarCloud bot comment typically contains:
-- **Quality Gate** status (Passed/Failed)
-- **New issues** count with breakdown (bugs, vulnerabilities, code smells)
-- **Coverage** on new code
-- **Duplication** on new code
+**Fallback: GitHub check runs** (summary only, no individual issue details):
 
-Extract and present a concise summary to the user.
+```bash
+# IMPORTANT: The app slug is "sonarqubecloud" (NOT "sonarcloud")
+gh api repos/{owner}/{repo}/commits/{sha}/check-runs \
+  --jq '.check_runs[] | select(.app.slug == "sonarqubecloud") | {name, conclusion, summary: .output.summary}'
+```
+
+**Note**: The SonarCloud bot comment may not always be present on PRs. The check run summary and the direct API are more reliable.
+
+### Step 3 -- Parse the results
+
+From the SonarCloud API response, extract for each issue:
+- **rule** -- the SonarCloud rule ID (e.g., `typescript:S3776`)
+- **severity** -- MINOR, MAJOR, CRITICAL
+- **message** -- human-readable description
+- **component** -- file path (strip the `{project_key}:` prefix)
+- **line** -- line number
+- **type** -- BUG, VULNERABILITY, CODE_SMELL
+- **impacts** -- softwareQuality + severity (e.g., MAINTAINABILITY/HIGH)
+
+Present a concise summary table to the user.
 
 ---
 
@@ -148,9 +158,12 @@ When the quality gate fails, check these common causes:
 # Quick check: is the quality gate the only failing check?
 gh pr checks <pr-number>
 
-# Get detailed quality gate status
-gh api repos/{owner}/{repo}/issues/{pr-number}/comments \
-  --jq '.[] | select(.user.login == "sonarcloud[bot]") | .body' | head -50
+# Get detailed quality gate status via SonarCloud API (preferred)
+curl -s "https://sonarcloud.io/api/issues/search?componentKeys={owner}_{repo}&pullRequest={pr-number}&statuses=OPEN,CONFIRMED&ps=50"
+
+# Or via GitHub check runs (summary only, slug is "sonarqubecloud")
+gh api repos/{owner}/{repo}/commits/{sha}/check-runs \
+  --jq '.check_runs[] | select(.app.slug == "sonarqubecloud") | .output.summary'
 ```
 
 ---
@@ -193,9 +206,13 @@ SonarCloud flags duplicated blocks (usually 10+ lines of identical or near-ident
 | Rule | What it means | Typical fix |
 |---|---|---|
 | S1192 | String literal duplication | Extract to constant |
+| S3358 | Nested ternary operations | Extract to if/else or helper function |
 | S3776 | Cognitive complexity too high | Extract helper functions |
 | S1481 | Unused local variable | Remove it |
 | S6551 | Avoid String() on object types | Use explicit toString() or template literal |
+| S6606 | Ternary instead of nullish coalescing | Use `??` operator |
+| S7735 | Unexpected negated condition | Flip condition or use `??` |
+| S7780 | Backslash escaping in strings | Use `String.raw` tagged template |
 | typescript:S107 | Too many parameters | Use options object |
 | Duplication | Code blocks repeated | Extract shared helper |
 

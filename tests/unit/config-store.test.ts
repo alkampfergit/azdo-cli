@@ -99,6 +99,11 @@ describe('getConfigValue', () => {
     saveConfig({ fields: ['System.Tags'] });
     expect(getConfigValue('fields')).toEqual(['System.Tags']);
   });
+
+  it('returns boolean value for markdown', () => {
+    saveConfig({ markdown: true });
+    expect(getConfigValue('markdown')).toBe(true);
+  });
 });
 
 describe('setConfigValue', () => {
@@ -135,6 +140,32 @@ describe('setConfigValue', () => {
     setConfigValue('fields', 'System.Tags');
     setConfigValue('fields', '');
     expect(getConfigValue('fields')).toBeUndefined();
+  });
+
+  it('sets markdown true as boolean', () => {
+    setConfigValue('markdown', 'true');
+    const config = loadConfig();
+    expect(config.markdown).toBe(true);
+    expect(typeof config.markdown).toBe('boolean');
+  });
+
+  it('sets markdown false as boolean', () => {
+    setConfigValue('markdown', 'false');
+    const config = loadConfig();
+    expect(config.markdown).toBe(false);
+    expect(typeof config.markdown).toBe('boolean');
+  });
+
+  it('throws on invalid markdown value', () => {
+    expect(() => setConfigValue('markdown', 'foo')).toThrow(
+      'Invalid value "foo" for markdown',
+    );
+  });
+
+  it('treats empty markdown value as unset', () => {
+    setConfigValue('markdown', 'true');
+    setConfigValue('markdown', '');
+    expect(getConfigValue('markdown')).toBeUndefined();
   });
 
   it('throws on unknown key', () => {
