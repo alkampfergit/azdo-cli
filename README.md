@@ -16,6 +16,7 @@ Azure DevOps CLI focused on work item read/write workflows.
 - Read rich-text fields as markdown (`get-md-field`)
 - Set rich-text fields as markdown from inline text, file, or stdin (`set-md-field`)
 - Persist org/project/default fields in local config (`config`)
+- List all fields of a work item (`list-fields`)
 - Store PAT in OS credential store (or use `AZDO_PAT`)
 
 ## Installation
@@ -64,6 +65,7 @@ azdo upsert --content $'---\nTitle: Improve markdown import UX\nState: New\n---'
 | `azdo upsert [id]` | Create or update a Task from markdown | `--content`, `--file`, `--json`, `--org`, `--project` |
 | `azdo get-md-field <id> <field>` | Get field as markdown | `--org`, `--project` |
 | `azdo set-md-field <id> <field> [content]` | Set markdown field | `--file`, `--json`, `--org`, `--project` |
+| `azdo list-fields <id>` | List all fields of a work item | `--json`, `--org`, `--project` |
 | `azdo config <subcommand>` | Manage saved settings | `set`, `get`, `list`, `unset`, `wizard`, `--json` |
 | `azdo clear-pat` | Remove stored PAT | none |
 
@@ -98,6 +100,16 @@ azdo assign 12345 --unassign
 
 # Set generic field
 azdo set-field 12345 System.Title "Updated title"
+```
+
+### List Fields
+
+```bash
+# List all fields of a work item
+azdo list-fields 12345
+
+# JSON output
+azdo list-fields 12345 --json
 ```
 
 ### Markdown Display
@@ -232,6 +244,7 @@ azdo clear-pat
 ## JSON Output
 
 These commands support `--json` for machine-readable output:
+- `list-fields`
 - `set-state`
 - `assign`
 - `set-field`

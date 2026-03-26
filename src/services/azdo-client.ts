@@ -122,6 +122,34 @@ async function readWriteResponse(response: Response, errorCode: 'CREATE_REJECTED
   };
 }
 
+export async function getWorkItemFields(
+  context: AzdoContext,
+  id: number,
+  pat: string,
+): Promise<Record<string, unknown>> {
+  const url = new URL(
+    `https://dev.azure.com/${encodeURIComponent(context.org)}/${encodeURIComponent(context.project)}/_apis/wit/workitems/${id}`,
+  );
+  url.searchParams.set('api-version', '7.1');
+  url.searchParams.set('$expand', 'all');
+
+  const response = await fetchWithErrors(url.toString(), { headers: authHeaders(pat) });
+
+  if (response.status === 400) {
+    const serverMessage = await readResponseMessage(response);
+    if (serverMessage) {
+      throw new Error(`BAD_REQUEST: ${serverMessage}`);
+    }
+  }
+
+  if (!response.ok) {
+    throw new Error(`HTTP_${response.status}`);
+  }
+
+  const data = (await response.json()) as { fields: Record<string, unknown> };
+  return data.fields;
+}
+
 export async function getWorkItem(context: AzdoContext, id: number, pat: string, extraFields?: string[]): Promise<WorkItem> {
   const url = new URL(
     `https://dev.azure.com/${encodeURIComponent(context.org)}/${encodeURIComponent(context.project)}/_apis/wit/workitems/${id}`,
