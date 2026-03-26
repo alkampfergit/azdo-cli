@@ -127,6 +127,52 @@ function buildUpsertResult(action: 'created' | 'updated', writeResult: WriteResu
   };
 }
 
+function isUpdateWriteError(err: Error): boolean {
+  return (
+    err.message === 'AUTH_FAILED' ||
+    err.message === 'PERMISSION_DENIED' ||
+    err.message === 'NOT_FOUND' ||
+    err.message === 'NETWORK_ERROR' ||
+    err.message.startsWith('BAD_REQUEST:') ||
+    err.message.startsWith('UPDATE_REJECTED:')
+  );
+}
+
+function isCreateWriteError(err: Error): boolean {
+  return (
+    err.message === 'AUTH_FAILED' ||
+    err.message === 'PERMISSION_DENIED' ||
+    err.message === 'NETWORK_ERROR' ||
+    err.message.startsWith('BAD_REQUEST:') ||
+    err.message.startsWith('HTTP_')
+  );
+}
+
+function handleUpsertError(err: unknown, id: number | undefined, context: AzdoContext | undefined): never | void {
+  if (!(err instanceof Error)) {
+    process.stderr.write(`Error: ${String(err)}\n`);
+    process.exit(1);
+  }
+
+  if (id === undefined && err.message.startsWith('CREATE_REJECTED:')) {
+    process.stderr.write(`Error: ${formatCreateError(err)}\n`);
+    process.exit(1);
+  }
+
+  if (id !== undefined && isUpdateWriteError(err)) {
+    handleCommandError(err, id, context, 'write');
+    return;
+  }
+
+  if (id === undefined && isCreateWriteError(err)) {
+    handleCommandError(err, 0, context, 'write');
+    return;
+  }
+
+  process.stderr.write(`Error: ${err.message}\n`);
+  process.exit(1);
+}
+
 export function createUpsertCommand(): Command {
   const command = new Command('upsert');
 
@@ -141,12 +187,13 @@ export function createUpsertCommand(): Command {
     .action(async (idStr: string | undefined, options: UpsertOptions) => {
       validateOrgProjectPair(options);
 
-      const id = idStr !== undefined ? parseWorkItemId(idStr) : undefined;
+      const id = idStr === undefined ? undefined : parseWorkItemId(idStr);
       const { content, sourceFile } = loadSourceContent(options);
 
       let context: AzdoContext | undefined;
 
       try {
+        context = resolveContext(options);
         const document = parseTaskDocument(content);
         const action = id === undefined ? 'created' : 'updated';
 
@@ -155,48 +202,15 @@ export function createUpsertCommand(): Command {
         }
 
         const operations = toPatchOperations(document.fields, action);
-        context = resolveContext(options);
         const credential = await resolvePat();
-
         const writeResult = action === 'created'
           ? await createWorkItem(context, 'Task', credential.pat, operations)
-          : await applyWorkItemPatch(context, id!, credential.pat, operations);
-
+          : await applyWorkItemPatch(context, id, credential.pat, operations);
         const result = buildUpsertResult(action, writeResult, document.fields);
         writeSuccess(result, options);
         cleanupSourceFile(sourceFile);
       } catch (err: unknown) {
-        if (id === undefined && err instanceof Error && err.message.startsWith('CREATE_REJECTED:')) {
-          process.stderr.write(`Error: ${formatCreateError(err)}\n`);
-          process.exit(1);
-        }
-
-        if (id !== undefined && err instanceof Error && (
-          err.message === 'AUTH_FAILED' ||
-          err.message === 'PERMISSION_DENIED' ||
-          err.message === 'NOT_FOUND' ||
-          err.message === 'NETWORK_ERROR' ||
-          err.message.startsWith('BAD_REQUEST:') ||
-          err.message.startsWith('UPDATE_REJECTED:')
-        )) {
-          handleCommandError(err, id, context, 'write');
-          return;
-        }
-
-        if (id === undefined && err instanceof Error && (
-          err.message === 'AUTH_FAILED' ||
-          err.message === 'PERMISSION_DENIED' ||
-          err.message === 'NETWORK_ERROR' ||
-          err.message.startsWith('BAD_REQUEST:') ||
-          err.message.startsWith('HTTP_')
-        )) {
-          handleCommandError(err, 0, context, 'write');
-          return;
-        }
-
-        const message = err instanceof Error ? err.message : String(err);
-        process.stderr.write(`Error: ${message}\n`);
-        process.exit(1);
+        handleUpsertError(err, id, context);
       }
     });
 

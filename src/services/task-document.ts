@@ -20,7 +20,7 @@ const RICH_TEXT_FIELDS = new Set<string>([
 const REFERENCE_NAME_PATTERN = /^[A-Z][A-Za-z0-9]*(\.[A-Za-z0-9]+)+$/;
 
 function normalizeAlias(name: string): string {
-  return name.trim().replace(/\s+/g, ' ').toLowerCase();
+  return name.trim().replaceAll(/\s+/g, ' ').toLowerCase();
 }
 
 function parseScalarValue(rawValue: string | undefined, fieldName: string): string | null {
@@ -52,7 +52,8 @@ function parseFrontMatter(content: string): { frontMatter: string; remainder: st
     return { frontMatter: '', remainder: content };
   }
 
-  const match = content.match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/);
+  const frontMatterPattern = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/;
+  const match = frontMatterPattern.exec(content);
   if (!match) {
     throw new Error('Malformed YAML front matter: missing closing "---"');
   }
