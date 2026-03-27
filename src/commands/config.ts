@@ -6,7 +6,77 @@ import {
   unsetConfigValue,
   loadConfig,
   SETTINGS,
+  type SettingDefinition,
 } from '../services/config-store.js';
+import type { CliConfig } from '../types/work-item.js';
+
+function formatConfigValue(
+  value: CliConfig[keyof CliConfig] | undefined,
+  unsetFallback = '',
+): string | boolean {
+  if (value === undefined) {
+    return unsetFallback;
+  }
+
+  return Array.isArray(value) ? value.join(',') : value;
+}
+
+function writeConfigList(cfg: CliConfig): void {
+  const keyWidth = 10;
+  const valueWidth = 30;
+
+  for (const setting of SETTINGS) {
+    const raw = cfg[setting.key];
+    const value = formatConfigValue(raw, '(not set)');
+    const marker = raw === undefined && setting.required ? ' *' : '';
+    process.stdout.write(
+      `${setting.key.padEnd(keyWidth)}${String(value).padEnd(valueWidth)}${setting.description}${marker}\n`,
+    );
+  }
+
+  const hasUnset = SETTINGS.some((s) => s.required && cfg[s.key] === undefined);
+  if (hasUnset) {
+    process.stdout.write(
+      '\n* = required but not configured. Run "azdo config wizard" to set up.\n',
+    );
+  }
+}
+
+function createAsk(
+  rl: ReturnType<typeof createInterface>,
+): (prompt: string) => Promise<string> {
+  return (prompt: string) => new Promise((resolve) => rl.question(prompt, resolve));
+}
+
+async function promptForSetting(
+  cfg: CliConfig,
+  setting: SettingDefinition,
+  ask: (prompt: string) => Promise<string>,
+): Promise<void> {
+  const currentDisplay = String(formatConfigValue(cfg[setting.key], ''));
+  const requiredTag = setting.required ? ' (required)' : ' (optional)';
+  process.stderr.write(`${setting.description}${requiredTag}\n`);
+  if (setting.example) {
+    process.stderr.write(`  Example: ${setting.example}\n`);
+  }
+
+  const defaultHint = currentDisplay ? ` [${currentDisplay}]` : '';
+  const answer = await ask(`  ${setting.key}${defaultHint}: `);
+  const trimmed = answer.trim();
+
+  if (trimmed) {
+    setConfigValue(setting.key, trimmed);
+    process.stderr.write(`  -> Set "${setting.key}" to "${trimmed}"\n\n`);
+    return;
+  }
+
+  if (currentDisplay) {
+    process.stderr.write(`  -> Kept "${setting.key}" as "${currentDisplay}"\n\n`);
+    return;
+  }
+
+  process.stderr.write(`  -> Skipped "${setting.key}"\n\n`);
+}
 
 export function createConfigCommand(): Command {
   const config = new Command('config');
@@ -74,33 +144,10 @@ export function createConfigCommand(): Command {
 
       if (options.json) {
         process.stdout.write(JSON.stringify(cfg) + '\n');
-      } else {
-        const keyWidth = 10;
-        const valueWidth = 30;
-
-        for (const setting of SETTINGS) {
-          const raw = cfg[setting.key];
-          const value =
-            raw === undefined
-              ? '(not set)'
-              : Array.isArray(raw)
-                ? raw.join(',')
-                : raw;
-          const marker = raw === undefined && setting.required ? ' *' : '';
-          process.stdout.write(
-            `${setting.key.padEnd(keyWidth)}${String(value).padEnd(valueWidth)}${setting.description}${marker}\n`,
-          );
-        }
-
-        const hasUnset = SETTINGS.some(
-          (s) => s.required && cfg[s.key] === undefined,
-        );
-        if (hasUnset) {
-          process.stdout.write(
-            '\n* = required but not configured. Run "azdo config wizard" to set up.\n',
-          );
-        }
+        return;
       }
+
+      writeConfigList(cfg);
     });
 
   const unset = new Command('unset');
@@ -141,39 +188,13 @@ export function createConfigCommand(): Command {
         output: process.stderr,
       });
 
-      const ask = (prompt: string): Promise<string> =>
-        new Promise((resolve) => rl.question(prompt, resolve));
+      const ask = createAsk(rl);
 
       process.stderr.write('Azure DevOps CLI - Configuration Wizard\n');
       process.stderr.write('=======================================\n\n');
 
       for (const setting of SETTINGS) {
-        const current = cfg[setting.key];
-        const currentDisplay =
-          current === undefined
-            ? ''
-            : Array.isArray(current)
-              ? current.join(',')
-              : current;
-
-        const requiredTag = setting.required ? ' (required)' : ' (optional)';
-        process.stderr.write(`${setting.description}${requiredTag}\n`);
-        if (setting.example) {
-          process.stderr.write(`  Example: ${setting.example}\n`);
-        }
-
-        const defaultHint = currentDisplay ? ` [${currentDisplay}]` : '';
-        const answer = await ask(`  ${setting.key}${defaultHint}: `);
-        const trimmed = answer.trim();
-
-        if (trimmed) {
-          setConfigValue(setting.key, trimmed);
-          process.stderr.write(`  -> Set "${setting.key}" to "${trimmed}"\n\n`);
-        } else if (currentDisplay) {
-          process.stderr.write(`  -> Kept "${setting.key}" as "${currentDisplay}"\n\n`);
-        } else {
-          process.stderr.write(`  -> Skipped "${setting.key}"\n\n`);
-        }
+        await promptForSetting(cfg, setting, ask);
       }
 
       rl.close();

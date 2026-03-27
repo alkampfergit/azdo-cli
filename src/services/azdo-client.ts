@@ -18,12 +18,12 @@ const DEFAULT_FIELDS: readonly string[] = [
   'System.IterationPath',
 ];
 
-function authHeaders(pat: string): Record<string, string> {
+export function authHeaders(pat: string): Record<string, string> {
   const token = Buffer.from(`:${pat}`).toString('base64');
   return { Authorization: `Basic ${token}` };
 }
 
-async function fetchWithErrors(url: string, init: RequestInit): Promise<Response> {
+export async function fetchWithErrors(url: string, init: RequestInit): Promise<Response> {
   let response: Response;
   try {
     response = await fetch(url, init);
@@ -75,15 +75,34 @@ interface AzdoWorkItemResponse {
   };
 }
 
+function stringifyFieldValue(value: unknown): string {
+  if (typeof value === 'object' && value !== null) {
+    return JSON.stringify(value);
+  }
+
+  return String(value);
+}
+
 function buildExtraFields(
   fields: Record<string, unknown>,
   requested: string[],
 ): Record<string, string> | null {
   const result: Record<string, string> = {};
   for (const name of requested) {
-    const val = fields[name];
+    let val = fields[name];
+    let resolvedName = name;
+    if (val === undefined) {
+      const nameSuffix = name.split('.').pop()!.toLowerCase();
+      const match = Object.keys(fields).find(
+        (k) => k.split('.').pop()!.toLowerCase() === nameSuffix,
+      );
+      if (match !== undefined) {
+        val = fields[match];
+        resolvedName = match;
+      }
+    }
     if (val !== undefined && val !== null) {
-      result[name] = String(val);
+      result[resolvedName] = stringifyFieldValue(val);
     }
   }
   return Object.keys(result).length > 0 ? result : null;
@@ -112,6 +131,34 @@ async function readWriteResponse(response: Response, errorCode: 'CREATE_REJECTED
     rev: data.rev,
     fields: data.fields,
   };
+}
+
+export async function getWorkItemFields(
+  context: AzdoContext,
+  id: number,
+  pat: string,
+): Promise<Record<string, unknown>> {
+  const url = new URL(
+    `https://dev.azure.com/${encodeURIComponent(context.org)}/${encodeURIComponent(context.project)}/_apis/wit/workitems/${id}`,
+  );
+  url.searchParams.set('api-version', '7.1');
+  url.searchParams.set('$expand', 'all');
+
+  const response = await fetchWithErrors(url.toString(), { headers: authHeaders(pat) });
+
+  if (response.status === 400) {
+    const serverMessage = await readResponseMessage(response);
+    if (serverMessage) {
+      throw new Error(`BAD_REQUEST: ${serverMessage}`);
+    }
+  }
+
+  if (!response.ok) {
+    throw new Error(`HTTP_${response.status}`);
+  }
+
+  const data = (await response.json()) as { fields: Record<string, unknown> };
+  return data.fields;
 }
 
 export async function getWorkItem(context: AzdoContext, id: number, pat: string, extraFields?: string[]): Promise<WorkItem> {
@@ -155,7 +202,7 @@ export async function getWorkItem(context: AzdoContext, id: number, pat: string,
 
   let combinedDescription: string | null = null;
   if (descriptionParts.length === 1) {
-    combinedDescription = descriptionParts[0].value;
+    combinedDescription = descriptionParts.at(0)?.value ?? null;
   } else if (descriptionParts.length > 1) {
     combinedDescription = descriptionParts
       .map((p) => `<h3>${p.label}</h3>${p.value}`)
@@ -211,7 +258,7 @@ export async function getWorkItemFieldValue(
     return null;
   }
 
-  return typeof value === 'object' ? JSON.stringify(value) : `${value}`;
+  return stringifyFieldValue(value);
 }
 
 export async function updateWorkItem(
@@ -223,8 +270,8 @@ export async function updateWorkItem(
 ): Promise<UpdateResult> {
   const result = await applyWorkItemPatch(context, id, pat, operations);
   const title = result.fields['System.Title'];
-  const lastOp = operations[operations.length - 1];
-  const fieldValue = lastOp.value ?? null;
+  const lastOp = operations.at(-1);
+  const fieldValue = lastOp?.value ?? null;
 
   return {
     id: result.id,
