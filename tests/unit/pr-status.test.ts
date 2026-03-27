@@ -25,6 +25,21 @@ import { resolvePat } from '../../src/services/auth.js';
 import { resolveContext } from '../../src/services/context.js';
 
 const run = createCommandRunner(createPrStatusCommand);
+const basePullRequest = {
+  id: 12,
+  repository: 'repo-name',
+  sourceRefName: 'refs/heads/feature/test',
+  targetRefName: 'refs/heads/develop',
+  createdBy: 'Alice',
+  url: 'https://example.test/pr/12',
+} as const;
+
+function makePullRequest(overrides: Partial<typeof basePullRequest> & { title: string; status: string }) {
+  return {
+    ...basePullRequest,
+    ...overrides,
+  };
+}
 
 beforeEach(() => {
   setupProcessSpies();
@@ -46,18 +61,7 @@ describe('pr status command', () => {
   });
 
   it('prints a single pull request in text mode', async () => {
-    vi.mocked(listPullRequests).mockResolvedValue([
-      {
-        id: 12,
-        title: 'Test PR',
-        repository: 'repo-name',
-        sourceRefName: 'refs/heads/feature/test',
-        targetRefName: 'refs/heads/develop',
-        status: 'active',
-        createdBy: 'Alice',
-        url: 'https://example.test/pr/12',
-      },
-    ]);
+    vi.mocked(listPullRequests).mockResolvedValue([makePullRequest({ title: 'Test PR', status: 'active' })]);
 
     await run([]);
 
@@ -70,23 +74,15 @@ describe('pr status command', () => {
   it('prints multiple pull requests in text mode', async () => {
     vi.mocked(listPullRequests).mockResolvedValue([
       {
-        id: 12,
-        title: 'Active PR',
-        repository: 'repo-name',
-        sourceRefName: 'refs/heads/feature/test',
-        targetRefName: 'refs/heads/develop',
-        status: 'active',
-        createdBy: 'Alice',
-        url: 'https://example.test/pr/12',
+        ...makePullRequest({ title: 'Active PR', status: 'active' }),
       },
       {
+        ...makePullRequest({
+          title: 'Completed PR',
+          status: 'completed',
+          targetRefName: 'refs/heads/main',
+        }),
         id: 13,
-        title: 'Completed PR',
-        repository: 'repo-name',
-        sourceRefName: 'refs/heads/feature/test',
-        targetRefName: 'refs/heads/main',
-        status: 'completed',
-        createdBy: 'Alice',
         url: 'https://example.test/pr/13',
       },
     ]);
@@ -99,36 +95,15 @@ describe('pr status command', () => {
   });
 
   it('prints JSON output with --json', async () => {
-    vi.mocked(listPullRequests).mockResolvedValue([
-      {
-        id: 12,
-        title: 'Test PR',
-        repository: 'repo-name',
-        sourceRefName: 'refs/heads/feature/test',
-        targetRefName: 'refs/heads/develop',
-        status: 'active',
-        createdBy: 'Alice',
-        url: 'https://example.test/pr/12',
-      },
-    ]);
+    const pullRequest = makePullRequest({ title: 'Test PR', status: 'active' });
+    vi.mocked(listPullRequests).mockResolvedValue([pullRequest]);
 
     await run(['--json']);
 
     expect(JSON.parse(getStdout())).toEqual({
       branch: 'feature/test',
       repository: 'repo-name',
-      pullRequests: [
-        {
-          id: 12,
-          title: 'Test PR',
-          repository: 'repo-name',
-          sourceRefName: 'refs/heads/feature/test',
-          targetRefName: 'refs/heads/develop',
-          status: 'active',
-          createdBy: 'Alice',
-          url: 'https://example.test/pr/12',
-        },
-      ],
+      pullRequests: [pullRequest],
     });
   });
 

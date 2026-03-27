@@ -12,6 +12,19 @@ import { resolveContext } from '../services/context.js';
 import { validateOrgProjectPair } from '../services/command-helpers.js';
 import { detectRepoName, getCurrentBranch } from '../services/git-remote.js';
 
+interface PrCommandOptions {
+  org?: string;
+  project?: string;
+  json?: boolean;
+}
+
+interface ResolvedPrCommandContext {
+  context: AzdoContext;
+  repo: string;
+  branch: string;
+  pat: string;
+}
+
 function formatBranchName(refName: string): string {
   return refName.startsWith('refs/heads/') ? refName.slice('refs/heads/'.length) : refName;
 }
@@ -60,14 +73,27 @@ function formatThreads(prId: number, title: string, threads: ActiveCommentThread
   const lines = [`Active comments for pull request #${prId}: ${title}`];
 
   for (const thread of threads) {
-    lines.push('');
-    lines.push(`Thread #${thread.id} [${thread.status}] ${thread.threadContext ?? '(general)'}`);
+    lines.push('', `Thread #${thread.id} [${thread.status}] ${thread.threadContext ?? '(general)'}`);
     for (const comment of thread.comments) {
       lines.push(`  ${comment.author ?? 'Unknown'}: ${comment.content}`);
     }
   }
 
   return lines.join('\n');
+}
+
+async function resolvePrCommandContext(options: PrCommandOptions): Promise<ResolvedPrCommandContext> {
+  const context = resolveContext(options);
+  const repo = detectRepoName();
+  const branch = getCurrentBranch();
+  const credential = await resolvePat();
+
+  return {
+    context,
+    repo,
+    branch,
+    pat: credential.pat,
+  };
 }
 
 export function createPrStatusCommand(): Command {
@@ -78,17 +104,17 @@ export function createPrStatusCommand(): Command {
     .option('--org <org>', 'Azure DevOps organization')
     .option('--project <project>', 'Azure DevOps project')
     .option('--json', 'output JSON')
-    .action(async (options: { org?: string; project?: string; json?: boolean }) => {
+    .action(async (options: PrCommandOptions) => {
       validateOrgProjectPair(options);
 
       let context: AzdoContext | undefined;
 
       try {
-        context = resolveContext(options);
-        const repo = detectRepoName();
-        const branch = getCurrentBranch();
-        const credential = await resolvePat();
-        const pullRequests = await listPullRequests(context, repo, credential.pat, branch);
+        const resolved = await resolvePrCommandContext(options);
+        context = resolved.context;
+
+        const pullRequests = await listPullRequests(resolved.context, resolved.repo, resolved.pat, resolved.branch);
+        const { branch, repo } = resolved;
         const result: PullRequestStatusResult = { branch, repository: repo, pullRequests };
 
         if (options.json) {
@@ -142,15 +168,21 @@ export function createPrOpenCommand(): Command {
       let context: AzdoContext | undefined;
 
       try {
-        context = resolveContext(options);
-        const repo = detectRepoName();
-        const branch = getCurrentBranch();
-        if (branch === 'develop') {
+        const resolved = await resolvePrCommandContext(options);
+        context = resolved.context;
+
+        if (resolved.branch === 'develop') {
           writeError('Pull request creation requires a source branch other than develop.');
         }
 
-        const credential = await resolvePat();
-        const result = await openPullRequest(context, repo, credential.pat, branch, title, description);
+        const result = await openPullRequest(
+          resolved.context,
+          resolved.repo,
+          resolved.pat,
+          resolved.branch,
+          title,
+          description,
+        );
 
         if (options.json) {
           process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
@@ -163,7 +195,7 @@ export function createPrOpenCommand(): Command {
         }
 
         process.stdout.write(
-          `Active pull request already exists for ${branch} -> develop: #${result.pullRequest.id}\n${result.pullRequest.url}\n`,
+          `Active pull request already exists for ${resolved.branch} -> develop: #${result.pullRequest.id}\n${result.pullRequest.url}\n`,
         );
       } catch (err) {
         if (err instanceof Error && err.message.startsWith('AMBIGUOUS_PRS:')) {
@@ -186,30 +218,31 @@ export function createPrCommentsCommand(): Command {
     .option('--org <org>', 'Azure DevOps organization')
     .option('--project <project>', 'Azure DevOps project')
     .option('--json', 'output JSON')
-    .action(async (options: { org?: string; project?: string; json?: boolean }) => {
+    .action(async (options: PrCommandOptions) => {
       validateOrgProjectPair(options);
 
       let context: AzdoContext | undefined;
 
       try {
-        context = resolveContext(options);
-        const repo = detectRepoName();
-        const branch = getCurrentBranch();
-        const credential = await resolvePat();
-        const pullRequests = await listPullRequests(context, repo, credential.pat, branch, { status: 'active' });
+        const resolved = await resolvePrCommandContext(options);
+        context = resolved.context;
+
+        const pullRequests = await listPullRequests(resolved.context, resolved.repo, resolved.pat, resolved.branch, {
+          status: 'active',
+        });
 
         if (pullRequests.length === 0) {
-          writeError(`No active pull request found for branch ${branch}.`);
+          writeError(`No active pull request found for branch ${resolved.branch}.`);
         }
 
         if (pullRequests.length > 1) {
           const ids = pullRequests.map((pullRequest) => `#${pullRequest.id}`).join(', ');
-          writeError(`Multiple active pull requests found for branch ${branch}: ${ids}. Use pr status to review them.`);
+          writeError(`Multiple active pull requests found for branch ${resolved.branch}: ${ids}. Use pr status to review them.`);
         }
 
         const pullRequest = pullRequests[0];
-        const threads = await getPullRequestThreads(context, repo, credential.pat, pullRequest.id);
-        const result: PullRequestCommentsResult = { branch, pullRequest, threads };
+        const threads = await getPullRequestThreads(resolved.context, resolved.repo, resolved.pat, pullRequest.id);
+        const result: PullRequestCommentsResult = { branch: resolved.branch, pullRequest, threads };
 
         if (options.json) {
           process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);

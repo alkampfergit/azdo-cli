@@ -26,6 +26,25 @@ import { resolvePat } from '../../src/services/auth.js';
 import { resolveContext } from '../../src/services/context.js';
 
 const run = createCommandRunner(createPrCommentsCommand);
+const basePullRequest = {
+  id: 12,
+  title: 'Test PR',
+  repository: 'repo-name',
+  sourceRefName: 'refs/heads/feature/test',
+  targetRefName: 'refs/heads/develop',
+  status: 'active',
+  createdBy: 'Alice',
+  url: 'https://example.test/pr/12',
+} as const;
+
+function makePullRequest(
+  overrides: Partial<typeof basePullRequest> & Pick<typeof basePullRequest, 'title' | 'status'>,
+) {
+  return {
+    ...basePullRequest,
+    ...overrides,
+  };
+}
 
 beforeEach(() => {
   setupProcessSpies();
@@ -33,18 +52,7 @@ beforeEach(() => {
   vi.mocked(resolvePat).mockResolvedValue({ pat: 'test-pat', source: 'env' });
   vi.mocked(detectRepoName).mockReturnValue('repo-name');
   vi.mocked(getCurrentBranch).mockReturnValue('feature/test');
-  vi.mocked(listPullRequests).mockResolvedValue([
-    {
-      id: 12,
-      title: 'Test PR',
-      repository: 'repo-name',
-      sourceRefName: 'refs/heads/feature/test',
-      targetRefName: 'refs/heads/develop',
-      status: 'active',
-      createdBy: 'Alice',
-      url: 'https://example.test/pr/12',
-    },
-  ]);
+  vi.mocked(listPullRequests).mockResolvedValue([basePullRequest]);
   vi.mocked(getPullRequestThreads).mockResolvedValue([]);
 });
 
@@ -62,24 +70,10 @@ describe('pr comments command', () => {
 
   it('fails when multiple active pull requests exist', async () => {
     vi.mocked(listPullRequests).mockResolvedValue([
+      makePullRequest({ title: 'PR 1', status: 'active' }),
       {
-        id: 12,
-        title: 'PR 1',
-        repository: 'repo-name',
-        sourceRefName: 'refs/heads/feature/test',
-        targetRefName: 'refs/heads/develop',
-        status: 'active',
-        createdBy: 'Alice',
-        url: 'https://example.test/pr/12',
-      },
-      {
+        ...makePullRequest({ title: 'PR 2', status: 'active' }),
         id: 13,
-        title: 'PR 2',
-        repository: 'repo-name',
-        sourceRefName: 'refs/heads/feature/test',
-        targetRefName: 'refs/heads/develop',
-        status: 'active',
-        createdBy: 'Alice',
         url: 'https://example.test/pr/13',
       },
     ]);
@@ -141,16 +135,7 @@ describe('pr comments command', () => {
 
     expect(JSON.parse(getStdout())).toEqual({
       branch: 'feature/test',
-      pullRequest: {
-        id: 12,
-        title: 'Test PR',
-        repository: 'repo-name',
-        sourceRefName: 'refs/heads/feature/test',
-        targetRefName: 'refs/heads/develop',
-        status: 'active',
-        createdBy: 'Alice',
-        url: 'https://example.test/pr/12',
-      },
+      pullRequest: basePullRequest,
       threads: [
         {
           id: 100,
