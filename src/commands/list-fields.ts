@@ -32,24 +32,6 @@ export function formatFieldList(fields: Record<string, unknown>): string {
 
   return entries
     .map(([key, value]) => {
-      const display = stringifyValue(value);
-      const truncated = display.length > 120 ? display.slice(0, 117) + '...' : display;
-      return `${key.padEnd(maxKeyLen + 2)}${truncated}`;
-    })
-    .join('\n');
-}
-
-export function formatFieldListWithValues(fields: Record<string, unknown>): string {
-  const entries = Object.entries(fields)
-    .sort(([a], [b]) => a.localeCompare(b));
-
-  const maxKeyLen = Math.min(
-    Math.max(...entries.map(([k]) => k.length)),
-    50,
-  );
-
-  return entries
-    .map(([key, value]) => {
       const raw = stringifyValue(value);
       if (raw === '') return `${key.padEnd(maxKeyLen + 2)}(empty)`;
       if (typeof value === 'string' && isHtml(value)) {
@@ -69,12 +51,11 @@ export function createListFieldsCommand(): Command {
     .argument('<id>', 'work item ID')
     .option('--org <org>', 'Azure DevOps organization')
     .option('--project <project>', 'Azure DevOps project')
-    .option('--values', 'show field values (rich text fields show first 5 lines)')
     .option('--json', 'output result as JSON')
     .action(
       async (
         idStr: string,
-        options: { org?: string; project?: string; values?: boolean; json?: boolean },
+        options: { org?: string; project?: string; json?: boolean },
       ) => {
         const id = parseWorkItemId(idStr);
         validateOrgProjectPair(options);
@@ -91,11 +72,7 @@ export function createListFieldsCommand(): Command {
             process.stdout.write(JSON.stringify({ id, fields }, null, 2) + '\n');
           } else {
             process.stdout.write(`Work Item ${id} — ${Object.keys(fields).length} fields\n\n`);
-            if (options.values) {
-              process.stdout.write(formatFieldListWithValues(fields) + '\n');
-            } else {
-              process.stdout.write(formatFieldList(fields) + '\n');
-            }
+            process.stdout.write(formatFieldList(fields) + '\n');
           }
         } catch (err: unknown) {
           handleCommandError(err, id, context, 'read');

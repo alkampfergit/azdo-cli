@@ -107,7 +107,7 @@ azdo set-field 12345 System.Title "Updated title"
 ### List Fields
 
 ```bash
-# List all fields of a work item
+# List all fields with values (rich text fields preview first 5 lines)
 azdo list-fields 12345
 
 # JSON output

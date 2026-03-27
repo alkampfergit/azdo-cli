@@ -131,11 +131,19 @@ describe('formatFieldList', () => {
     expect(lines[1]).toContain('Test');
   });
 
-  it('truncates long values', () => {
+  it('shows full value without truncation', () => {
     const longValue = 'x'.repeat(200);
-    const result = formatFieldList({ 'System.Description': longValue });
-    expect(result).toContain('...');
-    expect(result.length).toBeLessThan(200);
+    const result = formatFieldList({ 'System.CustomField': longValue });
+    expect(result).toContain(longValue);
+    expect(result).not.toContain('...');
+  });
+
+  it('converts rich text HTML to markdown preview with first 5 lines', () => {
+    const html = '<p>Line 1</p><p>Line 2</p><p>Line 3</p><p>Line 4</p><p>Line 5</p><p>Line 6</p>';
+    const result = formatFieldList({ 'System.Description': html });
+    expect(result).toContain('[rich text]');
+    expect(result).toContain('Line 1');
+    expect(result).toContain('more lines');
   });
 
   it('stringifies object values as JSON', () => {
@@ -145,10 +153,11 @@ describe('formatFieldList', () => {
     expect(result).toContain('{"displayName":"User"}');
   });
 
-  it('handles null and undefined values', () => {
+  it('shows (empty) for null and undefined values', () => {
     const result = formatFieldList({
       'System.Description': null,
     });
     expect(result).toContain('System.Description');
+    expect(result).toContain('(empty)');
   });
 });
