@@ -15,6 +15,7 @@ Azure DevOps CLI focused on work item read/write workflows.
 - Create or update Tasks from markdown documents (`upsert`)
 - Read rich-text fields as markdown (`get-md-field`)
 - Set rich-text fields as markdown from inline text, file, or stdin (`set-md-field`)
+- Check branch pull request status, open PRs to `develop`, and review active comments (`pr`)
 - Persist org/project/default fields in local config (`config`)
 - List all fields of a work item (`list-fields`)
 - Store PAT in OS credential store (or use `AZDO_PAT`)
@@ -66,6 +67,7 @@ azdo upsert --content $'---\nTitle: Improve markdown import UX\nState: New\n---'
 | `azdo get-md-field <id> <field>` | Get field as markdown | `--org`, `--project` |
 | `azdo set-md-field <id> <field> [content]` | Set markdown field | `--file`, `--json`, `--org`, `--project` |
 | `azdo list-fields <id>` | List all fields of a work item | `--json`, `--org`, `--project` |
+| `azdo pr <subcommand>` | Manage pull requests for the current branch | `status`, `open`, `comments`, `--json`, `--org`, `--project` |
 | `azdo config <subcommand>` | Manage saved settings | `set`, `get`, `list`, `unset`, `wizard`, `--json` |
 | `azdo clear-pat` | Remove stored PAT | none |
 
@@ -135,6 +137,43 @@ azdo set-md-field 12345 System.Description --file ./description.md
 # Set markdown from stdin
 cat description.md | azdo set-md-field 12345 System.Description
 ```
+
+### Pull Request Commands
+
+The `pr` command group uses the current git branch and the Azure DevOps `origin` remote automatically. It requires a PAT with `Code (Read)` scope for read operations and `Code (Read & Write)` for pull request creation.
+
+```bash
+# Check whether the current branch already has pull requests
+azdo pr status
+
+# Open a pull request to develop
+azdo pr open --title "Add PR handling" --description "Implements pr status, pr open, pr comments commands"
+
+# Review active comments for the current branch's active pull request
+azdo pr comments
+```
+
+`azdo pr status`
+
+- Lists all pull requests for the current branch, including active, completed, and abandoned PRs
+- Prints `No pull requests found for branch <branch>.` when no PRs exist
+- Supports `--json` for machine-readable output
+
+`azdo pr open`
+
+- Requires both `--title <title>` and `--description <description>`
+- Targets `develop` automatically
+- Creates a new active pull request when none exists
+- Reuses the existing active PR when one already matches the branch and target
+- Fails with a clear error when run from `develop` or when multiple active PRs already exist
+
+`azdo pr comments`
+
+- Resolves the single active pull request for the current branch
+- Returns only active or pending threads with visible, non-deleted comments
+- Groups text output by thread and shows file context when available
+- Prints `Pull request #<id> has no active comments.` when the PR has no active comment threads
+- Fails instead of guessing when no active PR or multiple active PRs exist
 
 ## azdo upsert
 

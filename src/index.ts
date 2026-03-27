@@ -10,6 +10,7 @@ import { createGetMdFieldCommand } from "./commands/get-md-field.js";
 import { createSetMdFieldCommand } from "./commands/set-md-field.js";
 import { createUpsertCommand } from "./commands/upsert.js";
 import { createListFieldsCommand } from "./commands/list-fields.js";
+import { createPrCommand } from "./commands/pr.js";
 
 const program = new Command();
 
@@ -25,6 +26,7 @@ program.addCommand(createGetMdFieldCommand());
 program.addCommand(createSetMdFieldCommand());
 program.addCommand(createUpsertCommand());
 program.addCommand(createListFieldsCommand());
+program.addCommand(createPrCommand());
 
 program.showHelpAfterError();
 

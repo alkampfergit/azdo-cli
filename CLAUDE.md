@@ -1,6 +1,6 @@
 # azdo-cli Development Guidelines
 
-Auto-generated from all feature plans. Last updated: 2026-03-05
+Auto-generated from all feature plans. Last updated: 2026-03-27
 
 ## Active Technologies
 - TypeScript 5.x (strict mode) on Node.js LTS (18+) + commander.js (existing), @napi-rs/keyring (new - cross-platform OS credential store) (002-get-item-command)
@@ -13,6 +13,8 @@ Auto-generated from all feature plans. Last updated: 2026-03-05
 - N/A (reads/writes to Azure DevOps API) (005-md-field-commands)
 - TypeScript 5.x (strict mode) + commander.js (CLI framework), node-html-markdown (HTML→MD, existing) (006-auto-md-display)
 - `~/.azdo/config.json` (existing config file, new `markdown` boolean key) (006-auto-md-display)
+- TypeScript 5.x (strict mode), Node.js LTS (18+) + commander.js (CLI), native `fetch` (HTTP), `node:child_process` execSync (git commands) — all existing (008-pull-request-handling)
+- N/A (reads and writes to Azure DevOps API only) (008-pull-request-handling)
 
 - TypeScript 5.x (strict mode) on Node.js LTS + commander.js (CLI framework), tsup (bundler) (001-azdo-cli-base)
 
@@ -32,9 +34,9 @@ npm test && npm run lint
 TypeScript 5.x (strict mode) on Node.js LTS: Follow standard conventions
 
 ## Recent Changes
+- 008-pull-request-handling: Added TypeScript 5.x (strict mode), Node.js LTS (18+) + commander.js (CLI), native `fetch` (HTTP), `node:child_process` execSync (git commands) — all existing
 - 006-auto-md-display: Added TypeScript 5.x (strict mode) + commander.js (CLI framework), node-html-markdown (HTML→MD, existing)
 - 005-md-field-commands: Added TypeScript 5.x (strict mode) on Node.js LTS + commander.js (CLI framework), node-html-markdown (HTML→MD conversion, zero deps, native TS)
-- 004-update-work-item: Added TypeScript 5.x (strict mode) + commander.js (CLI framework), @napi-rs/keyring (credential store) - both existing
 
 
 <!-- MANUAL ADDITIONS START -->
