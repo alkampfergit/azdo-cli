@@ -89,9 +89,20 @@ function buildExtraFields(
 ): Record<string, string> | null {
   const result: Record<string, string> = {};
   for (const name of requested) {
-    const val = fields[name];
+    let val = fields[name];
+    let resolvedName = name;
+    if (val === undefined) {
+      const nameSuffix = name.split('.').pop()!.toLowerCase();
+      const match = Object.keys(fields).find(
+        (k) => k.split('.').pop()!.toLowerCase() === nameSuffix,
+      );
+      if (match !== undefined) {
+        val = fields[match];
+        resolvedName = match;
+      }
+    }
     if (val !== undefined && val !== null) {
-      result[name] = stringifyFieldValue(val);
+      result[resolvedName] = stringifyFieldValue(val);
     }
   }
   return Object.keys(result).length > 0 ? result : null;
