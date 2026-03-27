@@ -18,12 +18,12 @@ const DEFAULT_FIELDS: readonly string[] = [
   'System.IterationPath',
 ];
 
-function authHeaders(pat: string): Record<string, string> {
+export function authHeaders(pat: string): Record<string, string> {
   const token = Buffer.from(`:${pat}`).toString('base64');
   return { Authorization: `Basic ${token}` };
 }
 
-async function fetchWithErrors(url: string, init: RequestInit): Promise<Response> {
+export async function fetchWithErrors(url: string, init: RequestInit): Promise<Response> {
   let response: Response;
   try {
     response = await fetch(url, init);

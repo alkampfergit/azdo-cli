@@ -1,0 +1,240 @@
+import { Command } from 'commander';
+import type {
+  ActiveCommentThread,
+  BranchPullRequestMatch,
+  PullRequestCommentsResult,
+  PullRequestStatusResult,
+} from '../types/pull-request.js';
+import type { AzdoContext } from '../types/work-item.js';
+import { listPullRequests, openPullRequest, getPullRequestThreads } from '../services/pr-client.js';
+import { resolvePat } from '../services/auth.js';
+import { resolveContext } from '../services/context.js';
+import { validateOrgProjectPair } from '../services/command-helpers.js';
+import { detectRepoName, getCurrentBranch } from '../services/git-remote.js';
+
+function formatBranchName(refName: string): string {
+  return refName.startsWith('refs/heads/') ? refName.slice('refs/heads/'.length) : refName;
+}
+
+function writeError(message: string): never {
+  process.stderr.write(`Error: ${message}\n`);
+  process.exit(1);
+}
+
+function handlePrCommandError(err: unknown, context?: AzdoContext, mode: 'read' | 'write' = 'read'): void {
+  const error = err instanceof Error ? err : new Error(String(err));
+
+  if (error.message === 'AUTH_FAILED') {
+    const scopeLabel = mode === 'write' ? 'Code (Read & Write)' : 'Code (Read)';
+    writeError(`Authentication failed. Check that your PAT is valid and has the "${scopeLabel}" scope.`);
+  }
+
+  if (error.message === 'PERMISSION_DENIED') {
+    writeError(`Access denied. Your PAT may lack ${mode} permissions for project "${context?.project}".`);
+  }
+
+  if (error.message === 'NETWORK_ERROR') {
+    writeError('Could not connect to Azure DevOps. Check your network connection.');
+  }
+
+  if (error.message === 'NOT_FOUND') {
+    writeError(`Azure DevOps repository not found in ${context?.org}/${context?.project}.`);
+  }
+
+  if (error.message.startsWith('HTTP_')) {
+    writeError(`Azure DevOps request failed with ${error.message}.`);
+  }
+
+  writeError(error.message);
+}
+
+function formatPullRequestBlock(pullRequest: BranchPullRequestMatch): string {
+  return [
+    `#${pullRequest.id} [${pullRequest.status}] ${pullRequest.title}`,
+    `${formatBranchName(pullRequest.sourceRefName)} -> ${formatBranchName(pullRequest.targetRefName)}`,
+    pullRequest.url,
+  ].join('\n');
+}
+
+function formatThreads(prId: number, title: string, threads: ActiveCommentThread[]): string {
+  const lines = [`Active comments for pull request #${prId}: ${title}`];
+
+  for (const thread of threads) {
+    lines.push('');
+    lines.push(`Thread #${thread.id} [${thread.status}] ${thread.threadContext ?? '(general)'}`);
+    for (const comment of thread.comments) {
+      lines.push(`  ${comment.author ?? 'Unknown'}: ${comment.content}`);
+    }
+  }
+
+  return lines.join('\n');
+}
+
+export function createPrStatusCommand(): Command {
+  const command = new Command('status');
+
+  command
+    .description('Check pull requests for the current branch')
+    .option('--org <org>', 'Azure DevOps organization')
+    .option('--project <project>', 'Azure DevOps project')
+    .option('--json', 'output JSON')
+    .action(async (options: { org?: string; project?: string; json?: boolean }) => {
+      validateOrgProjectPair(options);
+
+      let context: AzdoContext | undefined;
+
+      try {
+        context = resolveContext(options);
+        const repo = detectRepoName();
+        const branch = getCurrentBranch();
+        const credential = await resolvePat();
+        const pullRequests = await listPullRequests(context, repo, credential.pat, branch);
+        const result: PullRequestStatusResult = { branch, repository: repo, pullRequests };
+
+        if (options.json) {
+          process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+          return;
+        }
+
+        if (pullRequests.length === 0) {
+          process.stdout.write(`No pull requests found for branch ${branch}.\n`);
+          return;
+        }
+
+        process.stdout.write(`${pullRequests.map(formatPullRequestBlock).join('\n\n')}\n`);
+      } catch (err) {
+        handlePrCommandError(err, context, 'read');
+      }
+    });
+
+  return command;
+}
+
+export function createPrOpenCommand(): Command {
+  const command = new Command('open');
+
+  command
+    .description('Open a pull request from the current branch to develop')
+    .option('--title <title>', 'pull request title')
+    .option('--description <description>', 'pull request description')
+    .option('--org <org>', 'Azure DevOps organization')
+    .option('--project <project>', 'Azure DevOps project')
+    .option('--json', 'output JSON')
+    .action(async (options: {
+      title?: string;
+      description?: string;
+      org?: string;
+      project?: string;
+      json?: boolean;
+    }) => {
+      validateOrgProjectPair(options);
+
+      const title = options.title?.trim();
+      if (!title) {
+        writeError('--title is required for pull request creation.');
+      }
+
+      const description = options.description?.trim();
+      if (!description) {
+        writeError('--description is required for pull request creation.');
+      }
+
+      let context: AzdoContext | undefined;
+
+      try {
+        context = resolveContext(options);
+        const repo = detectRepoName();
+        const branch = getCurrentBranch();
+        if (branch === 'develop') {
+          writeError('Pull request creation requires a source branch other than develop.');
+        }
+
+        const credential = await resolvePat();
+        const result = await openPullRequest(context, repo, credential.pat, branch, title, description);
+
+        if (options.json) {
+          process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+          return;
+        }
+
+        if (result.created) {
+          process.stdout.write(`Created pull request #${result.pullRequest.id}: ${result.pullRequest.title}\n${result.pullRequest.url}\n`);
+          return;
+        }
+
+        process.stdout.write(
+          `Active pull request already exists for ${branch} -> develop: #${result.pullRequest.id}\n${result.pullRequest.url}\n`,
+        );
+      } catch (err) {
+        if (err instanceof Error && err.message.startsWith('AMBIGUOUS_PRS:')) {
+          const ids = err.message.replace('AMBIGUOUS_PRS:', '').split(',').map((id) => `#${id}`).join(', ');
+          writeError(`Multiple active pull requests already exist for this branch targeting develop: ${ids}. Use pr status to review them.`);
+        }
+
+        handlePrCommandError(err, context, 'write');
+      }
+    });
+
+  return command;
+}
+
+export function createPrCommentsCommand(): Command {
+  const command = new Command('comments');
+
+  command
+    .description('List active pull request comments for the current branch')
+    .option('--org <org>', 'Azure DevOps organization')
+    .option('--project <project>', 'Azure DevOps project')
+    .option('--json', 'output JSON')
+    .action(async (options: { org?: string; project?: string; json?: boolean }) => {
+      validateOrgProjectPair(options);
+
+      let context: AzdoContext | undefined;
+
+      try {
+        context = resolveContext(options);
+        const repo = detectRepoName();
+        const branch = getCurrentBranch();
+        const credential = await resolvePat();
+        const pullRequests = await listPullRequests(context, repo, credential.pat, branch, { status: 'active' });
+
+        if (pullRequests.length === 0) {
+          writeError(`No active pull request found for branch ${branch}.`);
+        }
+
+        if (pullRequests.length > 1) {
+          const ids = pullRequests.map((pullRequest) => `#${pullRequest.id}`).join(', ');
+          writeError(`Multiple active pull requests found for branch ${branch}: ${ids}. Use pr status to review them.`);
+        }
+
+        const pullRequest = pullRequests[0];
+        const threads = await getPullRequestThreads(context, repo, credential.pat, pullRequest.id);
+        const result: PullRequestCommentsResult = { branch, pullRequest, threads };
+
+        if (options.json) {
+          process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+          return;
+        }
+
+        if (threads.length === 0) {
+          process.stdout.write(`Pull request #${pullRequest.id} has no active comments.\n`);
+          return;
+        }
+
+        process.stdout.write(`${formatThreads(pullRequest.id, pullRequest.title, threads)}\n`);
+      } catch (err) {
+        handlePrCommandError(err, context, 'read');
+      }
+    });
+
+  return command;
+}
+
+export function createPrCommand(): Command {
+  const command = new Command('pr');
+  command.description('Manage Azure DevOps pull requests');
+  command.addCommand(createPrStatusCommand());
+  command.addCommand(createPrOpenCommand());
+  command.addCommand(createPrCommentsCommand());
+  return command;
+}
