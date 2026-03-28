@@ -32,7 +32,7 @@ import {
 describe.skipIf(SKIP_AZDO)('work items integration', () => {
   const context = makeContext();
   const pat = AZDO_PAT;
-  const title = testItemTitle('work-items suite');
+  const title = testItemTitle('work-items: CRUD operations on Task work items');
   let createdId: number;
 
   // ── Setup ────────────────────────────────────────────────────────────────
@@ -72,7 +72,7 @@ describe.skipIf(SKIP_AZDO)('work items integration', () => {
 
     it('returns the revision number starting at 1', async () => {
       const result = await createWorkItem(context, 'Task', pat, [
-        { op: 'add', path: '/fields/System.Title', value: testItemTitle('create-rev-check') },
+        { op: 'add', path: '/fields/System.Title', value: testItemTitle('work-items: verify revision starts at 1 on create') },
       ]);
       expect(result.rev).toBeGreaterThanOrEqual(1);
       // Best-effort cleanup
@@ -84,7 +84,7 @@ describe.skipIf(SKIP_AZDO)('work items integration', () => {
     });
 
     it('stores the provided title in the fields map', async () => {
-      const uniqueTitle = testItemTitle('title-verify');
+      const uniqueTitle = testItemTitle('work-items: verify title stored in fields map');
       const result = await createWorkItem(context, 'Task', pat, [
         { op: 'add', path: '/fields/System.Title', value: uniqueTitle },
       ]);
@@ -203,7 +203,7 @@ describe.skipIf(SKIP_AZDO)('work items integration', () => {
 
   describe('applyWorkItemPatch', () => {
     it('updates System.Title and returns the new revision', async () => {
-      const newTitle = testItemTitle('patched-title');
+      const newTitle = testItemTitle('work-items: applyWorkItemPatch updates title');
       const result = await applyWorkItemPatch(context, createdId, pat, [
         { op: 'add', path: '/fields/System.Title', value: newTitle },
       ]);
@@ -228,7 +228,7 @@ describe.skipIf(SKIP_AZDO)('work items integration', () => {
 
   describe('updateWorkItem', () => {
     it('returns an UpdateResult with the correct field name and updated value', async () => {
-      const updatedTitle = testItemTitle('update-wi');
+      const updatedTitle = testItemTitle('work-items: updateWorkItem returns UpdateResult');
       const result = await updateWorkItem(context, createdId, pat, 'System.Title', [
         { op: 'add', path: '/fields/System.Title', value: updatedTitle },
       ]);

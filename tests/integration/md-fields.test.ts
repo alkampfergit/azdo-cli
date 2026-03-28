@@ -23,7 +23,8 @@ import {
   getWorkItemFieldValue,
   updateWorkItem,
 } from '../../src/services/azdo-client.js';
-import { toMarkdown } from '../../src/services/md-convert.js';
+import { htmlToMarkdown, toMarkdown } from '../../src/services/md-convert.js';
+import { isHtml } from '../../src/services/html-detect.js';
 import {
   AZDO_PAT,
   SKIP_AZDO,
@@ -40,7 +41,7 @@ describe.skipIf(SKIP_AZDO)('md-fields integration', () => {
 
   beforeAll(async () => {
     const result = await createWorkItem(context, 'Task', pat, [
-      { op: 'add', path: '/fields/System.Title', value: testItemTitle('md-fields suite') },
+      { op: 'add', path: '/fields/System.Title', value: testItemTitle('md-fields: HTML and Markdown field round-trip tests') },
     ]);
     createdId = result.id;
   });
@@ -136,6 +137,32 @@ describe.skipIf(SKIP_AZDO)('md-fields integration', () => {
       const md = toMarkdown(raw!);
       expect(md).toContain('alpha');
       expect(md).toContain('beta');
+    });
+  });
+
+  // ── isHtml detection on real API data ──────────────────────────────────────
+
+  describe('isHtml on real Azure DevOps field values', () => {
+    it('detects HTML content returned by the API after setting an HTML field', async () => {
+      await updateWorkItem(context, createdId, pat, 'System.Description', [
+        { op: 'add', path: '/fields/System.Description', value: '<p>HTML content</p>' },
+      ]);
+
+      const value = await getWorkItemFieldValue(context, createdId, pat, 'System.Description');
+      expect(value).not.toBeNull();
+      expect(isHtml(value!)).toBe(true);
+    });
+
+    it('htmlToMarkdown converts real API HTML to clean markdown', async () => {
+      await updateWorkItem(context, createdId, pat, 'System.Description', [
+        { op: 'add', path: '/fields/System.Description', value: '<h2>Heading</h2><p>Paragraph with <strong>bold</strong>.</p>' },
+      ]);
+
+      const value = await getWorkItemFieldValue(context, createdId, pat, 'System.Description');
+      const md = htmlToMarkdown(value!);
+      expect(md).toContain('Heading');
+      expect(md).toContain('bold');
+      expect(md).not.toContain('<p>');
     });
   });
 

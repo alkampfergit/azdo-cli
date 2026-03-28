@@ -32,7 +32,7 @@ import {
 describe.skipIf(SKIP_AZDO)('list-fields integration', () => {
   const context = makeContext();
   const pat = AZDO_PAT;
-  const title = testItemTitle('list-fields suite');
+  const title = testItemTitle('list-fields: verify complete field schema for a Task');
   let createdId: number;
   let fields: Record<string, unknown>;
 
