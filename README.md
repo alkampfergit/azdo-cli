@@ -26,6 +26,20 @@ Azure DevOps CLI focused on work item read/write workflows.
 npm install -g azdo-cli
 ```
 
+## Utility Scripts
+
+The repository also includes a helper script for syncing local `.env` entries into GitHub Actions secrets for the current repository:
+
+```bash
+./scripts/sync-env-to-gh-secrets.zsh
+```
+
+It walks upward from the current directory until it finds a `.env`, then sets each valid `KEY=VALUE` entry with `gh secret set`. You can also limit the sync to selected keys:
+
+```bash
+./scripts/sync-env-to-gh-secrets.zsh FOO BAR
+```
+
 ## Authentication and Context Resolution
 
 PAT resolution order:
