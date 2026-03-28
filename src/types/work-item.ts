@@ -52,6 +52,7 @@ export interface WriteResult {
 export interface UpsertResult {
   action: 'created' | 'updated';
   id: number;
+  workItemType: string;
   fields: Record<string, unknown>;
 }
 

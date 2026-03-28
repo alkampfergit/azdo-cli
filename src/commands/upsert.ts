@@ -25,6 +25,7 @@ interface UpsertOptions {
   json?: boolean;
   org?: string;
   project?: string;
+  type?: string;
 }
 
 function fail(message: string): never {
@@ -90,7 +91,7 @@ function buildAppliedFields(fields: ParsedField[]): Record<string, unknown> {
 function ensureTitleForCreate(fields: ParsedField[]): void {
   const titleField = fields.find((field) => field.refName === 'System.Title');
   if (!titleField || titleField.op === 'clear' || titleField.value === null || titleField.value.trim() === '') {
-    fail('Title is required when creating a task.');
+    fail('Title is required when creating a work item.');
   }
 }
 
@@ -103,7 +104,7 @@ function writeSuccess(result: UpsertResult, options: UpsertOptions): void {
   const verb = result.action === 'created' ? 'Created' : 'Updated';
   const fields = Object.keys(result.fields).join(', ');
   const suffix = fields ? ` (${fields})` : '';
-  process.stdout.write(`${verb} task #${result.id}${suffix}\n`);
+  process.stdout.write(`${verb} ${result.workItemType} #${result.id}${suffix}\n`);
 }
 
 function cleanupSourceFile(sourceFile: string | undefined): void {
@@ -118,11 +119,37 @@ function cleanupSourceFile(sourceFile: string | undefined): void {
   }
 }
 
-function buildUpsertResult(action: 'created' | 'updated', writeResult: WriteResult, fields: ParsedField[]): UpsertResult {
+function resolveCreateType(id: number | undefined, options: UpsertOptions): string {
+  if (options.type === undefined) {
+    return 'Task';
+  }
+
+  if (id !== undefined) {
+    fail('--type can only be used when creating a work item.');
+  }
+
+  const trimmedType = options.type.trim();
+  if (trimmedType === '') {
+    fail('--type must be a non-empty work item type.');
+  }
+
+  return trimmedType;
+}
+
+function buildUpsertResult(
+  action: 'created' | 'updated',
+  writeResult: WriteResult,
+  fields: ParsedField[],
+  fallbackWorkItemType: string,
+): UpsertResult {
   const appliedFields = buildAppliedFields(fields);
+  const workItemType = writeResult.fields['System.WorkItemType'];
   return {
     action,
     id: writeResult.id,
+    workItemType: typeof workItemType === 'string' && workItemType.trim() !== ''
+      ? workItemType
+      : fallbackWorkItemType,
     fields: appliedFields,
   };
 }
@@ -177,10 +204,11 @@ export function createUpsertCommand(): Command {
   const command = new Command('upsert');
 
   command
-    .description('Create or update a Task from a markdown document')
-    .argument('[id]', 'work item ID to update; omit to create a new Task')
+    .description('Create or update a work item from a markdown document')
+    .argument('[id]', 'work item ID to update; omit to create a new work item')
     .option('--content <markdown>', 'task document content')
     .option('--file <path>', 'read task document from file')
+    .option('--type <workItemType>', 'create mode work item type (defaults to Task)')
     .option('--json', 'output result as JSON')
     .option('--org <org>', 'Azure DevOps organization')
     .option('--project <project>', 'Azure DevOps project')
@@ -189,6 +217,7 @@ export function createUpsertCommand(): Command {
 
       const id = idStr === undefined ? undefined : parseWorkItemId(idStr);
       const { content, sourceFile } = loadSourceContent(options);
+      const createType = resolveCreateType(id, options);
 
       let context: AzdoContext | undefined;
 
@@ -205,14 +234,19 @@ export function createUpsertCommand(): Command {
         const credential = await resolvePat();
         let writeResult: WriteResult;
         if (action === 'created') {
-          writeResult = await createWorkItem(context, 'Task', credential.pat, operations);
+          writeResult = await createWorkItem(context, createType, credential.pat, operations);
         } else {
           if (id === undefined) {
             fail('Work item ID is required for updates.');
           }
           writeResult = await applyWorkItemPatch(context, id, credential.pat, operations);
         }
-        const result = buildUpsertResult(action, writeResult, document.fields);
+        const result = buildUpsertResult(
+          action,
+          writeResult,
+          document.fields,
+          action === 'created' ? createType : 'Work item',
+        );
         writeSuccess(result, options);
         cleanupSourceFile(sourceFile);
       } catch (err: unknown) {
