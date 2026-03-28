@@ -76,7 +76,7 @@ export function handleCommandError(
     process.stderr.write(
       `Error: Access denied. Your PAT may lack ${scope} permissions for project "${context?.project}".\n`,
     );
-  } else if (msg === 'NOT_FOUND') {
+  } else if (msg.startsWith('NOT_FOUND')) {
     process.stderr.write(
       `Error: Work item ${id} not found in ${context?.org}/${context?.project}.\n`,
     );

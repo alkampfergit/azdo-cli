@@ -131,7 +131,7 @@ function isUpdateWriteError(err: Error): boolean {
   return (
     err.message === 'AUTH_FAILED' ||
     err.message === 'PERMISSION_DENIED' ||
-    err.message === 'NOT_FOUND' ||
+    err.message.startsWith('NOT_FOUND') ||
     err.message === 'NETWORK_ERROR' ||
     err.message.startsWith('BAD_REQUEST:') ||
     err.message.startsWith('UPDATE_REJECTED:')
