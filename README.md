@@ -102,8 +102,6 @@ azdo get-item 12345 --fields "System.Tags,Microsoft.VSTS.Common.Priority"
 # Convert rich text fields to markdown
 azdo get-item 12345 --markdown
 
-# Disable markdown even if config is on
-azdo get-item 12345 --no-markdown
 ```
 
 ```bash
@@ -132,7 +130,7 @@ azdo list-fields 12345 --json
 
 The `get-item` command can convert HTML rich-text fields to readable markdown. Resolution order:
 
-1. `--markdown` / `--no-markdown` flag (highest priority)
+1. `--markdown` flag enables markdown for the current call
 2. Config setting: `azdo config set markdown true`
 3. Default: off (HTML stripped to plain text)
 
@@ -169,7 +167,7 @@ azdo pr comments
 
 `azdo pr status`
 
-- Lists all pull requests for the current branch, including active, completed, and abandoned PRs
+- Lists pull requests for the current branch
 - Prints `No pull requests found for branch <branch>.` when no PRs exist
 - Supports `--json` for machine-readable output
 
@@ -302,6 +300,8 @@ These commands support `--json` for machine-readable output:
 - `assign`
 - `set-field`
 - `set-md-field`
+- `upsert`
+- `pr status|open|comments`
 - `config set|get|list|unset`
 
 ## Development
