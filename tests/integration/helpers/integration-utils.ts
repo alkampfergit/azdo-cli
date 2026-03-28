@@ -68,6 +68,14 @@ export const AZDO_PR_ID = process.env.AZDO_PR_ID ? Number(process.env.AZDO_PR_ID
 /** True when the mandatory env vars are missing — use with describe.skipIf. */
 export const SKIP_AZDO = !AZDO_PAT || !AZDO_ORG || !AZDO_PROJECT;
 
+// Diagnostic: log env var lengths so CI failures can be debugged
+// without exposing secret values.
+if (!SKIP_AZDO) {
+  console.log(
+    `[azdo-diag] PAT length=${AZDO_PAT.length}, ORG length=${AZDO_ORG.length} firstChar="${AZDO_ORG[0]}" lastChar="${AZDO_ORG[AZDO_ORG.length - 1]}", PROJECT length=${AZDO_PROJECT.length} firstChar="${AZDO_PROJECT[0]}" lastChar="${AZDO_PROJECT[AZDO_PROJECT.length - 1]}"`,
+  );
+}
+
 /** True when pull-request tests cannot run (missing repo name). */
 export const SKIP_PR = SKIP_AZDO || !AZDO_REPO;
 
