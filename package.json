@@ -15,7 +15,8 @@
     "typecheck": "tsc --noEmit",
     "format": "prettier --check src/",
     "test": "npm run build && vitest run tests/unit",
-    "test:integration": "npm run build && vitest run tests/integration"
+    "test:integration": "npm run build && vitest run tests/integration",
+    "test:integration:full": "bash scripts/setup-keyring.sh && npm run test:integration"
   },
   "repository": {
     "type": "git",
