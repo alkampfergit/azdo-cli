@@ -10,6 +10,8 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      checks: write
 
     steps:
       - uses: actions/checkout@v4
@@ -30,10 +32,21 @@ jobs:
 
       - run: npm run build
 
-      - run: npm test
+      - name: Unit tests
+        run: npx vitest run tests/unit --reporter=default --reporter=junit --outputFile.junit=test-results/unit.xml
+
+      - name: Upload unit test report
+        if: always()
+        uses: dorny/test-reporter@v1
+        with:
+          name: Unit Tests
+          path: test-results/unit.xml
+          reporter: java-junit
 
   integration-tests:
     runs-on: ubuntu-latest
+    permissions:
+      checks: write
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
 
     steps:
@@ -55,7 +68,15 @@ jobs:
           AZDO_PAT: ${{ secrets.AZDO_PAT }}
           AZDO_ORG: ${{ secrets.AZDO_ORG }}
           AZDO_PROJECT: ${{ secrets.AZDO_PROJECT }}
-        run: npm run test:integration
+        run: npm run build && npx vitest run tests/integration --reporter=default --reporter=junit --outputFile.junit=test-results/integration.xml
+
+      - name: Upload integration test report
+        if: always()
+        uses: dorny/test-reporter@v1
+        with:
+          name: Integration Tests
+          path: test-results/integration.xml
+          reporter: java-junit
 
   publish:
     needs: [build, integration-tests]

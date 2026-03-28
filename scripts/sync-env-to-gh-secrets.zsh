@@ -115,8 +115,8 @@ main() {
       continue
     fi
 
-    print "Setting secret: $key"
-    printf '%s' "$value" | gh secret set "$key" --repo "$repo" --body -
+    print "Setting secret: $key (length=${#value})"
+    printf '%s' "$value" | gh secret set "$key" --repo "$repo"
     (( count += 1 ))
   done < "$env_file"
 
