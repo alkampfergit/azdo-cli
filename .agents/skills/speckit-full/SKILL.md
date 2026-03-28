@@ -1,7 +1,7 @@
 ---
 name: "speckit-full"
-description: "Autonomous end-to-end speckit pipeline: specify → clarify (self-answered) → plan → tasks. No human input required."
-compatibility: "Requires spec-kit project structure with .specify/ directory"
+description: "Autonomous end-to-end speckit pipeline: specify → clarify (self-answered) → plan → tasks → implement → open PR. No human input required."
+compatibility: "Requires spec-kit project structure with .specify/ directory and gh CLI"
 metadata:
   author: "azdo-cli"
 ---
@@ -16,7 +16,7 @@ The text after the command invocation is the feature description. You **MUST** u
 
 ## Goal
 
-Run the full speckit pipeline completely autonomously. At every step where the standard workflow would pause and ask the user a question, **answer it yourself** using:
+Run the full speckit pipeline completely autonomously through to a merged-ready pull request. At every step where the standard workflow would pause and ask the user a question, **answer it yourself** using:
 
 1. Existing code patterns in `src/`
 2. Project conventions in `CLAUDE.md` and `.specify/memory/constitution.md`
@@ -82,9 +82,102 @@ Generate `tasks.md` following the standard task generation rules. No user intera
 
 ---
 
+## Phase 5 — Prepare PR Report
+
+Before implementation begins, initialise the PR report from the template so it can be incrementally updated during implementation.
+
+### Steps
+
+1. Read `.specify/templates/pr-report-template.md`.
+
+2. Pre-fill every placeholder that is already known at this point:
+   - `[FEATURE NAME]` → feature name from the spec header
+   - `[###-feature-name]` → output of `git rev-parse --abbrev-ref HEAD`
+   - `[DATE]` → today's date in `YYYY-MM-DD` format
+   - `[Link to spec.md …]` → relative path from repo root to `spec.md`
+   - **Summary** → derived from the spec's first user story and overall description (2–3 sentences, non-technical)
+   - Leave `What's New`, `Testing`, and optional sections as placeholders — they are completed in Phase 7.
+
+3. Write the partially-filled file to `FEATURE_DIR/pr-report.md`.
+
+4. Commit it to the feature branch:
+
+   ```sh
+   git add FEATURE_DIR/pr-report.md
+   git commit -m "docs: initialise PR report for [FEATURE NAME]"
+   ```
+
+---
+
+## Phase 6 — Implement
+
+Execute the full `speckit-implement` workflow.
+
+- Follow TDD approach: write tests before implementation where tasks specify it.
+- Complete every task in `tasks.md` and mark each as `[X]` when done.
+- Run `npm test && npm run lint` (or project equivalent) after all tasks are complete. Fix any failures before proceeding.
+- **Do NOT open the PR yet.**
+
+---
+
+## Phase 7 — Finalise PR Report
+
+After implementation is confirmed green, complete the PR report.
+
+### Filling guidelines
+
+Load `FEATURE_DIR/pr-report.md` (already partially filled in Phase 5) and complete the remaining sections:
+
+| Section | How to fill |
+|---------|-------------|
+| **What's New** | One bullet per meaningful concern (command, service, config key, etc.) — not per file. Derive from completed tasks in `tasks.md` and architecture sections of `plan.md`. |
+| **New Libraries / Dependencies** | List only packages that did not exist before this branch. Pull versions from `package.json`. Remove the section if none were added. |
+| **Breaking Changes** | Include only if existing public behaviour (CLI flags, config keys, API contracts) changed. Remove section if none. |
+| **Testing** | List test types used (unit, integration, e2e, manual) and what each covers. Derive from test tasks in `tasks.md`. |
+| **Notes** | Known limitations, deferred scope, or follow-up issues. Remove section if none. |
+
+Replace ALL remaining `[…]` markers. Remove optional sections that do not apply.
+
+Commit the finalised report:
+
+```sh
+git add FEATURE_DIR/pr-report.md
+git commit -m "docs: finalise PR report for [FEATURE NAME]"
+```
+
+---
+
+## Phase 8 — Open Pull Request
+
+Use the completed `pr-report.md` as the PR body.
+
+### Steps
+
+1. Push the feature branch:
+
+   ```sh
+   git push -u origin HEAD
+   ```
+
+2. Derive the PR title from the Summary section: use the first sentence, truncated to 70 characters, prefixed with `feat(<branch-number>): `.
+
+3. Open the PR:
+
+   ```sh
+   gh pr create \
+     --title "<PR title>" \
+     --body "$(cat FEATURE_DIR/pr-report.md)" \
+     --base develop \
+     --head <feature-branch>
+   ```
+
+4. Report the PR URL to the user.
+
+---
+
 ## Completion Report
 
-After all four phases complete, output a summary:
+After all phases complete, output:
 
 ```
 ## speckit-full Complete
@@ -93,17 +186,19 @@ After all four phases complete, output a summary:
 **Spec**: <path to spec.md>
 **Plan**: <path to plan.md>
 **Tasks**: <path to tasks.md>
+**PR Report**: <path to pr-report.md>
+**Pull Request**: <PR URL>
 
 **Autonomous decisions made**: <count>
 <list each AUTO decision with its rationale>
-
-**Next step**: Run `/speckit-implement` to begin implementation.
 ```
 
 ---
 
 ## Failure Handling
 
-- If any phase fails with a hard error (missing script, invalid branch state), stop and report the error to the user with the exact command output. Do not silently skip phases.
+- If any phase fails with a hard error (missing script, invalid branch state), stop and report the error with the exact command output. Do not silently skip phases.
 - If the spec quality checklist fails after 3 iterations, document remaining issues and continue to Phase 2 rather than blocking.
+- If `gh` is not installed or not authenticated, print the contents of `pr-report.md` and instruct the user to open the PR manually.
+- If the push fails, report the error and do NOT force-push.
 - Never fabricate file paths or script outputs — always run scripts and use real output.
