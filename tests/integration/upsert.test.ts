@@ -23,8 +23,7 @@ import {
   getWorkItem,
   getWorkItemFieldValue,
 } from '../../src/services/azdo-client.js';
-import { parseTaskDocument } from '../../src/services/task-document.js';
-import { resolveFieldName } from '../../src/services/task-document.js';
+import { parseTaskDocument, resolveFieldName } from '../../src/services/task-document.js';
 import type { JsonPatchOperation, ParsedField } from '../../src/types/work-item.js';
 import {
   AZDO_PAT,

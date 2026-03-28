@@ -98,3 +98,4 @@ PYEOF
 " 2>/dev/null
 
 echo "Keyring setup complete."
+exit 0
