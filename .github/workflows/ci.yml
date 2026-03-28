@@ -32,6 +32,14 @@ jobs:
 
       - run: npm test
 
+      - name: Integration tests
+        if: env.AZDO_PAT != ''
+        env:
+          AZDO_PAT: ${{ secrets.AZDO_PAT }}
+          AZDO_ORG: ${{ secrets.AZDO_ORG }}
+          AZDO_PROJECT: ${{ secrets.AZDO_PROJECT }}
+        run: npm run test:integration
+
   publish:
     needs: build
     if: github.event_name == 'push'

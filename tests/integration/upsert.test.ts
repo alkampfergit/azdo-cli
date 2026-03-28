@@ -384,7 +384,6 @@ describe.skipIf(SKIP_AZDO)('upsert integration', () => {
       expect(formatOp!.value).toBe('Markdown');
 
       const result = await createWorkItem(context, 'User Story', pat, ops);
-      console.log(`>>> CREATED WORK ITEM ID: ${result.id}`);
       cleanupIds.push(result.id);
 
       const value = await getWorkItemFieldValue(context, result.id, pat, 'System.Description');
