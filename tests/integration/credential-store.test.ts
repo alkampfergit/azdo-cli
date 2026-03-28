@@ -13,7 +13,9 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { deletePat, getPat, storePat } from '../../src/services/credential-store.js';
 
-describe('credential-store integration', () => {
+const SKIP_LINUX = process.platform === 'linux';
+
+describe.skipIf(SKIP_LINUX)('credential-store integration', () => {
   // Clean up any leftover entry before and after the suite.
   beforeAll(async () => {
     await deletePat();

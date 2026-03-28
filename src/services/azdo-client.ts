@@ -33,7 +33,14 @@ export async function fetchWithErrors(url: string, init: RequestInit): Promise<R
 
   if (response.status === 401) throw new Error('AUTH_FAILED');
   if (response.status === 403) throw new Error('PERMISSION_DENIED');
-  if (response.status === 404) throw new Error('NOT_FOUND');
+  if (response.status === 404) {
+    let detail = '';
+    try {
+      const body = await response.text();
+      detail = ` | url=${url} | body=${body}`;
+    } catch { /* ignore */ }
+    throw new Error(`NOT_FOUND${detail}`);
+  }
 
   return response;
 }
