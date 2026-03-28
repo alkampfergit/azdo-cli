@@ -10,37 +10,16 @@ This change adds work item comment commands to the CLI so users and agents can r
 
 ## What's New
 
-<!-- List macro-level changes introduced by this feature. Each bullet names an area/component and describes what changed and why. -->
-
-- **[Area / Component]**: [What was added or changed and why]
-- **[Area / Component]**: [What was added or changed and why]
-- **[Area / Component]**: [What was added or changed and why]
-
-[Add more bullets as needed — aim for one bullet per meaningful concern, not per file]
-
-## New Libraries / Dependencies *(optional — remove section if none)*
-
-<!-- Include only when new external dependencies were added to the project. -->
-
-| Package | Version | Purpose |
-|---------|---------|---------|
-| [package-name] | [x.y.z] | [Why it was chosen and what it replaces or enables] |
-
-## Breaking Changes *(optional — remove section if none)*
-
-<!-- Include only when this feature changes existing public behaviour, CLI flags, config keys, or API contracts. -->
-
-- **[What broke]**: [Short description of the change and any migration path or workaround]
+- **CLI Commands**: Added a new `azdo comments` command group with `list` and `add` subcommands so work item discussion can be read and updated directly from the terminal.
+- **Work Item Transport**: Extended the existing Azure DevOps work item client to read paginated comment history, filter deleted comments from the default view, and post new comments through the work item comments API.
+- **Automation Contract**: Added stable result types, JSON output, validation, and unit coverage for comment listing and creation so agent workflows can consume the feature reliably.
 
 ## Testing
 
-<!-- Summarise how the implementation was validated. List test types and what each covers. -->
+- **Unit**: Extended `tests/unit/azdo-client.test.ts` to cover paginated comment retrieval, deleted-comment filtering, and add-comment response mapping.
+- **Unit**: Added `tests/unit/comments-list.test.ts` and `tests/unit/comments-add.test.ts` for validation, human-readable output, JSON output, and read/write error handling.
+- **Manual**: Verified `node dist/index.js comments --help` exposes the new command group and both subcommands.
 
-- **[Unit / Integration / E2E / Manual]**: [What scenario or component was covered]
-- **[Unit / Integration / E2E / Manual]**: [What scenario or component was covered]
+## Notes
 
-## Notes *(optional — remove section if none)*
-
-<!-- Known limitations, deferred work, follow-up issues, or anything a reviewer should be aware of. -->
-
-- [Note, known limitation, or follow-up item]
+- Azure DevOps work item comments use the `7.1-preview.4` comments endpoint, so this feature intentionally stays within read/add support and does not attempt comment editing or deletion.
