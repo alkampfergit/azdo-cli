@@ -40,12 +40,18 @@ beforeEach(() => {
   vi.mocked(createWorkItem).mockResolvedValue({
     id: 101,
     rev: 1,
-    fields: { 'System.Title': 'Fix login bug' },
+    fields: {
+      'System.Title': 'Fix login bug',
+      'System.WorkItemType': 'Task',
+    },
   });
   vi.mocked(applyWorkItemPatch).mockResolvedValue({
     id: 42,
     rev: 2,
-    fields: { 'System.Title': 'Fix login bug' },
+    fields: {
+      'System.Title': 'Fix login bug',
+      'System.WorkItemType': 'Task',
+    },
   });
   vi.mocked(existsSync).mockReturnValue(true);
   vi.mocked(readFileSync).mockReturnValue('---\nTitle: Imported task\n---\n');
@@ -66,7 +72,7 @@ describe('upsert command', () => {
       'test-pat',
       [{ op: 'add', path: '/fields/System.Title', value: 'Fix login bug' }],
     );
-    expect(getStdout()).toContain('Created task #101');
+    expect(getStdout()).toContain('Created Task #101');
   });
 
   it('updates a task with valid inline content and an id', async () => {
@@ -81,12 +87,12 @@ describe('upsert command', () => {
         { op: 'add', path: '/fields/System.State', value: 'Active' },
       ],
     );
-    expect(getStdout()).toContain('Updated task #42');
+    expect(getStdout()).toContain('Updated Task #42');
   });
 
   it('rejects create when title is missing', async () => {
     await run(['--content', '---\nState: Active\n---\n']);
-    expect(getStderr()).toContain('Title is required when creating a task');
+    expect(getStderr()).toContain('Title is required when creating a work item');
     expect(createWorkItem).not.toHaveBeenCalled();
   });
 
@@ -119,6 +125,7 @@ describe('upsert command', () => {
       `${JSON.stringify({
         action: 'created',
         id: 101,
+        workItemType: 'Task',
         fields: {
           'System.Title': 'Fix login bug',
           'System.State': 'Active',
@@ -135,6 +142,57 @@ describe('upsert command', () => {
       'Task',
       'test-pat',
       [{ op: 'add', path: '/fields/System.Title', value: 'Fix login bug' }],
+    );
+  });
+
+  it('creates a non-task work item type when requested', async () => {
+    vi.mocked(createWorkItem).mockResolvedValue({
+      id: 101,
+      rev: 1,
+      fields: {
+        'System.Title': 'Fix login bug',
+        'System.WorkItemType': 'Bug',
+      },
+    });
+
+    await run(['--type', 'Bug', '--content', '---\nTitle: Fix login bug\n---\n']);
+
+    expect(createWorkItem).toHaveBeenCalledWith(
+      expect.any(Object),
+      'Bug',
+      'test-pat',
+      [{ op: 'add', path: '/fields/System.Title', value: 'Fix login bug' }],
+    );
+    expect(getStdout()).toContain('Created Bug #101');
+  });
+
+  it('supports work item types with spaces', async () => {
+    vi.mocked(createWorkItem).mockResolvedValue({
+      id: 101,
+      rev: 1,
+      fields: {
+        'System.Title': 'Improve import flow',
+        'System.WorkItemType': 'User Story',
+      },
+    });
+
+    await run(['--type', 'User Story', '--content', '---\nTitle: Improve import flow\n---\n', '--json']);
+
+    expect(createWorkItem).toHaveBeenCalledWith(
+      expect.any(Object),
+      'User Story',
+      'test-pat',
+      [{ op: 'add', path: '/fields/System.Title', value: 'Improve import flow' }],
+    );
+    expect(getStdout()).toBe(
+      `${JSON.stringify({
+        action: 'created',
+        id: 101,
+        workItemType: 'User Story',
+        fields: {
+          'System.Title': 'Improve import flow',
+        },
+      })}\n`,
     );
   });
 
@@ -174,6 +232,7 @@ describe('upsert command', () => {
       `${JSON.stringify({
         action: 'updated',
         id: 42,
+        workItemType: 'Task',
         fields: {
           'System.Title': 'Fix login bug',
           'System.Description': 'Body',
@@ -241,7 +300,21 @@ describe('upsert command', () => {
 
     await run(['--file', './task.md']);
 
-    expect(getStdout()).toContain('Created task #101');
+    expect(getStdout()).toContain('Created Task #101');
     expect(getStderr()).toContain('could not delete source file');
+  });
+
+  it('rejects --type when updating an existing work item', async () => {
+    await run(['42', '--type', 'Bug', '--content', '---\nTitle: Fix login bug\n---\n']);
+
+    expect(getStderr()).toContain('--type can only be used when creating a work item');
+    expect(applyWorkItemPatch).not.toHaveBeenCalled();
+  });
+
+  it('rejects empty work item types', async () => {
+    await run(['--type', '   ', '--content', '---\nTitle: Fix login bug\n---\n']);
+
+    expect(getStderr()).toContain('--type must be a non-empty work item type');
+    expect(createWorkItem).not.toHaveBeenCalled();
   });
 });

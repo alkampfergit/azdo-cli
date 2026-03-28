@@ -12,7 +12,7 @@ Azure DevOps CLI focused on work item read/write workflows.
 - Update work item state (`set-state`)
 - Assign and unassign work items (`assign`)
 - Set any work item field by reference name (`set-field`)
-- Create or update Tasks from markdown documents (`upsert`)
+- Create or update work items from markdown documents (`upsert`)
 - Read rich-text fields as markdown (`get-md-field`)
 - Set rich-text fields as markdown from inline text, file, or stdin (`set-md-field`)
 - Check branch pull request status, open PRs to `develop`, and review active comments (`pr`)
@@ -65,8 +65,8 @@ azdo get-item 12345
 # 3) Update state
 azdo set-state 12345 "Active"
 
-# 4) Create or update a Task from markdown
-azdo upsert --content $'---\nTitle: Improve markdown import UX\nState: New\n---'
+# 4) Create or update a work item from markdown
+azdo upsert --type "User Story" --content $'---\nTitle: Improve markdown import UX\nState: New\n---'
 ```
 
 ## Command Cheat Sheet
@@ -77,7 +77,7 @@ azdo upsert --content $'---\nTitle: Improve markdown import UX\nState: New\n---'
 | `azdo set-state <id> <state>` | Change work item state | `--json`, `--org`, `--project` |
 | `azdo assign <id> [name]` | Assign or unassign owner | `--unassign`, `--json`, `--org`, `--project` |
 | `azdo set-field <id> <field> <value>` | Update any field | `--json`, `--org`, `--project` |
-| `azdo upsert [id]` | Create or update a Task from markdown | `--content`, `--file`, `--json`, `--org`, `--project` |
+| `azdo upsert [id]` | Create or update a work item from markdown | `--content`, `--file`, `--type`, `--json`, `--org`, `--project` |
 | `azdo get-md-field <id> <field>` | Get field as markdown | `--org`, `--project` |
 | `azdo set-md-field <id> <field> [content]` | Set markdown field | `--file`, `--json`, `--org`, `--project` |
 | `azdo list-fields <id>` | List all fields of a work item | `--json`, `--org`, `--project` |
@@ -189,11 +189,14 @@ azdo pr comments
 
 ## azdo upsert
 
-`azdo upsert` accepts a single markdown task document and either creates a new Azure DevOps Task or updates an existing one. Omit `[id]` to create; pass `[id]` to update that work item in place.
+`azdo upsert` accepts a single markdown work-item document and either creates a new Azure DevOps work item or updates an existing one. Omit `[id]` to create; pass `[id]` to update that work item in place. Create mode defaults to `Task`, and `--type <work item type>` lets you create `Bug`, `User Story`, `Feature`, `Epic`, and other Azure DevOps work item types.
 
 ```bash
-# Create from inline content
-azdo upsert --content $'---\nTitle: Improve markdown import UX\nAssigned To: user@example.com\nState: New\n---'
+# Create a Bug from inline content
+azdo upsert --type Bug --content $'---\nTitle: Improve markdown import UX\nAssigned To: user@example.com\nState: New\n---'
+
+# Preserve the default Task create behavior
+azdo upsert --content $'---\nTitle: Follow-up task\nAssigned To: user@example.com\nState: New\n---'
 
 # Update from a file
 azdo upsert 12345 --file ./task-import.md
@@ -206,8 +209,15 @@ The command requires exactly one source flag:
 
 - `azdo upsert [id] --content <markdown>`
 - `azdo upsert [id] --file <path>`
+- `azdo upsert --type <work-item-type> --content <markdown>`
 
 If `--file` succeeds, the source file is deleted after the Azure DevOps write completes. If parsing, validation, or the API call fails, the file is preserved. If deletion fails after a successful write, the command still succeeds and prints a warning.
+
+Type rules:
+
+- `--type` is optional for create and defaults to `Task`.
+- `--type` is only valid when creating a new work item.
+- Human-readable and JSON success output include the resulting work item type.
 
 ### Task Document Format
 
@@ -257,6 +267,7 @@ Clear semantics:
 {
   "action": "created",
   "id": 12345,
+  "workItemType": "User Story",
   "fields": {
     "System.Title": "Improve markdown import UX",
     "System.Description": "Implement a single-command task import flow."
