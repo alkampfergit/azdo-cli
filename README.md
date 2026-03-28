@@ -13,6 +13,7 @@ Azure DevOps CLI focused on work item read/write workflows.
 - Assign and unassign work items (`assign`)
 - Set any work item field by reference name (`set-field`)
 - Create or update work items from markdown documents (`upsert`)
+- Read and post work item comments (`comments`)
 - Read rich-text fields as markdown (`get-md-field`)
 - Set rich-text fields as markdown from inline text, file, or stdin (`set-md-field`)
 - Check branch pull request status, open PRs to `develop`, and review active comments (`pr`)
@@ -67,6 +68,10 @@ azdo set-state 12345 "Active"
 
 # 4) Create or update a work item from markdown
 azdo upsert --type "User Story" --content $'---\nTitle: Improve markdown import UX\nState: New\n---'
+
+# 5) Review work item discussion and post an update
+azdo comments list 12345
+azdo comments add 12345 "Investigating the root cause now."
 ```
 
 ## Command Cheat Sheet
@@ -78,6 +83,7 @@ azdo upsert --type "User Story" --content $'---\nTitle: Improve markdown import 
 | `azdo assign <id> [name]` | Assign or unassign owner | `--unassign`, `--json`, `--org`, `--project` |
 | `azdo set-field <id> <field> <value>` | Update any field | `--json`, `--org`, `--project` |
 | `azdo upsert [id]` | Create or update a work item from markdown | `--content`, `--file`, `--type`, `--json`, `--org`, `--project` |
+| `azdo comments <subcommand>` | Read or add work item comments | `list`, `add`, `--json`, `--org`, `--project` |
 | `azdo get-md-field <id> <field>` | Get field as markdown | `--org`, `--project` |
 | `azdo set-md-field <id> <field> [content]` | Set markdown field | `--file`, `--json`, `--org`, `--project` |
 | `azdo list-fields <id>` | List all fields of a work item | `--json`, `--org`, `--project` |
@@ -186,6 +192,38 @@ azdo pr comments
 - Groups text output by thread and shows file context when available
 - Prints `Pull request #<id> has no active comments.` when the PR has no active comment threads
 - Fails instead of guessing when no active PR or multiple active PRs exist
+
+### Work Item Comment Commands
+
+The `comments` command group works on a specific work item ID. It requires a PAT with `Work Items (read)` scope for listing comments and `Work Items (Read & Write)` to add a new comment.
+
+```bash
+# Read the visible comment history for a work item
+azdo comments list 12345
+
+# Read the same history as JSON
+azdo comments list 12345 --json
+
+# Post a progress update
+azdo comments add 12345 "Investigation complete. Working on the fix next."
+
+# Post the update and return JSON
+azdo comments add 12345 "Queued validation run." --json
+```
+
+`azdo comments list`
+
+- Resolves the target work item directly from the provided ID
+- Retrieves the full visible comment history and follows Azure DevOps pagination internally
+- Prints comments newest first with comment ID, author, timestamp, and body text
+- Prints `Work item #<id> has no comments.` when the work item has no visible comments
+
+`azdo comments add`
+
+- Requires a non-empty `<text>` positional argument
+- Preserves the supplied comment text as the submitted body
+- Prints `Added comment #<commentId> to work item #<id>` on success
+- Fails locally before any API call when the text is empty or whitespace-only
 
 ## azdo upsert
 
@@ -312,6 +350,7 @@ These commands support `--json` for machine-readable output:
 - `set-field`
 - `set-md-field`
 - `upsert`
+- `comments list|add`
 - `pr status|open|comments`
 - `config set|get|list|unset`
 

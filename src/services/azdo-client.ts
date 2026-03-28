@@ -1,8 +1,11 @@
 import type {
+  AddWorkItemCommentResult,
   WorkItem,
   AzdoContext,
   JsonPatchOperation,
   UpdateResult,
+  WorkItemComment,
+  WorkItemCommentsResult,
   WriteResult,
 } from '../types/work-item.js';
 
@@ -82,6 +85,27 @@ interface AzdoWorkItemResponse {
   };
 }
 
+interface AzdoIdentityRef {
+  displayName?: string;
+}
+
+interface AzdoCommentResponse {
+  id?: number;
+  commentId?: number;
+  workItemId?: number;
+  text?: string;
+  createdBy?: AzdoIdentityRef;
+  createdDate?: string;
+  modifiedDate?: string;
+  isDeleted?: boolean;
+  url?: string;
+}
+
+interface AzdoCommentListResponse {
+  comments?: AzdoCommentResponse[];
+  continuationToken?: string;
+}
+
 function stringifyFieldValue(value: unknown): string {
   if (typeof value === 'object' && value !== null) {
     return JSON.stringify(value);
@@ -120,6 +144,52 @@ function writeHeaders(pat: string): Record<string, string> {
     ...authHeaders(pat),
     'Content-Type': 'application/json-patch+json',
   };
+}
+
+function buildWorkItemCommentsListUrl(context: AzdoContext, id: number, continuationToken?: string): URL {
+  const url = new URL(
+    `https://dev.azure.com/${encodeURIComponent(context.org)}/${encodeURIComponent(context.project)}/_apis/wit/workItems/${id}/comments`,
+  );
+  url.searchParams.set('api-version', '7.1-preview.4');
+  url.searchParams.set('order', 'desc');
+
+  if (continuationToken) {
+    url.searchParams.set('continuationToken', continuationToken);
+  }
+
+  return url;
+}
+
+function buildWorkItemCommentsUrl(context: AzdoContext, id: number): URL {
+  const url = new URL(
+    `https://dev.azure.com/${encodeURIComponent(context.org)}/${encodeURIComponent(context.project)}/_apis/wit/workItems/${id}/comments`,
+  );
+  url.searchParams.set('api-version', '7.1-preview.4');
+  return url;
+}
+
+function mapWorkItemComment(comment: AzdoCommentResponse, fallbackWorkItemId: number): WorkItemComment {
+  return {
+    id: comment.id ?? comment.commentId ?? 0,
+    workItemId: comment.workItemId ?? fallbackWorkItemId,
+    text: typeof comment.text === 'string' ? comment.text : '',
+    author: comment.createdBy?.displayName ?? null,
+    createdAt: comment.createdDate ?? null,
+    modifiedAt: comment.modifiedDate ?? null,
+    isDeleted: comment.isDeleted === true,
+  };
+}
+
+function readContinuationToken(response: Response, data: AzdoCommentListResponse): string | null {
+  if (typeof data.continuationToken === 'string' && data.continuationToken.trim() !== '') {
+    return data.continuationToken;
+  }
+
+  const headerToken = response.headers?.get('x-ms-continuationtoken')
+    ?? response.headers?.get('continuationtoken')
+    ?? null;
+
+  return headerToken && headerToken.trim() !== '' ? headerToken : null;
 }
 
 async function readWriteResponse(response: Response, errorCode: 'CREATE_REJECTED' | 'UPDATE_REJECTED'): Promise<WriteResult> {
@@ -266,6 +336,76 @@ export async function getWorkItemFieldValue(
   }
 
   return stringifyFieldValue(value);
+}
+
+export async function listWorkItemComments(
+  context: AzdoContext,
+  id: number,
+  pat: string,
+): Promise<WorkItemCommentsResult> {
+  const comments: WorkItemComment[] = [];
+  let continuationToken: string | null = null;
+
+  do {
+    const response = await fetchWithErrors(
+      buildWorkItemCommentsListUrl(context, id, continuationToken ?? undefined).toString(),
+      { headers: authHeaders(pat) },
+    );
+
+    if (!response.ok) {
+      throw new Error(`HTTP_${response.status}`);
+    }
+
+    const data = (await response.json()) as AzdoCommentListResponse;
+    comments.push(
+      ...(data.comments ?? [])
+        .map((comment) => mapWorkItemComment(comment, id))
+        .filter((comment) => !comment.isDeleted),
+    );
+    continuationToken = readContinuationToken(response, data);
+  } while (continuationToken !== null);
+
+  return {
+    workItemId: id,
+    count: comments.length,
+    comments,
+  };
+}
+
+export async function addWorkItemComment(
+  context: AzdoContext,
+  id: number,
+  pat: string,
+  text: string,
+): Promise<AddWorkItemCommentResult> {
+  const response = await fetchWithErrors(buildWorkItemCommentsUrl(context, id).toString(), {
+    method: 'POST',
+    headers: {
+      ...authHeaders(pat),
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ text }),
+  });
+
+  if (response.status === 400) {
+    const serverMessage = await readResponseMessage(response) ?? 'Unknown error';
+    throw new Error(`BAD_REQUEST: ${serverMessage}`);
+  }
+
+  if (!response.ok) {
+    throw new Error(`HTTP_${response.status}`);
+  }
+
+  const data = (await response.json()) as AzdoCommentResponse;
+
+  return {
+    workItemId: data.workItemId ?? id,
+    commentId: data.commentId ?? data.id ?? 0,
+    text: typeof data.text === 'string' ? data.text : text,
+    author: data.createdBy?.displayName ?? null,
+    createdAt: data.createdDate ?? null,
+    url: data.url ?? null,
+  };
 }
 
 export async function updateWorkItem(

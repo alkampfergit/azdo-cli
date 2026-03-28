@@ -22,6 +22,8 @@ Working defaults:
 - N/A (reads inline/file input and writes to Azure DevOps API only) (007-work-item-upsert)
 - TypeScript 5.x (strict mode) on Node.js LTS + commander.js, built-in `fetch`, built-in `node:child_process`, existing auth/context services (008-pull-request-handling)
 - N/A (reads local git state and Azure DevOps APIs only) (008-pull-request-handling)
+- TypeScript 5.x (strict mode) on Node.js LTS + commander.js, native `fetch`, existing auth/context helpers, node:fs only where already present (010-work-item-comments)
+- N/A (reads from and writes to Azure DevOps Work Item Tracking APIs only) (010-work-item-comments)
 
 ## Recent Changes
 - 007-work-item-upsert: Added TypeScript 5.x (strict mode) on Node.js LTS + commander.js (CLI framework), node-html-markdown (existing rich-text support), node:fs/node:path (built-in file handling); no new parser dependency planned
