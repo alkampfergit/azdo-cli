@@ -59,11 +59,11 @@ function resolvePat(): string {
   return process.env.AZDO_PAT ?? process.env.AZDO_PATH ?? '';
 }
 
-export const AZDO_PAT = resolvePat();
-export const AZDO_ORG = process.env.AZDO_ORG ?? '';
-export const AZDO_PROJECT = process.env.AZDO_PROJECT ?? '';
-export const AZDO_REPO = process.env.AZDO_REPO ?? '';
-export const AZDO_PR_ID = process.env.AZDO_PR_ID ? Number(process.env.AZDO_PR_ID) : null;
+export const AZDO_PAT = resolvePat().trim();
+export const AZDO_ORG = (process.env.AZDO_ORG ?? '').trim();
+export const AZDO_PROJECT = (process.env.AZDO_PROJECT ?? '').trim();
+export const AZDO_REPO = (process.env.AZDO_REPO ?? '').trim();
+export const AZDO_PR_ID = process.env.AZDO_PR_ID ? Number(process.env.AZDO_PR_ID.trim()) : null;
 
 /** True when the mandatory env vars are missing — use with describe.skipIf. */
 export const SKIP_AZDO = !AZDO_PAT || !AZDO_ORG || !AZDO_PROJECT;
