@@ -10,6 +10,8 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      checks: write
 
     steps:
       - uses: actions/checkout@v4
@@ -30,10 +32,54 @@ jobs:
 
       - run: npm run build
 
-      - run: npm test
+      - name: Unit tests
+        run: npx vitest run tests/unit --reporter=default --reporter=junit --outputFile.junit=test-results/unit.xml
+
+      - name: Upload unit test report
+        if: always()
+        uses: dorny/test-reporter@3eeb9fc888e82e8be2fb356bbeec2750231672bc # v1
+        with:
+          name: Unit Tests
+          path: test-results/unit.xml
+          reporter: java-junit
+
+  integration-tests:
+    runs-on: ubuntu-latest
+    permissions:
+      checks: write
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: npm
+
+      - run: npm ci
+
+      - name: Integration tests
+        if: env.AZDO_PAT != ''
+        env:
+          AZDO_PAT: ${{ secrets.AZDO_PAT }}
+          AZDO_ORG: ${{ secrets.AZDO_ORG }}
+          AZDO_PROJECT: ${{ secrets.AZDO_PROJECT }}
+        run: npm run build && npx vitest run tests/integration --reporter=default --reporter=junit --outputFile.junit=test-results/integration.xml
+
+      - name: Upload integration test report
+        if: always()
+        uses: dorny/test-reporter@3eeb9fc888e82e8be2fb356bbeec2750231672bc # v1
+        with:
+          name: Integration Tests
+          path: test-results/integration.xml
+          reporter: java-junit
 
   publish:
-    needs: build
+    needs: [build, integration-tests]
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
     permissions:
@@ -73,8 +119,16 @@ jobs:
             fi
             VERSION="${HEAD_TAG#v}"
           elif [ "$BRANCH" = "develop" ]; then
+            TAG="dev"
+            LATEST_TAG=$(git tag --sort=-v:refname | grep -E '^v?[0-9]+\.[0-9]+\.[0-9]+$' | head -n 1)
+            LATEST_TAG="${LATEST_TAG#v}"
+            MAJOR=$(echo "$LATEST_TAG" | cut -d. -f1)
+            MINOR=$(echo "$LATEST_TAG" | cut -d. -f2)
+            NEXT_MINOR=$((MINOR + 1))
+            VERSION="${MAJOR}.${NEXT_MINOR}.0-develop.${RUN}"
+          elif [[ "$BRANCH" == release/* ]]; then
             TAG="next"
-            VERSION="${BASE_VERSION}-${SAFE_BRANCH}.${RUN}"
+            VERSION="${BASE_VERSION}-next.${RUN}"
           else
             TAG="dev"
             VERSION="${BASE_VERSION}-${SAFE_BRANCH}.${RUN}"

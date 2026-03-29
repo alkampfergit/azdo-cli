@@ -1,8 +1,12 @@
 import { describe, it, expect } from "vitest";
 import { execFileSync } from "node:child_process";
 import { resolve } from "node:path";
+import { readFileSync } from "node:fs";
 
 const CLI_PATH = resolve(import.meta.dirname, "../../dist/index.js");
+const { version: PKG_VERSION } = JSON.parse(
+  readFileSync(resolve(import.meta.dirname, "../../package.json"), "utf-8")
+);
 
 function run(args: string[]): { stdout: string; stderr: string; exitCode: number } {
   try {
@@ -20,7 +24,7 @@ function run(args: string[]): { stdout: string; stderr: string; exitCode: number
 describe("azdo CLI", () => {
   it("--version outputs correct version", () => {
     const { stdout, exitCode } = run(["--version"]);
-    expect(stdout.trim()).toBe("0.2.0");
+    expect(stdout.trim()).toBe(PKG_VERSION);
     expect(exitCode).toBe(0);
   });
 

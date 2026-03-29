@@ -52,7 +52,33 @@ export interface WriteResult {
 export interface UpsertResult {
   action: 'created' | 'updated';
   id: number;
+  workItemType: string;
   fields: Record<string, unknown>;
+}
+
+export interface WorkItemComment {
+  id: number;
+  workItemId: number;
+  text: string;
+  author: string | null;
+  createdAt: string | null;
+  modifiedAt: string | null;
+  isDeleted: boolean;
+}
+
+export interface WorkItemCommentsResult {
+  workItemId: number;
+  count: number;
+  comments: WorkItemComment[];
+}
+
+export interface AddWorkItemCommentResult {
+  workItemId: number;
+  commentId: number;
+  text: string;
+  author: string | null;
+  createdAt: string | null;
+  url: string | null;
 }
 
 export interface ParsedField {

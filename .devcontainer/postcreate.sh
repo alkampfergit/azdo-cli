@@ -49,3 +49,10 @@ if command -v uv >/dev/null 2>&1; then
 else
     echo "uv not available, cannot install spec-kit."
 fi
+
+# Install keyring dependencies for integration tests (credential-store suite)
+sudo apt-get install -y gnome-keyring libsecret-tools xvfb xdotool python3-dbus python3-gi
+
+# Initialise the GNOME Keyring default collection so credential-store
+# integration tests can run without a real desktop session.
+bash /workspaces/azdo-cli/scripts/setup-keyring.sh || true

@@ -50,7 +50,7 @@ function handlePrCommandError(err: unknown, context?: AzdoContext, mode: 'read' 
     writeError('Could not connect to Azure DevOps. Check your network connection.');
   }
 
-  if (error.message === 'NOT_FOUND') {
+  if (error.message.startsWith('NOT_FOUND')) {
     writeError(`Azure DevOps repository not found in ${context?.org}/${context?.project}.`);
   }
 
