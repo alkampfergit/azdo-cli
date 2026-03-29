@@ -1,5 +1,11 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { createWorkItem, getWorkItem, updateWorkItem } from '../../src/services/azdo-client.js';
+import {
+  addWorkItemComment,
+  createWorkItem,
+  getWorkItem,
+  listWorkItemComments,
+  updateWorkItem,
+} from '../../src/services/azdo-client.js';
 import { testContext as ctx, testPat as pat, makeFetchResponse, makeErrorResponse } from './helpers/api-test-utils.js';
 
 function makeWorkItemResponse(fields: Record<string, unknown>, status = 200) {
@@ -259,5 +265,138 @@ describe('createWorkItem', () => {
       pat,
       [{ op: 'add', path: '/fields/System.Title', value: 'Created task' }],
     )).rejects.toThrow("CREATE_REJECTED: Field 'System.AreaPath' is required.");
+  });
+});
+
+describe('listWorkItemComments', () => {
+  beforeEach(() => {
+    vi.spyOn(globalThis, 'fetch');
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('retrieves paged comments, preserves newest-first order, and excludes deleted comments', async () => {
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(makeFetchResponse({
+        comments: [
+          {
+            id: 51,
+            workItemId: 42,
+            text: 'Newest visible comment',
+            createdBy: { displayName: 'Alice' },
+            createdDate: '2026-03-28T10:15:00Z',
+            modifiedDate: '2026-03-28T10:15:00Z',
+            isDeleted: false,
+          },
+          {
+            id: 50,
+            workItemId: 42,
+            text: 'Deleted comment',
+            createdBy: { displayName: 'Alice' },
+            createdDate: '2026-03-28T10:10:00Z',
+            modifiedDate: '2026-03-28T10:10:00Z',
+            isDeleted: true,
+          },
+        ],
+        continuationToken: 'next-page',
+      }))
+      .mockResolvedValueOnce(makeFetchResponse({
+        comments: [
+          {
+            id: 49,
+            workItemId: 42,
+            text: 'Older visible comment',
+            createdBy: { displayName: 'Bob' },
+            createdDate: '2026-03-27T19:02:11Z',
+            modifiedDate: '2026-03-27T19:02:11Z',
+            isDeleted: false,
+          },
+        ],
+      }));
+
+    const result = await listWorkItemComments(ctx, 42, pat);
+
+    expect(result).toEqual({
+      workItemId: 42,
+      count: 2,
+      comments: [
+        {
+          id: 51,
+          workItemId: 42,
+          text: 'Newest visible comment',
+          author: 'Alice',
+          createdAt: '2026-03-28T10:15:00Z',
+          modifiedAt: '2026-03-28T10:15:00Z',
+          isDeleted: false,
+        },
+        {
+          id: 49,
+          workItemId: 42,
+          text: 'Older visible comment',
+          author: 'Bob',
+          createdAt: '2026-03-27T19:02:11Z',
+          modifiedAt: '2026-03-27T19:02:11Z',
+          isDeleted: false,
+        },
+      ],
+    });
+
+    expect(fetch).toHaveBeenNthCalledWith(
+      1,
+      'https://dev.azure.com/testorg/testproject/_apis/wit/workItems/42/comments?api-version=7.1-preview.4&order=desc',
+      expect.any(Object),
+    );
+    const secondUrl = vi.mocked(fetch).mock.calls[1][0] as string;
+    expect(secondUrl).toContain('https://dev.azure.com/testorg/testproject/_apis/wit/workItems/42/comments?');
+    expect(secondUrl).toContain('api-version=7.1-preview.4');
+    expect(secondUrl).toContain('order=desc');
+    expect(secondUrl).toContain('continuationToken=next-page');
+  });
+});
+
+describe('addWorkItemComment', () => {
+  beforeEach(() => {
+    vi.spyOn(globalThis, 'fetch');
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('creates a work item comment and returns the normalized result', async () => {
+    vi.mocked(fetch).mockResolvedValue(makeFetchResponse({
+      workItemId: 42,
+      commentId: 77,
+      text: 'Investigation complete.',
+      createdBy: { displayName: 'Alice' },
+      createdDate: '2026-03-28T10:20:00Z',
+      url: 'https://dev.azure.com/testorg/testproject/_apis/wit/workItems/42/comments/77',
+    }));
+
+    const result = await addWorkItemComment(ctx, 42, pat, 'Investigation complete.');
+
+    expect(result).toEqual({
+      workItemId: 42,
+      commentId: 77,
+      text: 'Investigation complete.',
+      author: 'Alice',
+      createdAt: '2026-03-28T10:20:00Z',
+      url: 'https://dev.azure.com/testorg/testproject/_apis/wit/workItems/42/comments/77',
+    });
+
+    const expectedToken = Buffer.from(`:${pat}`).toString('base64');
+    expect(fetch).toHaveBeenCalledWith(
+      'https://dev.azure.com/testorg/testproject/_apis/wit/workItems/42/comments?api-version=7.1-preview.4',
+      expect.objectContaining({
+        method: 'POST',
+        headers: {
+          Authorization: `Basic ${expectedToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ text: 'Investigation complete.' }),
+      }),
+    );
   });
 });
