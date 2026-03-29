@@ -126,6 +126,9 @@ jobs:
             MINOR=$(echo "$LATEST_TAG" | cut -d. -f2)
             NEXT_MINOR=$((MINOR + 1))
             VERSION="${MAJOR}.${NEXT_MINOR}.0-develop.${RUN}"
+          elif [[ "$BRANCH" == release/* ]]; then
+            TAG="next"
+            VERSION="${BASE_VERSION}-next.${RUN}"
           else
             TAG="dev"
             VERSION="${BASE_VERSION}-${SAFE_BRANCH}.${RUN}"
