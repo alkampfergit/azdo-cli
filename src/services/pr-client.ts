@@ -4,10 +4,13 @@ import type {
   ActiveCommentThread,
   ActivePullRequestComment,
   AzdoPrListResponse,
+  AzdoPrStatusListResponse,
   AzdoPullRequest,
+  AzdoPullRequestStatus,
   AzdoThread,
   AzdoThreadListResponse,
   BranchPullRequestMatch,
+  PullRequestCheck,
   PullRequestOpenRequest,
   PullRequestOpenResult,
 } from '../types/pull-request.js';
@@ -35,6 +38,14 @@ function buildPullRequestsUrl(
   return url;
 }
 
+function buildPullRequestStatusesUrl(context: AzdoContext, repo: string, prId: number): URL {
+  const url = new URL(
+    `https://dev.azure.com/${encodeURIComponent(context.org)}/${encodeURIComponent(context.project)}/_apis/git/repositories/${encodeURIComponent(repo)}/pullRequests/${prId}/statuses`,
+  );
+  url.searchParams.set('api-version', '7.1');
+  return url;
+}
+
 function mapPullRequest(repo: string, pullRequest: AzdoPullRequest): BranchPullRequestMatch {
   return {
     id: pullRequest.pullRequestId,
@@ -45,6 +56,42 @@ function mapPullRequest(repo: string, pullRequest: AzdoPullRequest): BranchPullR
     status: pullRequest.status,
     createdBy: pullRequest.createdBy?.displayName ?? null,
     url: pullRequest._links.web.href,
+  };
+}
+
+function mapPullRequestCheckName(status: AzdoPullRequestStatus): string {
+  const genre = status.context?.genre?.trim();
+  const name = status.context?.name?.trim();
+
+  if (genre && name) {
+    return `${genre}/${name}`;
+  }
+
+  if (name) {
+    return name;
+  }
+
+  if (genre) {
+    return genre;
+  }
+
+  return `Status #${status.id}`;
+}
+
+function mapPullRequestCheck(status: AzdoPullRequestStatus): PullRequestCheck | null {
+  if (status.state === 'notApplicable' || status.state === 'notSet') {
+    return null;
+  }
+
+  return {
+    id: status.id,
+    state: status.state,
+    name: mapPullRequestCheckName(status),
+    description: status.description ?? null,
+    targetUrl: status.targetUrl ?? null,
+    createdBy: status.createdBy?.displayName ?? null,
+    createdAt: status.creationDate ?? null,
+    updatedAt: status.updatedDate ?? null,
   };
 }
 
@@ -104,6 +151,23 @@ export async function listPullRequests(
   );
   const data = await readJsonResponse<AzdoPrListResponse>(response);
   return data.value.map((pullRequest) => mapPullRequest(repo, pullRequest));
+}
+
+export async function getPullRequestChecks(
+  context: AzdoContext,
+  repo: string,
+  pat: string,
+  prId: number,
+): Promise<PullRequestCheck[]> {
+  const response = await fetchWithErrors(
+    buildPullRequestStatusesUrl(context, repo, prId).toString(),
+    { headers: authHeaders(pat) },
+  );
+  const data = await readJsonResponse<AzdoPrStatusListResponse>(response);
+
+  return data.value
+    .map(mapPullRequestCheck)
+    .filter((check): check is PullRequestCheck => check !== null);
 }
 
 export async function openPullRequest(

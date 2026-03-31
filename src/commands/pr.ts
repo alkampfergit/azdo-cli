@@ -1,12 +1,13 @@
 import { Command } from 'commander';
 import type {
   ActiveCommentThread,
-  BranchPullRequestMatch,
   PullRequestCommentsResult,
+  PullRequestCheck,
+  PullRequestStatusPullRequest,
   PullRequestStatusResult,
 } from '../types/pull-request.js';
 import type { AzdoContext } from '../types/work-item.js';
-import { listPullRequests, openPullRequest, getPullRequestThreads } from '../services/pr-client.js';
+import { listPullRequests, openPullRequest, getPullRequestThreads, getPullRequestChecks } from '../services/pr-client.js';
 import { resolvePat } from '../services/auth.js';
 import { resolveContext } from '../services/context.js';
 import { validateOrgProjectPair } from '../services/command-helpers.js';
@@ -61,11 +62,28 @@ function handlePrCommandError(err: unknown, context?: AzdoContext, mode: 'read' 
   writeError(error.message);
 }
 
-function formatPullRequestBlock(pullRequest: BranchPullRequestMatch): string {
+function formatPullRequestChecks(checks: PullRequestCheck[]): string[] {
+  if (checks.length === 0) {
+    return ['Checks: none reported by Azure DevOps'];
+  }
+
+  const lines = ['Checks:'];
+  for (const check of checks) {
+    lines.push(`- [${check.state}] ${check.name}`);
+    if ((check.state === 'failed' || check.state === 'error') && check.description) {
+      lines.push(`  Detail: ${check.description}`);
+    }
+  }
+
+  return lines;
+}
+
+function formatPullRequestBlock(pullRequest: PullRequestStatusPullRequest): string {
   return [
     `#${pullRequest.id} [${pullRequest.status}] ${pullRequest.title}`,
     `${formatBranchName(pullRequest.sourceRefName)} -> ${formatBranchName(pullRequest.targetRefName)}`,
     pullRequest.url,
+    ...formatPullRequestChecks(pullRequest.checks),
   ].join('\n');
 }
 
@@ -114,20 +132,26 @@ export function createPrStatusCommand(): Command {
         context = resolved.context;
 
         const pullRequests = await listPullRequests(resolved.context, resolved.repo, resolved.pat, resolved.branch);
+        const pullRequestsWithChecks: PullRequestStatusPullRequest[] = await Promise.all(
+          pullRequests.map(async (pullRequest) => ({
+            ...pullRequest,
+            checks: await getPullRequestChecks(resolved.context, resolved.repo, resolved.pat, pullRequest.id),
+          })),
+        );
         const { branch, repo } = resolved;
-        const result: PullRequestStatusResult = { branch, repository: repo, pullRequests };
+        const result: PullRequestStatusResult = { branch, repository: repo, pullRequests: pullRequestsWithChecks };
 
         if (options.json) {
           process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
           return;
         }
 
-        if (pullRequests.length === 0) {
+        if (pullRequestsWithChecks.length === 0) {
           process.stdout.write(`No pull requests found for branch ${branch}.\n`);
           return;
         }
 
-        process.stdout.write(`${pullRequests.map(formatPullRequestBlock).join('\n\n')}\n`);
+        process.stdout.write(`${pullRequestsWithChecks.map(formatPullRequestBlock).join('\n\n')}\n`);
       } catch (err) {
         handlePrCommandError(err, context, 'read');
       }
