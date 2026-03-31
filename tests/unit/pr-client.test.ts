@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AzdoContext } from '../../src/types/work-item.js';
-import { getPullRequestThreads, listPullRequests, openPullRequest } from '../../src/services/pr-client.js';
+import { getPullRequestChecks, getPullRequestThreads, listPullRequests, openPullRequest } from '../../src/services/pr-client.js';
 
 const context: AzdoContext = { org: 'test-org', project: 'test-project' };
 
@@ -178,6 +178,100 @@ describe('pr-client', () => {
 
       await expect(openPullRequest(context, 'repo-name', 'pat', 'feature/test', 'Title', 'Description'))
         .rejects.toThrow('AMBIGUOUS_PRS:22,23');
+    });
+  });
+
+  describe('getPullRequestChecks', () => {
+    it('maps and filters Azure DevOps pull request statuses', async () => {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          count: 5,
+          value: [
+            {
+              id: 1,
+              state: 'succeeded',
+              description: 'Build passed',
+              context: { genre: 'ci', name: 'build' },
+              creationDate: '2026-03-31T10:00:00Z',
+              updatedDate: '2026-03-31T10:05:00Z',
+              createdBy: { displayName: 'Azure Pipelines' },
+              targetUrl: 'https://example.test/build/1',
+            },
+            {
+              id: 2,
+              state: 'failed',
+              description: 'Unit tests failed',
+              context: { name: 'unit-tests' },
+              creationDate: '2026-03-31T10:01:00Z',
+              updatedDate: '2026-03-31T10:06:00Z',
+            },
+            {
+              id: 3,
+              state: 'error',
+              description: null,
+              context: {},
+              creationDate: '2026-03-31T10:02:00Z',
+              updatedDate: '2026-03-31T10:07:00Z',
+            },
+            {
+              id: 4,
+              state: 'notApplicable',
+              context: { genre: 'policy', name: 'lint' },
+            },
+            {
+              id: 5,
+              state: 'notSet',
+              context: { genre: 'policy', name: 'security' },
+            },
+          ],
+        }),
+      } as Response);
+
+      const result = await getPullRequestChecks(context, 'repo-name', 'pat', 12);
+
+      expect(result).toEqual([
+        {
+          id: 1,
+          state: 'succeeded',
+          name: 'ci/build',
+          description: 'Build passed',
+          targetUrl: 'https://example.test/build/1',
+          createdBy: 'Azure Pipelines',
+          createdAt: '2026-03-31T10:00:00Z',
+          updatedAt: '2026-03-31T10:05:00Z',
+        },
+        {
+          id: 2,
+          state: 'failed',
+          name: 'unit-tests',
+          description: 'Unit tests failed',
+          targetUrl: null,
+          createdBy: null,
+          createdAt: '2026-03-31T10:01:00Z',
+          updatedAt: '2026-03-31T10:06:00Z',
+        },
+        {
+          id: 3,
+          state: 'error',
+          name: 'Status #3',
+          description: null,
+          targetUrl: null,
+          createdBy: null,
+          createdAt: '2026-03-31T10:02:00Z',
+          updatedAt: '2026-03-31T10:07:00Z',
+        },
+      ]);
+    });
+
+    it('throws AUTH_FAILED on authentication failure', async () => {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+        ok: false,
+        status: 401,
+      } as Response);
+
+      await expect(getPullRequestChecks(context, 'repo-name', 'pat', 12)).rejects.toThrow('AUTH_FAILED');
     });
   });
 
