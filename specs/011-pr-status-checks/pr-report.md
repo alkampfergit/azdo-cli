@@ -10,25 +10,12 @@ This feature extends `azdo pr status` so it returns Azure DevOps pull request ch
 
 ## What's New
 
-- **[Area / Component]**: [What was added or changed and why]
-- **[Area / Component]**: [What was added or changed and why]
-- **[Area / Component]**: [What was added or changed and why]
-
-## New Libraries / Dependencies *(optional — remove section if none)*
-
-| Package | Version | Purpose |
-|---------|---------|---------|
-| [package-name] | [x.y.z] | [Why it was chosen and what it replaces or enables] |
-
-## Breaking Changes *(optional — remove section if none)*
-
-- **[What broke]**: [Short description of the change and any migration path or workaround]
+- **PR status checks**: `azdo pr status` now looks up Azure DevOps pull request status checks for each returned pull request and nests them under the matching PR in both text and JSON output.
+- **Error detail rendering**: Failed and errored checks now print available Azure DevOps description text so reviewers can see blocking detail without leaving the terminal.
+- **PR client contracts**: The pull request service and type layer now expose a dedicated check lookup plus stable mapped check fields for automation and unit coverage.
 
 ## Testing
 
-- **[Unit / Integration / E2E / Manual]**: [What scenario or component was covered]
-- **[Unit / Integration / E2E / Manual]**: [What scenario or component was covered]
-
-## Notes *(optional — remove section if none)*
-
-- [Note, known limitation, or follow-up item]
+- **Unit**: Extended `tests/unit/pr-client.test.ts` for Azure DevOps pull request status-check mapping, filtering, fallback naming, and auth failure handling.
+- **Unit**: Extended `tests/unit/pr-status.test.ts` for text rendering, empty-check output, failed/error detail output, JSON shape, and check lookup failure handling.
+- **Repo quality gates**: Ran `npm test && npm run lint`.
