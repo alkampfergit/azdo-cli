@@ -174,8 +174,11 @@ azdo pr comments
 `azdo pr status`
 
 - Lists pull requests for the current branch
+- Includes Azure DevOps pull request checks under each returned pull request
+- Prints `Checks: none reported by Azure DevOps` when a pull request has no returned checks
+- Shows `Detail: ...` lines for failed or errored checks when Azure DevOps provides description text
 - Prints `No pull requests found for branch <branch>.` when no PRs exist
-- Supports `--json` for machine-readable output
+- Supports `--json` for machine-readable output, including a `checks` array per pull request
 
 `azdo pr open`
 
