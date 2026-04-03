@@ -10,12 +10,17 @@ When using the `get-item` command with `--markdown` enabled, field labels and th
 
 ## What's New
 
-<!-- Filled in Phase 7 -->
-
-- **[Area / Component]**: [What was added or changed and why]
+- **`formatMarkdownField` helper** (`src/commands/get-item.ts`): New exported pure function that formats a field label and its markdown value. If the value is single-line, it returns `Label: value`; if multi-line, it returns `Label:\n<content>`. This encodes the formatting rule in one place.
+- **`formatExtraFields`** (`src/commands/get-item.ts`): Updated to use `formatMarkdownField` when markdown mode is enabled, replacing the old `padEnd(13)` concatenation that produced unreadable output. Non-markdown mode retains the original padded format unchanged.
+- **`summarizeDescription`** (`src/commands/get-item.ts`): Updated to accept a `markdown` flag and apply `formatMarkdownField` when formatting the description label+content in short mode, so multi-line descriptions start on the line after the label.
+- **Unit tests** (`tests/unit/get-item-markdown.test.ts`): 7 new tests covering single-line separator, multi-line label-then-content, non-markdown mode backward compatibility, empty values, and HTML-to-markdown single-line conversion.
 
 ## Testing
 
-<!-- Filled in Phase 7 -->
+- **Unit**: New tests in `tests/unit/get-item-markdown.test.ts` verify `formatWorkItem` produces `Label: value` for single-line markdown fields, `Label:\n<content>` for multi-line markdown fields, and the old padded format for non-markdown mode. All 348 tests pass.
+- **Unit**: Updated existing test for plain-text extra field in markdown mode to expect new `Tags: v1.0, release` format (was `Tags         v1.0, release`).
 
-- **[Unit / Integration / E2E / Manual]**: [What scenario or component was covered]
+## Notes
+
+- The `formatMarkdownField` function is exported to facilitate direct unit testing.
+- Non-markdown (stripHtml) output format is entirely unchanged — no regressions in the existing 341 tests.
