@@ -66,14 +66,14 @@ describe('formatWorkItem markdown with extra fields', () => {
     expect(output).toContain('Step **one**');
   });
 
-  it('passes plain-text extra fields through unchanged when markdown=true', () => {
+  it('passes plain-text extra fields through unchanged when markdown=true, with colon-space separator', () => {
     const item = makeWorkItem({
       extraFields: {
         'System.Tags': 'v1.0, release',
       },
     });
     const output = formatWorkItem(item, false, true);
-    expect(output).toContain('Tags         v1.0, release');
+    expect(output).toContain('Tags: v1.0, release');
   });
 
   it('leaves extra fields as raw strings when markdown=false', () => {
@@ -110,5 +110,84 @@ describe('three-state markdown flag resolution', () => {
     const item = makeWorkItem();
     const output = formatWorkItem(item, false);
     expect(output).toContain('--- Overview ---');
+  });
+});
+
+describe('markdown field formatting: single-line vs multi-line', () => {
+  it('single-line extra field displays as "Label: value" on same line when markdown=true', () => {
+    const item = makeWorkItem({
+      description: null,
+      extraFields: {
+        'System.Tags': 'bug, critical',
+      },
+    });
+    const output = formatWorkItem(item, false, true);
+    expect(output).toContain('Tags: bug, critical');
+    // Should NOT have padded format (old format without separator)
+    expect(output).not.toMatch(/Tags\s{2,}bug/);
+  });
+
+  it('single-line description in short mode displays as "Description: content" on same line when markdown=true', () => {
+    const item = makeWorkItem({
+      description: '<p>Short description</p>',
+    });
+    const output = formatWorkItem(item, true, true);
+    // Single-line content should appear after "Description: " on same line
+    expect(output).toContain('Description: Short description');
+  });
+
+  it('multi-line extra field displays label then content on next line when markdown=true', () => {
+    const item = makeWorkItem({
+      description: null,
+      extraFields: {
+        'Custom.ReproSteps': '<h2>Steps</h2><p>Step one</p><p>Step two</p>',
+      },
+    });
+    const output = formatWorkItem(item, false, true);
+    // Label should be on its own line, followed by newline and content
+    expect(output).toMatch(/ReproSteps:\n/);
+    expect(output).toContain('## Steps');
+  });
+
+  it('multi-line description in short mode starts content on line after label when markdown=true', () => {
+    const item = makeWorkItem({
+      description: '<h2>Overview</h2><p>Text with <strong>bold</strong></p>',
+    });
+    const output = formatWorkItem(item, true, true);
+    // Multi-line markdown content should start on the line after "Description:"
+    expect(output).toMatch(/Description:\n/);
+    expect(output).not.toMatch(/Description:[^\n]+## Overview/);
+  });
+
+  it('non-markdown extra fields retain original padded format when markdown=false', () => {
+    const item = makeWorkItem({
+      extraFields: {
+        'System.Tags': 'v1.0, release',
+      },
+    });
+    const output = formatWorkItem(item, false, false);
+    // Old padded format should remain unchanged in non-markdown mode
+    expect(output).toContain('Tags         v1.0, release');
+  });
+
+  it('empty extra field value in markdown mode does not crash', () => {
+    const item = makeWorkItem({
+      extraFields: {
+        'Custom.Notes': '',
+      },
+    });
+    expect(() => formatWorkItem(item, false, true)).not.toThrow();
+  });
+
+  it('HTML extra field with single-line conversion displays on same line when markdown=true', () => {
+    const item = makeWorkItem({
+      description: null,
+      extraFields: {
+        'System.Tags': '<p>simple tag</p>',
+      },
+    });
+    const output = formatWorkItem(item, false, true);
+    // After HTML→MD conversion, "simple tag" is a single line
+    expect(output).toContain('Tags: simple tag');
   });
 });
