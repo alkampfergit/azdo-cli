@@ -29,8 +29,8 @@ describe('formatWorkItem with extra fields', () => {
     });
 
     const output = formatWorkItem(item, false);
-    expect(output).toContain('Tags         frontend, bug');
-    expect(output).toContain('Priority     2');
+    expect(output).toContain('Tags: frontend, bug');
+    expect(output).toContain('Priority: 2');
   });
 
   it('extracts label from last segment of reference name', () => {
@@ -41,7 +41,7 @@ describe('formatWorkItem with extra fields', () => {
     });
 
     const output = formatWorkItem(item, false);
-    expect(output).toContain('StoryPoints  5');
+    expect(output).toContain('StoryPoints: 5');
   });
 
   it('shows extra fields in short mode', () => {
@@ -50,7 +50,7 @@ describe('formatWorkItem with extra fields', () => {
     });
 
     const output = formatWorkItem(item, true);
-    expect(output).toContain('Tags         important');
+    expect(output).toContain('Tags: important');
   });
 
   it('shows no extra fields section when extraFields is null', () => {
@@ -82,7 +82,7 @@ describe('formatWorkItem with extra fields', () => {
     });
 
     const output = formatWorkItem(item, false);
-    expect(output).toContain('CustomField  value');
+    expect(output).toContain('CustomField: value');
   });
 });
 
