@@ -377,6 +377,7 @@ export async function addWorkItemComment(
   id: number,
   pat: string,
   text: string,
+  format: 'html' | 'markdown' = 'html',
 ): Promise<AddWorkItemCommentResult> {
   const response = await fetchWithErrors(buildWorkItemCommentsUrl(context, id).toString(), {
     method: 'POST',
@@ -384,7 +385,7 @@ export async function addWorkItemComment(
       ...authHeaders(pat),
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({ text }),
+    body: JSON.stringify({ text, format }),
   });
 
   if (response.status === 400) {

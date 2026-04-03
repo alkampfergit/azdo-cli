@@ -395,7 +395,7 @@ describe('addWorkItemComment', () => {
           Authorization: `Basic ${expectedToken}`,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ text: 'Investigation complete.' }),
+        body: JSON.stringify({ text: 'Investigation complete.', format: 'html' }),
       }),
     );
   });

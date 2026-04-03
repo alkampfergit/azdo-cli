@@ -119,6 +119,100 @@ describe('comments list command', () => {
     });
   });
 
+  describe('--markdown flag', () => {
+    it('converts HTML comment bodies to markdown when --markdown is passed', async () => {
+      vi.mocked(listWorkItemComments).mockResolvedValue({
+        workItemId: 42,
+        count: 1,
+        comments: [
+          {
+            id: 51,
+            workItemId: 42,
+            text: '<p><strong>Hello</strong> world</p>',
+            author: 'Alice',
+            createdAt: '2026-03-28T10:15:00Z',
+            modifiedAt: '2026-03-28T10:15:00Z',
+            isDeleted: false,
+          },
+        ],
+      });
+
+      await run(['list', '42', '--markdown']);
+
+      const output = getStdout();
+      expect(output).not.toContain('<p>');
+      expect(output).not.toContain('<strong>');
+      expect(output).toContain('Hello');
+    });
+
+    it('passes through non-HTML comment bodies unchanged when --markdown is passed', async () => {
+      vi.mocked(listWorkItemComments).mockResolvedValue({
+        workItemId: 42,
+        count: 1,
+        comments: [
+          {
+            id: 52,
+            workItemId: 42,
+            text: '**plain markdown** text',
+            author: 'Bob',
+            createdAt: '2026-03-29T08:00:00Z',
+            modifiedAt: '2026-03-29T08:00:00Z',
+            isDeleted: false,
+          },
+        ],
+      });
+
+      await run(['list', '42', '--markdown']);
+
+      expect(getStdout()).toContain('**plain markdown** text');
+    });
+
+    it('does not convert when --markdown is absent', async () => {
+      vi.mocked(listWorkItemComments).mockResolvedValue({
+        workItemId: 42,
+        count: 1,
+        comments: [
+          {
+            id: 53,
+            workItemId: 42,
+            text: '<p>raw html</p>',
+            author: 'Carol',
+            createdAt: '2026-03-29T09:00:00Z',
+            modifiedAt: '2026-03-29T09:00:00Z',
+            isDeleted: false,
+          },
+        ],
+      });
+
+      await run(['list', '42']);
+
+      expect(getStdout()).toContain('<p>raw html</p>');
+    });
+
+    it('does not convert text in JSON output even when --markdown is passed', async () => {
+      vi.mocked(listWorkItemComments).mockResolvedValue({
+        workItemId: 42,
+        count: 1,
+        comments: [
+          {
+            id: 54,
+            workItemId: 42,
+            text: '<p>html comment</p>',
+            author: 'Dave',
+            createdAt: '2026-03-29T10:00:00Z',
+            modifiedAt: '2026-03-29T10:00:00Z',
+            isDeleted: false,
+          },
+        ],
+      });
+
+      await run(['list', '42', '--markdown', '--json']);
+
+      const parsed = JSON.parse(getStdout()) as { comments: Array<{ text: string }> };
+      expect(parsed.comments[0].text).toBe('<p>html comment</p>');
+    });
+  });
+
   describeCommandErrors(
     vi.mocked(listWorkItemComments),
     run,
