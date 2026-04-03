@@ -1,0 +1,1 @@
+Use the speckit-full action found in .agents/skills (all the skills are there) to implemente the following feature.
