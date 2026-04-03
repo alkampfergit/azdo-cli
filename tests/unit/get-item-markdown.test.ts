@@ -159,15 +159,14 @@ describe('markdown field formatting: single-line vs multi-line', () => {
     expect(output).not.toMatch(/Description:[^\n]+## Overview/);
   });
 
-  it('non-markdown extra fields retain original padded format when markdown=false', () => {
+  it('non-markdown extra fields use label: value format when markdown=false', () => {
     const item = makeWorkItem({
       extraFields: {
         'System.Tags': 'v1.0, release',
       },
     });
     const output = formatWorkItem(item, false, false);
-    // Old padded format should remain unchanged in non-markdown mode
-    expect(output).toContain('Tags         v1.0, release');
+    expect(output).toContain('Tags: v1.0, release');
   });
 
   it('empty extra field value in markdown mode does not crash', () => {

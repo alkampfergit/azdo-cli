@@ -68,7 +68,7 @@ function formatExtraFields(extraFields: Record<string, string>, markdown: boolea
       const displayValue = toMarkdown(value);
       return formatMarkdownField(fieldLabel, displayValue);
     }
-    return `${fieldLabel.padEnd(13)}${value}`;
+    return formatMarkdownField(fieldLabel, value);
   });
 }
 
