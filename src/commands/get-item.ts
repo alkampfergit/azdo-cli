@@ -54,19 +54,33 @@ function convertRichText(html: string | null, markdown: boolean): string {
   return markdown ? toMarkdown(html) : stripHtml(html);
 }
 
+export function formatMarkdownField(fieldLabel: string, value: string): string {
+  if (value.includes('\n')) {
+    return `${fieldLabel}:\n${value}`;
+  }
+  return `${fieldLabel}: ${value}`;
+}
+
 function formatExtraFields(extraFields: Record<string, string>, markdown: boolean): string[] {
   return Object.entries(extraFields).map(([refName, value]) => {
     const fieldLabel = refName.includes('.') ? refName.split('.').pop()! : refName;
-    const displayValue = markdown ? toMarkdown(value) : value;
-    return `${fieldLabel.padEnd(13)}${displayValue}`;
+    if (markdown) {
+      const displayValue = toMarkdown(value);
+      return formatMarkdownField(fieldLabel, displayValue);
+    }
+    return `${fieldLabel.padEnd(13)}${value}`;
   });
 }
 
-function summarizeDescription(text: string, label: (name: string) => string): string[] {
+function summarizeDescription(text: string, label: (name: string) => string, markdown: boolean): string[] {
   const descLines = text.split('\n').filter((l) => l.trim() !== '');
   const firstThree = descLines.slice(0, 3);
   const suffix = descLines.length > 3 ? '\n...' : '';
-  return [`${label('Description:')}${firstThree.join('\n')}${suffix}`];
+  const content = `${firstThree.join('\n')}${suffix}`;
+  if (markdown) {
+    return [formatMarkdownField('Description', content)];
+  }
+  return [`${label('Description:')}${content}`];
 }
 
 export function formatWorkItem(workItem: WorkItem, short: boolean, markdown: boolean = false): string {
@@ -97,7 +111,7 @@ export function formatWorkItem(workItem: WorkItem, short: boolean, markdown: boo
   const descriptionText = convertRichText(workItem.description, markdown);
 
   if (short) {
-    lines.push(...summarizeDescription(descriptionText, label));
+    lines.push(...summarizeDescription(descriptionText, label, markdown));
   } else {
     lines.push('Description:', descriptionText);
   }
