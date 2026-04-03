@@ -388,7 +388,7 @@ describe('addWorkItemComment', () => {
 
     const expectedToken = Buffer.from(`:${pat}`).toString('base64');
     expect(fetch).toHaveBeenCalledWith(
-      'https://dev.azure.com/testorg/testproject/_apis/wit/workItems/42/comments?api-version=7.1-preview.4',
+      'https://dev.azure.com/testorg/testproject/_apis/wit/workItems/42/comments?api-version=7.1-preview.4&format=html',
       expect.objectContaining({
         method: 'POST',
         headers: {
@@ -396,6 +396,27 @@ describe('addWorkItemComment', () => {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({ text: 'Investigation complete.' }),
+      }),
+    );
+  });
+
+  it('sends format=markdown in the request URL when format is markdown', async () => {
+    vi.mocked(fetch).mockResolvedValue(makeFetchResponse({
+      workItemId: 42,
+      commentId: 78,
+      text: '**Bold comment**',
+      createdBy: { displayName: 'Bob' },
+      createdDate: '2026-03-28T11:00:00Z',
+      url: 'https://dev.azure.com/testorg/testproject/_apis/wit/workItems/42/comments/78',
+    }));
+
+    await addWorkItemComment(ctx, 42, pat, '**Bold comment**', 'markdown');
+
+    expect(fetch).toHaveBeenCalledWith(
+      'https://dev.azure.com/testorg/testproject/_apis/wit/workItems/42/comments?api-version=7.1-preview.4&format=markdown',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ text: '**Bold comment**' }),
       }),
     );
   });

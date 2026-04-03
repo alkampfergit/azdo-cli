@@ -1,10 +1,23 @@
 import { createInterface } from 'node:readline';
+import { existsSync, readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import type { AuthCredential } from '../types/work-item.js';
 import { getPat, storePat } from './credential-store.js';
+
+const PAT_PROMPT = 'Enter your Azure DevOps PAT: ';
+const VISIBLE_CHARS = 5;
 
 export function normalizePat(rawPat: string): string | null {
   const trimmedPat = rawPat.trim();
   return trimmedPat.length > 0 ? trimmedPat : null;
+}
+
+export function maskedDisplay(pat: string): string {
+  if (pat.length <= VISIBLE_CHARS * 2) {
+    return pat;
+  }
+  const hiddenCount = pat.length - VISIBLE_CHARS * 2;
+  return pat.slice(0, VISIBLE_CHARS) + '*'.repeat(hiddenCount) + pat.slice(-VISIBLE_CHARS);
 }
 
 export async function promptForPat(): Promise<string | null> {
@@ -18,11 +31,15 @@ export async function promptForPat(): Promise<string | null> {
       output: process.stderr,
     });
 
-    process.stderr.write('Enter your Azure DevOps PAT: ');
+    process.stderr.write(PAT_PROMPT);
     process.stdin.setRawMode(true);
     process.stdin.resume();
 
     let pat = '';
+
+    const redraw = (): void => {
+      process.stderr.write(`\r${PAT_PROMPT}${maskedDisplay(pat)}\x1B[K`);
+    };
 
     const onData = (key: Buffer): void => {
       const ch = key.toString('utf8');
@@ -43,11 +60,11 @@ export async function promptForPat(): Promise<string | null> {
       } else if (ch === '\u007F' || ch === '\b') {
         if (pat.length > 0) {
           pat = pat.slice(0, -1);
-          process.stderr.write('\b \b');
+          redraw();
         }
       } else {
         pat += ch;
-        process.stderr.write('*'.repeat(ch.length));
+        redraw();
       }
     };
 
@@ -55,7 +72,30 @@ export async function promptForPat(): Promise<string | null> {
   });
 }
 
-export async function resolvePat(): Promise<AuthCredential> {
+export function findDotEnvPat(startDir: string = process.cwd()): string | null {
+  let current = startDir;
+  while (true) {
+    const envFile = join(current, '.env');
+    if (existsSync(envFile)) {
+      const contents = readFileSync(envFile, 'utf8');
+      for (const line of contents.split('\n')) {
+        const match = line.match(/^AZDO_PAT\s*=\s*(.+)$/);
+        if (match) {
+          const value = match[1].trim().replace(/^["']|["']$/g, '');
+          if (value.length > 0) return value;
+        }
+      }
+    }
+    const parent = dirname(current);
+    if (parent === current) break;
+    current = parent;
+  }
+  return null;
+}
+
+export async function resolvePat(
+  promptFn: () => Promise<string | null> = promptForPat,
+): Promise<AuthCredential> {
   const envPat = process.env.AZDO_PAT;
   if (envPat) {
     return { pat: envPat, source: 'env' };
@@ -66,11 +106,19 @@ export async function resolvePat(): Promise<AuthCredential> {
     return { pat: storedPat, source: 'credential-store' };
   }
 
-  const promptedPat = await promptForPat();
+  const dotEnvPat = findDotEnvPat();
+  if (dotEnvPat !== null) {
+    return { pat: dotEnvPat, source: 'env' };
+  }
+
+  const promptedPat = await promptFn();
   if (promptedPat !== null) {
     const normalizedPat = normalizePat(promptedPat);
     if (normalizedPat !== null) {
-      await storePat(normalizedPat);
+      const saved = await storePat(normalizedPat);
+      if (!saved) {
+        process.stderr.write('Warning: Could not save PAT to credential store. You may need to enter it again next time.\n');
+      }
       return { pat: normalizedPat, source: 'prompt' };
     }
   }
