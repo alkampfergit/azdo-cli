@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { existsSync, readFileSync } from 'node:fs';
 
 const getPatMock = vi.fn();
 const storePatMock = vi.fn();
@@ -8,11 +9,20 @@ vi.mock('../../src/services/credential-store.js', () => ({
   storePat: storePatMock,
 }));
 
+vi.mock('node:fs', () => ({
+  existsSync: vi.fn(),
+  readFileSync: vi.fn(),
+}));
+
+const existsSyncMock = vi.mocked(existsSync);
+const readFileSyncMock = vi.mocked(readFileSync);
+
 describe('resolvePat', () => {
   beforeEach(() => {
     vi.resetModules();
     vi.clearAllMocks();
     delete process.env.AZDO_PAT;
+    existsSyncMock.mockReturnValue(false);
   });
 
   afterEach(() => {
@@ -35,12 +45,100 @@ describe('resolvePat', () => {
     getPatMock.mockResolvedValue(null);
 
     const auth = await import('../../src/services/auth.js');
-    vi.spyOn(auth, 'promptForPat').mockResolvedValue('');
 
-    await expect(auth.resolvePat()).rejects.toThrow('Authentication cancelled');
+    await expect(auth.resolvePat(() => Promise.resolve(''))).rejects.toThrow('Authentication cancelled');
     expect(storePatMock).not.toHaveBeenCalled();
   });
 
+  it('stores PAT when prompted and credential store succeeds', async () => {
+    getPatMock.mockResolvedValue(null);
+    storePatMock.mockResolvedValue(true);
+
+    const auth = await import('../../src/services/auth.js');
+
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    const result = await auth.resolvePat(() => Promise.resolve('prompt-token'));
+
+    expect(result).toEqual({ pat: 'prompt-token', source: 'prompt' });
+    expect(storePatMock).toHaveBeenCalledWith('prompt-token');
+    expect(stderrSpy).not.toHaveBeenCalledWith(expect.stringContaining('Warning'));
+    stderrSpy.mockRestore();
+  });
+
+  it('warns when PAT is prompted but credential store fails', async () => {
+    getPatMock.mockResolvedValue(null);
+    storePatMock.mockResolvedValue(false);
+
+    const auth = await import('../../src/services/auth.js');
+
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    const result = await auth.resolvePat(() => Promise.resolve('prompt-token'));
+
+    expect(result).toEqual({ pat: 'prompt-token', source: 'prompt' });
+    expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining('Warning: Could not save PAT to credential store'));
+    stderrSpy.mockRestore();
+  });
+
+  it('returns .env PAT when credential store has no PAT', async () => {
+    getPatMock.mockResolvedValue(null);
+    existsSyncMock.mockImplementation((p) => String(p).endsWith('.env'));
+    readFileSyncMock.mockReturnValue('AZDO_PAT=dotenv-token\n');
+
+    const auth = await import('../../src/services/auth.js');
+    const result = await auth.resolvePat(() => Promise.resolve('prompt-token'));
+
+    expect(result).toEqual({ pat: 'dotenv-token', source: 'env' });
+  });
+
+  it('falls through to prompt when .env has no AZDO_PAT', async () => {
+    getPatMock.mockResolvedValue(null);
+    storePatMock.mockResolvedValue(true);
+    existsSyncMock.mockImplementation((p) => String(p).endsWith('.env'));
+    readFileSyncMock.mockReturnValue('SOME_OTHER_VAR=value\n');
+
+    const auth = await import('../../src/services/auth.js');
+    const result = await auth.resolvePat(() => Promise.resolve('prompt-token'));
+
+    expect(result).toEqual({ pat: 'prompt-token', source: 'prompt' });
+  });
+
+});
+
+describe('findDotEnvPat', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('returns PAT from .env in the given directory', async () => {
+    existsSyncMock.mockImplementation((p) => String(p).endsWith('.env'));
+    readFileSyncMock.mockReturnValue('AZDO_PAT=my-pat\n');
+
+    const { findDotEnvPat } = await import('../../src/services/auth.js');
+    expect(findDotEnvPat('/some/dir')).toBe('my-pat');
+  });
+
+  it('strips surrounding quotes from PAT value', async () => {
+    existsSyncMock.mockImplementation((p) => String(p).endsWith('.env'));
+    readFileSyncMock.mockReturnValue('AZDO_PAT="quoted-pat"\n');
+
+    const { findDotEnvPat } = await import('../../src/services/auth.js');
+    expect(findDotEnvPat('/some/dir')).toBe('quoted-pat');
+  });
+
+  it('returns null when no .env file is found', async () => {
+    existsSyncMock.mockReturnValue(false);
+
+    const { findDotEnvPat } = await import('../../src/services/auth.js');
+    expect(findDotEnvPat('/some/dir')).toBeNull();
+  });
+
+  it('returns null when .env exists but has no AZDO_PAT', async () => {
+    existsSyncMock.mockImplementation((p) => String(p).endsWith('.env'));
+    readFileSyncMock.mockReturnValue('OTHER_VAR=value\n');
+
+    const { findDotEnvPat } = await import('../../src/services/auth.js');
+    expect(findDotEnvPat('/some/dir')).toBeNull();
+  });
 });
 
 describe('normalizePat', () => {
@@ -52,5 +150,28 @@ describe('normalizePat', () => {
   it('trims non-empty input', async () => {
     const auth = await import('../../src/services/auth.js');
     expect(auth.normalizePat('  prompt-token  ')).toBe('prompt-token');
+  });
+});
+
+describe('maskedDisplay', () => {
+  it('shows full value when length is equal to visible chars * 2', async () => {
+    const { maskedDisplay } = await import('../../src/services/auth.js');
+    expect(maskedDisplay('abcdefghij')).toBe('abcdefghij');
+  });
+
+  it('shows full value when shorter than visible chars * 2', async () => {
+    const { maskedDisplay } = await import('../../src/services/auth.js');
+    expect(maskedDisplay('abc')).toBe('abc');
+  });
+
+  it('masks middle characters when longer than visible chars * 2', async () => {
+    const { maskedDisplay } = await import('../../src/services/auth.js');
+    // 21 chars: first 5 + 11 asterisks + last 5
+    expect(maskedDisplay('abcdefghijklmnopqrstu')).toBe('abcde***********qrstu');
+  });
+
+  it('returns empty string unchanged', async () => {
+    const { maskedDisplay } = await import('../../src/services/auth.js');
+    expect(maskedDisplay('')).toBe('');
   });
 });

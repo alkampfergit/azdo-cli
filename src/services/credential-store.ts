@@ -12,12 +12,13 @@ export async function getPat(): Promise<string | null> {
   }
 }
 
-export async function storePat(pat: string): Promise<void> {
+export async function storePat(pat: string): Promise<boolean> {
   try {
     const entry = new Entry(SERVICE, ACCOUNT);
     entry.setPassword(pat);
+    return true;
   } catch {
-    // credential storage is best-effort; silently ignore errors
+    return false;
   }
 }
 
