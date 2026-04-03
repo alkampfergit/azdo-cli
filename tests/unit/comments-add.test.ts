@@ -71,6 +71,28 @@ describe('comments add command', () => {
     });
   });
 
+  it('calls addWorkItemComment with format markdown when --markdown is passed', async () => {
+    await run(['add', '42', '**bold**', '--markdown']);
+    expect(addWorkItemComment).toHaveBeenCalledWith(
+      expect.anything(),
+      42,
+      expect.any(String),
+      '**bold**',
+      'markdown',
+    );
+  });
+
+  it('calls addWorkItemComment with format html when --markdown is absent', async () => {
+    await run(['add', '42', 'plain text']);
+    expect(addWorkItemComment).toHaveBeenCalledWith(
+      expect.anything(),
+      42,
+      expect.any(String),
+      'plain text',
+      'html',
+    );
+  });
+
   describeCommandErrors(
     vi.mocked(addWorkItemComment),
     run,

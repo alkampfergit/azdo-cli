@@ -4,11 +4,13 @@ import { addWorkItemComment, listWorkItemComments } from '../services/azdo-clien
 import { resolvePat } from '../services/auth.js';
 import { resolveContext } from '../services/context.js';
 import { handleCommandError, parseWorkItemId, validateOrgProjectPair } from '../services/command-helpers.js';
+import { toMarkdown } from '../services/md-convert.js';
 
 interface CommentCommandOptions {
   org?: string;
   project?: string;
   json?: boolean;
+  markdown?: boolean;
 }
 
 function writeError(message: string): never {
@@ -22,11 +24,12 @@ function formatCommentHeader(comment: WorkItemComment): string {
   return `Comment #${comment.id} by ${author} at ${timestamp}`;
 }
 
-function formatComments(result: WorkItemCommentsResult): string {
+function formatComments(result: WorkItemCommentsResult, convertMarkdown: boolean): string {
   const lines = [`Comments for work item #${result.workItemId}`];
 
   for (const comment of result.comments) {
-    lines.push('', formatCommentHeader(comment), comment.text);
+    const text = convertMarkdown ? toMarkdown(comment.text) : comment.text;
+    lines.push('', formatCommentHeader(comment), text);
   }
 
   return lines.join('\n');
@@ -41,6 +44,7 @@ export function createCommentsListCommand(): Command {
     .option('--org <org>', 'Azure DevOps organization')
     .option('--project <project>', 'Azure DevOps project')
     .option('--json', 'output JSON')
+    .option('--markdown', 'convert HTML comment bodies to markdown')
     .action(async (idStr: string, options: CommentCommandOptions) => {
       validateOrgProjectPair(options);
       const id = parseWorkItemId(idStr);
@@ -62,7 +66,7 @@ export function createCommentsListCommand(): Command {
           return;
         }
 
-        process.stdout.write(`${formatComments(result)}\n`);
+        process.stdout.write(`${formatComments(result, options.markdown === true)}\n`);
       } catch (err: unknown) {
         handleCommandError(err, id, context, 'read');
       }
@@ -81,6 +85,7 @@ export function createCommentsAddCommand(): Command {
     .option('--org <org>', 'Azure DevOps organization')
     .option('--project <project>', 'Azure DevOps project')
     .option('--json', 'output JSON')
+    .option('--markdown', 'post comment as markdown')
     .action(async (idStr: string, text: string, options: CommentCommandOptions) => {
       validateOrgProjectPair(options);
       const id = parseWorkItemId(idStr);
@@ -94,7 +99,8 @@ export function createCommentsAddCommand(): Command {
       try {
         context = resolveContext(options);
         const credential = await resolvePat();
-        const result = await addWorkItemComment(context, id, credential.pat, text);
+        const format = options.markdown === true ? 'markdown' : 'html';
+        const result = await addWorkItemComment(context, id, credential.pat, text, format);
 
         if (options.json) {
           process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
