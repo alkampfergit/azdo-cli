@@ -388,14 +388,14 @@ describe('addWorkItemComment', () => {
 
     const expectedToken = Buffer.from(`:${pat}`).toString('base64');
     expect(fetch).toHaveBeenCalledWith(
-      'https://dev.azure.com/testorg/testproject/_apis/wit/workItems/42/comments?api-version=7.1-preview.4',
+      'https://dev.azure.com/testorg/testproject/_apis/wit/workItems/42/comments?api-version=7.1-preview.4&format=html',
       expect.objectContaining({
         method: 'POST',
         headers: {
           Authorization: `Basic ${expectedToken}`,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ text: 'Investigation complete.', format: 'html' }),
+        body: JSON.stringify({ text: 'Investigation complete.' }),
       }),
     );
   });

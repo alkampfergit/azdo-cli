@@ -379,13 +379,15 @@ export async function addWorkItemComment(
   text: string,
   format: 'html' | 'markdown' = 'html',
 ): Promise<AddWorkItemCommentResult> {
-  const response = await fetchWithErrors(buildWorkItemCommentsUrl(context, id).toString(), {
+  const url = buildWorkItemCommentsUrl(context, id);
+  url.searchParams.set('format', format);
+  const response = await fetchWithErrors(url.toString(), {
     method: 'POST',
     headers: {
       ...authHeaders(pat),
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({ text, format }),
+    body: JSON.stringify({ text }),
   });
 
   if (response.status === 400) {
