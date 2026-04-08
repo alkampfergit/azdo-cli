@@ -32,8 +32,8 @@ export function stripHtml(html: string): string {
   text = text.replaceAll(/<\/?(p|div)>/gi, '\n');
   text = text.replaceAll(/<li>/gi, '\n');
 
-  // Remove all remaining HTML tags
-  text = text.replaceAll(/<[^>]*>/g, '');
+  // Strip any remaining tags with a linear scan to avoid regex backtracking hotspots.
+  text = removeHtmlTags(text);
 
   // Decode common HTML entities
   text = text.replaceAll('&amp;', '&');
@@ -47,6 +47,29 @@ export function stripHtml(html: string): string {
   text = text.replaceAll(/\n{3,}/g, '\n\n');
 
   return text.trim();
+}
+
+function removeHtmlTags(value: string): string {
+  let result = '';
+  let insideTag = false;
+
+  for (const char of value) {
+    if (char === '<') {
+      insideTag = true;
+      continue;
+    }
+
+    if (char === '>' && insideTag) {
+      insideTag = false;
+      continue;
+    }
+
+    if (!insideTag) {
+      result += char;
+    }
+  }
+
+  return result;
 }
 
 function convertRichText(html: string | null, markdown: boolean): string {

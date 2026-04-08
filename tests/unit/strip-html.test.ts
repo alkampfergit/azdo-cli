@@ -55,6 +55,10 @@ describe('stripHtml', () => {
     expect(stripHtml('<span class="x">text</span>')).toBe('text');
   });
 
+  it('drops unterminated tags without regex backtracking behavior', () => {
+    expect(stripHtml('prefix <span class="x" text')).toBe('prefix');
+  });
+
   it('collapses multiple consecutive newlines to double', () => {
     expect(stripHtml('<p>a</p><p></p><p></p><p>b</p>')).toBe('a\n\nb');
   });
