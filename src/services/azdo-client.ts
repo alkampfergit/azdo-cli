@@ -118,6 +118,11 @@ interface AzdoCommentListResponse {
   continuationToken?: string;
 }
 
+interface GetWorkItemRequestOptions {
+  fields?: string[];
+  includeRelations?: boolean;
+}
+
 function stringifyFieldValue(value: unknown): string {
   if (typeof value === 'object' && value !== null) {
     return JSON.stringify(value);
@@ -264,21 +269,37 @@ function extractAttachments(relations?: AzdoRelation[]): WorkItemAttachment[] | 
   return attachments.length > 0 ? attachments : null;
 }
 
-export async function getWorkItem(context: AzdoContext, id: number, pat: string, extraFields?: string[]): Promise<WorkItem> {
+function buildWorkItemUrl(
+  context: AzdoContext,
+  id: number,
+  options: GetWorkItemRequestOptions = {},
+): URL {
   const url = new URL(
     `https://dev.azure.com/${encodeURIComponent(context.org)}/${encodeURIComponent(context.project)}/_apis/wit/workitems/${id}`,
   );
   url.searchParams.set('api-version', '7.1');
-  url.searchParams.set('$expand', 'relations');
 
-  const normalizedExtraFields = extraFields ? normalizeFieldList(extraFields) : [];
-
-  if (normalizedExtraFields.length > 0) {
-    const allFields = normalizeFieldList([...DEFAULT_FIELDS, ...normalizedExtraFields]);
-    url.searchParams.set('fields', allFields.join(','));
+  if (options.includeRelations) {
+    url.searchParams.set('$expand', 'relations');
   }
 
-  const response = await fetchWithErrors(url.toString(), { headers: authHeaders(pat) });
+  if (options.fields && options.fields.length > 0) {
+    url.searchParams.set('fields', options.fields.join(','));
+  }
+
+  return url;
+}
+
+async function fetchWorkItemResponse(
+  context: AzdoContext,
+  id: number,
+  pat: string,
+  options: GetWorkItemRequestOptions = {},
+): Promise<AzdoWorkItemResponse> {
+  const response = await fetchWithErrors(
+    buildWorkItemUrl(context, id, options).toString(),
+    { headers: authHeaders(pat) },
+  );
 
   if (response.status === 400) {
     const serverMessage = await readResponseMessage(response);
@@ -291,7 +312,19 @@ export async function getWorkItem(context: AzdoContext, id: number, pat: string,
     throw new Error(`HTTP_${response.status}`);
   }
 
-  const data = (await response.json()) as AzdoWorkItemResponse;
+  return (await response.json()) as AzdoWorkItemResponse;
+}
+
+export async function getWorkItem(context: AzdoContext, id: number, pat: string, extraFields?: string[]): Promise<WorkItem> {
+  const normalizedExtraFields = extraFields ? normalizeFieldList(extraFields) : [];
+  const data = normalizedExtraFields.length > 0
+    ? await fetchWorkItemResponse(context, id, pat, {
+      fields: normalizeFieldList([...DEFAULT_FIELDS, ...normalizedExtraFields]),
+    })
+    : await fetchWorkItemResponse(context, id, pat, { includeRelations: true });
+  const relationsData = normalizedExtraFields.length > 0
+    ? await fetchWorkItemResponse(context, id, pat, { includeRelations: true })
+    : data;
 
   const descriptionParts: { label: string; value: string }[] = [];
   if (data.fields['System.Description']) {
@@ -327,7 +360,7 @@ export async function getWorkItem(context: AzdoContext, id: number, pat: string,
     extraFields: normalizedExtraFields.length > 0
       ? buildExtraFields(data.fields, normalizedExtraFields)
       : null,
-    attachments: extractAttachments(data.relations),
+    attachments: extractAttachments(relationsData.relations),
   };
 }
 
