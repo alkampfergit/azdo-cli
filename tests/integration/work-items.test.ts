@@ -37,12 +37,13 @@ describe.skipIf(SKIP_AZDO)('work items integration', () => {
 
   // ── Setup ────────────────────────────────────────────────────────────────
 
+  // Azure DevOps API calls can exceed Vitest's default hook timeout in CI.
   beforeAll(async () => {
     const result = await createWorkItem(context, 'Task', pat, [
       { op: 'add', path: '/fields/System.Title', value: title },
     ]);
     createdId = result.id;
-  });
+  }, 30_000);
 
   // ── Teardown ─────────────────────────────────────────────────────────────
 

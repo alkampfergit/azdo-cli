@@ -140,7 +140,7 @@ describe('getWorkItem', () => {
     await getWorkItem(ctx, 99, pat);
 
     expect(fetch).toHaveBeenCalledWith(
-      'https://dev.azure.com/testorg/testproject/_apis/wit/workitems/99?api-version=7.1',
+      'https://dev.azure.com/testorg/testproject/_apis/wit/workitems/99?api-version=7.1&%24expand=relations',
       expect.any(Object),
     );
   });
@@ -151,7 +151,7 @@ describe('getWorkItem', () => {
     await getWorkItem({ org: 'my org', project: 'My Project' }, 99, pat);
 
     expect(fetch).toHaveBeenCalledWith(
-      'https://dev.azure.com/my%20org/My%20Project/_apis/wit/workitems/99?api-version=7.1',
+      'https://dev.azure.com/my%20org/My%20Project/_apis/wit/workitems/99?api-version=7.1&%24expand=relations',
       expect.any(Object),
     );
   });
@@ -180,6 +180,20 @@ describe('getWorkItem', () => {
     expect(calledUrl).toContain('fields=');
     expect(calledUrl).not.toContain('%2C%2C');
     expect(calledUrl.match(/System\.Tags/g)?.length).toBe(1);
+  });
+
+  it('fetches relations separately when extra fields are requested', async () => {
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(makeWorkItemResponse({ 'System.Tags': 'tag1,tag2' }))
+      .mockResolvedValueOnce(makeWorkItemResponse({}));
+
+    await getWorkItem(ctx, 99, pat, ['System.Tags']);
+
+    expect(vi.mocked(fetch).mock.calls).toHaveLength(2);
+    expect(vi.mocked(fetch).mock.calls[0]?.[0]).toEqual(expect.stringContaining('fields='));
+    expect(vi.mocked(fetch).mock.calls[0]?.[0]).toEqual(expect.not.stringContaining('%24expand=relations'));
+    expect(vi.mocked(fetch).mock.calls[1]?.[0]).toEqual(expect.stringContaining('%24expand=relations'));
+    expect(vi.mocked(fetch).mock.calls[1]?.[0]).toEqual(expect.not.stringContaining('fields='));
   });
 });
 

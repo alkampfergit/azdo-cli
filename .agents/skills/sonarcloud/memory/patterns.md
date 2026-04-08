@@ -1,8 +1,15 @@
 # SonarCloud Issue Patterns
 
-Last updated: 2026-03-08
+Last updated: 2026-04-08
 
 ## Rules encountered
+
+### S5852 - Regex vulnerable to super-linear runtime
+- **File**: `src/commands/get-item.ts`
+- **Fix**: Replaced the fallback HTML tag stripping regex with a linear character
+  scan helper to avoid backtracking on malformed tag input while preserving
+  existing output
+- **Issue**: `azdo-cli-4sl`
 
 ### S6551 - Avoid String() on potentially object-typed value
 - **File**: Multiple command files
