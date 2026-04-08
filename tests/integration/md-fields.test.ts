@@ -39,12 +39,13 @@ describe.skipIf(SKIP_AZDO)('md-fields integration', () => {
 
   // ── Setup ────────────────────────────────────────────────────────────────
 
+  // Azure DevOps API calls can exceed Vitest's default hook timeout in CI.
   beforeAll(async () => {
     const result = await createWorkItem(context, 'Task', pat, [
       { op: 'add', path: '/fields/System.Title', value: testItemTitle('md-fields: HTML and Markdown field round-trip tests') },
     ]);
     createdId = result.id;
-  });
+  }, 30_000);
 
   // ── Teardown ─────────────────────────────────────────────────────────────
 
@@ -116,7 +117,7 @@ describe.skipIf(SKIP_AZDO)('md-fields integration', () => {
       const md = toMarkdown(raw!);
       expect(md).toBeTypeOf('string');
       expect(md.length).toBeGreaterThan(0);
-    });
+    }, 15_000);
 
     it('converted markdown contains recognisable heading text', async () => {
       await updateWorkItem(context, createdId, pat, 'System.Description', [

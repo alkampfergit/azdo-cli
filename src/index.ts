@@ -12,6 +12,7 @@ import { createUpsertCommand } from "./commands/upsert.js";
 import { createListFieldsCommand } from "./commands/list-fields.js";
 import { createPrCommand } from "./commands/pr.js";
 import { createCommentsCommand } from "./commands/comments.js";
+import { createDownloadAttachmentCommand } from "./commands/download-attachment.js";
 
 const program = new Command();
 
@@ -29,6 +30,7 @@ program.addCommand(createUpsertCommand());
 program.addCommand(createListFieldsCommand());
 program.addCommand(createPrCommand());
 program.addCommand(createCommentsCommand());
+program.addCommand(createDownloadAttachmentCommand());
 
 program.showHelpAfterError();
 

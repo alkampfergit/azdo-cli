@@ -18,7 +18,9 @@ npm install
 | Command | Description |
 | --- | --- |
 | `npm run build` | Build the CLI with tsup |
-| `npm test` | Build and run tests with vitest |
+| `npm test` | Build and run unit plus integration tests with vitest |
+| `npm run test:unit` | Build and run unit tests with vitest |
+| `npm run test:integration` | Build and run integration tests with vitest |
 | `npm run lint` | Lint source files with ESLint |
 | `npm run typecheck` | Type-check with tsc (no emit) |
 | `npm run format` | Check formatting with Prettier |
