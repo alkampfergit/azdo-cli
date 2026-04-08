@@ -1,6 +1,7 @@
 import type {
   AddWorkItemCommentResult,
   WorkItem,
+  WorkItemAttachment,
   AzdoContext,
   JsonPatchOperation,
   UpdateResult,
@@ -64,6 +65,16 @@ function normalizeFieldList(fields: string[]): string[] {
   return Array.from(new Set(fields.map((f) => f.trim()).filter((f) => f.length > 0)));
 }
 
+interface AzdoRelation {
+  rel: string;
+  url: string;
+  attributes: {
+    name?: string;
+    resourceSize?: number;
+    [key: string]: unknown;
+  };
+}
+
 interface AzdoWorkItemResponse {
   id: number;
   rev: number;
@@ -78,6 +89,7 @@ interface AzdoWorkItemResponse {
     'System.AreaPath': string;
     'System.IterationPath': string;
   };
+  relations?: AzdoRelation[];
   _links: {
     html: {
       href: string;
@@ -238,11 +250,26 @@ export async function getWorkItemFields(
   return data.fields;
 }
 
+function extractAttachments(relations?: AzdoRelation[]): WorkItemAttachment[] | null {
+  if (!relations) return null;
+
+  const attachments = relations
+    .filter((r) => r.rel === 'AttachedFile')
+    .map((r) => ({
+      name: r.attributes.name ?? 'unknown',
+      size: r.attributes.resourceSize ?? 0,
+      url: r.url,
+    }));
+
+  return attachments.length > 0 ? attachments : null;
+}
+
 export async function getWorkItem(context: AzdoContext, id: number, pat: string, extraFields?: string[]): Promise<WorkItem> {
   const url = new URL(
     `https://dev.azure.com/${encodeURIComponent(context.org)}/${encodeURIComponent(context.project)}/_apis/wit/workitems/${id}`,
   );
   url.searchParams.set('api-version', '7.1');
+  url.searchParams.set('$expand', 'relations');
 
   const normalizedExtraFields = extraFields ? normalizeFieldList(extraFields) : [];
 
@@ -300,6 +327,7 @@ export async function getWorkItem(context: AzdoContext, id: number, pat: string,
     extraFields: normalizedExtraFields.length > 0
       ? buildExtraFields(data.fields, normalizedExtraFields)
       : null,
+    attachments: extractAttachments(data.relations),
   };
 }
 
@@ -470,4 +498,14 @@ export async function applyWorkItemPatch(
   });
 
   return readWriteResponse(response, 'UPDATE_REJECTED');
+}
+
+export async function downloadAttachment(url: string, pat: string): Promise<ArrayBuffer> {
+  const response = await fetchWithErrors(url, { headers: authHeaders(pat) });
+
+  if (!response.ok) {
+    throw new Error(`HTTP_${response.status}`);
+  }
+
+  return response.arrayBuffer();
 }

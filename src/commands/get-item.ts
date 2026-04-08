@@ -1,5 +1,5 @@
 import { Command } from 'commander';
-import type { AzdoContext, WorkItem } from '../types/work-item.js';
+import type { AzdoContext, WorkItem, WorkItemAttachment } from '../types/work-item.js';
 import { getWorkItem } from '../services/azdo-client.js';
 import { resolvePat } from '../services/auth.js';
 import { resolveContext } from '../services/context.js';
@@ -83,6 +83,25 @@ function summarizeDescription(text: string, label: (name: string) => string, mar
   return [`${label('Description:')}${content}`];
 }
 
+export function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  const kb = bytes / 1024;
+  if (kb < 1024) return `${kb.toFixed(1)} KB`;
+  const mb = kb / 1024;
+  return `${mb.toFixed(1)} MB`;
+}
+
+function formatAttachments(attachments: WorkItemAttachment[], short: boolean): string[] {
+  if (short) {
+    return [`Attachments: ${attachments.length}`];
+  }
+  const lines = ['', 'Attachments:'];
+  for (const att of attachments) {
+    lines.push(`  ${att.name} (${formatFileSize(att.size)})`);
+  }
+  return lines;
+}
+
 export function formatWorkItem(workItem: WorkItem, short: boolean, markdown: boolean = false): string {
   const label = (name: string): string => name.padEnd(13);
   const lines: string[] = [
@@ -114,6 +133,10 @@ export function formatWorkItem(workItem: WorkItem, short: boolean, markdown: boo
     lines.push(...summarizeDescription(descriptionText, label, markdown));
   } else {
     lines.push('Description:', descriptionText);
+  }
+
+  if (workItem.attachments) {
+    lines.push(...formatAttachments(workItem.attachments, short));
   }
 
   return lines.join('\n');

@@ -1,3 +1,9 @@
+export interface WorkItemAttachment {
+  name: string;
+  size: number;
+  url: string;
+}
+
 export interface WorkItem {
   id: number;
   rev: number;
@@ -10,6 +16,7 @@ export interface WorkItem {
   iterationPath: string;
   url: string;
   extraFields: Record<string, string> | null;
+  attachments: WorkItemAttachment[] | null;
 }
 
 export interface AzdoContext {

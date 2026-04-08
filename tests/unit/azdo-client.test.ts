@@ -140,7 +140,7 @@ describe('getWorkItem', () => {
     await getWorkItem(ctx, 99, pat);
 
     expect(fetch).toHaveBeenCalledWith(
-      'https://dev.azure.com/testorg/testproject/_apis/wit/workitems/99?api-version=7.1',
+      'https://dev.azure.com/testorg/testproject/_apis/wit/workitems/99?api-version=7.1&%24expand=relations',
       expect.any(Object),
     );
   });
@@ -151,7 +151,7 @@ describe('getWorkItem', () => {
     await getWorkItem({ org: 'my org', project: 'My Project' }, 99, pat);
 
     expect(fetch).toHaveBeenCalledWith(
-      'https://dev.azure.com/my%20org/My%20Project/_apis/wit/workitems/99?api-version=7.1',
+      'https://dev.azure.com/my%20org/My%20Project/_apis/wit/workitems/99?api-version=7.1&%24expand=relations',
       expect.any(Object),
     );
   });
