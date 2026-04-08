@@ -24,6 +24,8 @@ npm run test:integration:full
 | `AZDO_PROJECT` | Yes | Azure DevOps project name (e.g. `MyProject`) |
 | `AZDO_REPO` | PR tests only | Git repository name inside the project |
 | `AZDO_PR_ID` | PR comment tests only | An existing pull request ID for thread/comment assertions |
+| `AZDO_ATTACHMENT_ITEM_ID` | Attachment fixture tests only | Existing work item ID containing a known file attachment. Defaults to `39835` |
+| `AZDO_ATTACHMENT_FILENAME` | Attachment fixture tests only | Expected attachment filename on the fixture item. Defaults to `_profile.png` |
 
 Variables are resolved from: (1) shell environment, then (2) a `.env` file in the **parent directory** of the repo (e.g. `/workspaces/.env`).
 
@@ -33,6 +35,8 @@ export AZDO_ORG=your-organization
 export AZDO_PROJECT=your-project
 export AZDO_REPO=your-repo          # optional, for PR tests
 export AZDO_PR_ID=42                # optional, for PR comment tests
+export AZDO_ATTACHMENT_ITEM_ID=39835
+export AZDO_ATTACHMENT_FILENAME=_profile.png
 npm run test:integration
 ```
 
@@ -50,6 +54,7 @@ npm run test:integration
 |---|---|---|
 | `azdo-client.ts` | `createWorkItem` | `work-items.test.ts`, `upsert.test.ts` |
 | `azdo-client.ts` | `getWorkItem` | `work-items.test.ts`, `upsert.test.ts` |
+| `azdo-client.ts` | `getWorkItem` attachment relations | `get-item-attachments.test.ts` |
 | `azdo-client.ts` | `getWorkItemFieldValue` | `work-items.test.ts`, `md-fields.test.ts`, `upsert.test.ts` |
 | `azdo-client.ts` | `getWorkItemFields` | `work-items.test.ts`, `list-fields.test.ts` |
 | `azdo-client.ts` | `applyWorkItemPatch` | `work-items.test.ts`, `md-fields.test.ts`, `upsert.test.ts` |
@@ -122,6 +127,17 @@ End-to-end CRUD tests for Azure DevOps Work Items. Creates one **Task** (titled 
 | 8 | Returns `null` for `assignedTo` on an unassigned item | Unassigned items have `null` assignee |
 | 9 | Throws `NOT_FOUND` for a non-existent work item ID | Error propagation for unknown ID `999999999` |
 | 10 | Returns extra fields when requested | `extraFields` is non-null when `extraFields` option is passed |
+
+---
+
+### `get-item-attachments.test.ts`
+
+Read-only fixture test for attachment metadata. Uses an existing prepared work item instead of creating one.
+
+| # | Test | What it verifies |
+|---|---|---|
+| 1 | Returns a non-empty attachments array for the prepared fixture item | `getWorkItem()` expands relations and parses at least one attachment |
+| 2 | Includes the prepared attachment by filename | The fixture item exposes `_profile.png` (or the overridden filename) with a download URL and positive size |
 
 #### `getWorkItemFieldValue` (3 tests)
 
