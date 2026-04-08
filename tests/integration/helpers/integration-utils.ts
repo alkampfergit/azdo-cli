@@ -64,6 +64,8 @@ export const AZDO_ORG = (process.env.AZDO_ORG ?? '').trim();
 export const AZDO_PROJECT = (process.env.AZDO_PROJECT ?? '').trim();
 export const AZDO_REPO = (process.env.AZDO_REPO ?? '').trim();
 export const AZDO_PR_ID = process.env.AZDO_PR_ID ? Number(process.env.AZDO_PR_ID.trim()) : null;
+export const AZDO_ATTACHMENT_ITEM_ID = Number(process.env.AZDO_ATTACHMENT_ITEM_ID ?? '39835');
+export const AZDO_ATTACHMENT_FILENAME = (process.env.AZDO_ATTACHMENT_FILENAME ?? '_profile.png').trim();
 
 /** True when the mandatory env vars are missing — use with describe.skipIf. */
 export const SKIP_AZDO = !AZDO_PAT || !AZDO_ORG || !AZDO_PROJECT;
