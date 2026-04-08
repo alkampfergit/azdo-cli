@@ -10,12 +10,20 @@ This feature adds attachment support to the CLI. The `get-item` command now disp
 
 ## What's New
 
-<!-- To be completed after implementation -->
-
-- **[Area / Component]**: [What was added or changed and why]
+- **get-item command**: Now fetches work item relations via `$expand=relations` and displays an "Attachments" section listing each file's name and human-readable size. In `--short` mode, shows only the attachment count.
+- **download-attachment command**: New command that downloads a specific attachment by filename from a work item. Supports `--output` for specifying the target directory, and reuses existing `--org`/`--project` options.
+- **Azure DevOps client**: Added `downloadAttachment()` function for fetching attachment binary content and updated `getWorkItem()` to parse `AttachedFile` relations into a typed `WorkItemAttachment[]`.
+- **Types**: Added `WorkItemAttachment` interface and extended `WorkItem` with an optional `attachments` field.
 
 ## Testing
 
-<!-- To be completed after implementation -->
+- **Unit**: Tests for `formatFileSize` helper covering bytes, KB, and MB formatting.
+- **Unit**: Tests for `formatWorkItem` with attachments in full mode (listing), short mode (count), and null (omitted).
+- **Unit**: Tests for `getWorkItem` extracting attachments from API relations, handling non-attachment relations, and undefined relations.
+- **Unit**: Tests for `downloadAttachment` fetching binary content and handling 404 errors.
+- **Unit**: Test verifying `$expand=relations` is included in the API URL.
 
-- **[Unit / Integration / E2E / Manual]**: [What scenario or component was covered]
+## Notes
+
+- No new runtime dependencies were added. File I/O uses `node:fs/promises` and `node:path` (built-in).
+- Attachments are identified by filename. If a work item has multiple attachments with the same name, the first match is downloaded.
