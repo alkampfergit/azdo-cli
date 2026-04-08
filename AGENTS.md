@@ -27,6 +27,8 @@ Working defaults:
 - TypeScript 5.x (strict mode), Node.js LTS (18+) + commander.js (CLI), node-html-markdown (HTML→MD conversion) (012-fix-markdown-field-formatting)
 - TypeScript 5.x (strict mode), Node.js LTS (18+) + commander.js (CLI), node-html-markdown (HTML→MD, existing) (013-comments-markdown)
 - N/A — reads/writes Azure DevOps REST API only (013-comments-markdown)
+- TypeScript 5.x (strict mode) on Node.js LTS (18+) + commander.js (CLI framework), native `fetch` (HTTP) (014-work-item-attachments)
+- N/A (reads from Azure DevOps API, writes binary files to local filesystem) (014-work-item-attachments)
 
 ## Recent Changes
 - 007-work-item-upsert: Added TypeScript 5.x (strict mode) on Node.js LTS + commander.js (CLI framework), node-html-markdown (existing rich-text support), node:fs/node:path (built-in file handling); no new parser dependency planned
