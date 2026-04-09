@@ -28,7 +28,7 @@ export async function promptForPat(): Promise<string | null> {
   return new Promise<string | null>((resolve) => {
     const rl = createInterface({
       input: process.stdin,
-      output: null,
+      output: undefined,
     });
 
     process.stderr.write(PAT_PROMPT);
