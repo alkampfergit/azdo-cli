@@ -175,3 +175,68 @@ describe('maskedDisplay', () => {
     expect(maskedDisplay('')).toBe('');
   });
 });
+
+describe('promptForPat', () => {
+  beforeEach(() => {
+    vi.resetModules();
+    vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.doUnmock('node:readline');
+  });
+
+  it('returns null when stdin is not a TTY', async () => {
+    vi.doMock('node:readline', () => ({ createInterface: vi.fn(() => ({ close: vi.fn() })) }));
+    Object.defineProperty(process.stdin, 'isTTY', { value: false, configurable: true });
+
+    const { promptForPat } = await import('../../src/services/auth.js');
+    const result = await promptForPat();
+    expect(result).toBeNull();
+  });
+
+  it('creates readline interface with output: null to disable echo and resolves with entered text', async () => {
+    const mockClose = vi.fn();
+    const mockCreateInterface = vi.fn(() => ({ close: mockClose }));
+    vi.doMock('node:readline', () => ({ createInterface: mockCreateInterface }));
+
+    Object.defineProperty(process.stdin, 'isTTY', { value: true, configurable: true });
+
+    // Provide setRawMode if not present (non-TTY test environments lack it)
+    if (!(process.stdin as NodeJS.ReadStream & { setRawMode?: unknown }).setRawMode) {
+      Object.defineProperty(process.stdin, 'setRawMode', {
+        value: vi.fn().mockReturnValue(process.stdin),
+        writable: true,
+        configurable: true,
+      });
+    } else {
+      vi.spyOn(process.stdin as NodeJS.ReadStream, 'setRawMode').mockReturnValue(process.stdin as NodeJS.ReadStream);
+    }
+
+    vi.spyOn(process.stdin, 'resume').mockReturnValue(process.stdin);
+    vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    vi.spyOn(process.stdin, 'removeListener').mockReturnValue(process.stdin);
+
+    let capturedHandler: ((key: Buffer) => void) | undefined;
+    vi.spyOn(process.stdin, 'on').mockImplementation((event: string, handler: (...args: unknown[]) => void) => {
+      if (event === 'data') capturedHandler = handler as (key: Buffer) => void;
+      return process.stdin;
+    });
+
+    const { promptForPat } = await import('../../src/services/auth.js');
+    const promptPromise = promptForPat();
+
+    // The Promise constructor runs synchronously, so capturedHandler is set before we await
+    expect(capturedHandler).toBeDefined();
+    capturedHandler!(Buffer.from('my-pat'));
+    capturedHandler!(Buffer.from('\r'));
+
+    const result = await promptPromise;
+
+    expect(result).toBe('my-pat');
+    expect(mockCreateInterface).toHaveBeenCalledWith(
+      expect.objectContaining({ input: process.stdin, output: null }),
+    );
+  });
+});

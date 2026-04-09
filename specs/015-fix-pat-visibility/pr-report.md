@@ -14,7 +14,7 @@ Fixes a security bug where pasting a Personal Access Token at the PAT prompt cau
 
 ## Testing
 
-- **Unit**: Existing unit tests in `tests/unit/auth.test.ts` cover `promptForPat`, `maskedDisplay`, `normalizePat`, `resolvePat`, and `findDotEnvPat` — all pass without modification.
+- **Unit**: Existing unit tests in `tests/unit/auth.test.ts` cover `maskedDisplay`, `normalizePat`, `resolvePat`, and `findDotEnvPat` — all pass without modification. New tests added for `promptForPat` verify readline is created with `output: null` and that the function resolves correctly.
 - **Manual**: Verified by pasting a long token at the prompt; only the masked display appears on the prompt line, no raw text.
 
 ## Notes
