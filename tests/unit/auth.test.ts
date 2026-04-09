@@ -188,12 +188,14 @@ describe('promptForPat', () => {
   });
 
   it('returns null when stdin is not a TTY', async () => {
-    vi.doMock('node:readline', () => ({ createInterface: vi.fn(() => ({ close: vi.fn() })) }));
+    const mockCreateInterface = vi.fn(() => ({ close: vi.fn() }));
+    vi.doMock('node:readline', () => ({ createInterface: mockCreateInterface }));
     Object.defineProperty(process.stdin, 'isTTY', { value: false, configurable: true });
 
     const { promptForPat } = await import('../../src/services/auth.js');
     const result = await promptForPat();
     expect(result).toBeNull();
+    expect(mockCreateInterface).not.toHaveBeenCalled();
   });
 
   it('creates readline interface with output: null to disable echo and resolves with entered text', async () => {
@@ -203,16 +205,13 @@ describe('promptForPat', () => {
 
     Object.defineProperty(process.stdin, 'isTTY', { value: true, configurable: true });
 
-    // Provide setRawMode if not present (non-TTY test environments lack it)
-    if (!(process.stdin as NodeJS.ReadStream & { setRawMode?: unknown }).setRawMode) {
-      Object.defineProperty(process.stdin, 'setRawMode', {
-        value: vi.fn().mockReturnValue(process.stdin),
-        writable: true,
-        configurable: true,
-      });
-    } else {
-      vi.spyOn(process.stdin as NodeJS.ReadStream, 'setRawMode').mockReturnValue(process.stdin as NodeJS.ReadStream);
-    }
+    // Always define setRawMode so it can be spied on consistently in test environments
+    Object.defineProperty(process.stdin, 'setRawMode', {
+      value: vi.fn().mockReturnValue(process.stdin),
+      writable: true,
+      configurable: true,
+    });
+    const setRawModeSpy = vi.spyOn(process.stdin as NodeJS.ReadStream, 'setRawMode');
 
     vi.spyOn(process.stdin, 'resume').mockReturnValue(process.stdin);
     vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
@@ -238,5 +237,8 @@ describe('promptForPat', () => {
     expect(mockCreateInterface).toHaveBeenCalledWith(
       expect.objectContaining({ input: process.stdin, output: null }),
     );
+    // Verify raw mode is enabled for input then disabled on completion
+    expect(setRawModeSpy).toHaveBeenCalledWith(true);
+    expect(setRawModeSpy).toHaveBeenCalledWith(false);
   });
 });
