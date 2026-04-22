@@ -47,7 +47,7 @@ vi.mock('../../src/services/browser-open.js', () => ({
 vi.mock('../../src/services/audit-log.js', () => ({
   appendAuthAuditEvent: vi.fn(),
   readAuditEvents: vi.fn(() => []),
-  getAuditLogPath: vi.fn(() => '/tmp/audit.log'),
+  getAuditLogPath: vi.fn(() => '/private/azdo-test-audit.log'),
 }));
 
 import { getPat, storePat, deletePat, listOrgsWithStoredPat } from '../../src/services/credential-store.js';

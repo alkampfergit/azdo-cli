@@ -36,7 +36,7 @@ const readAuditEventsMock = vi.hoisted(() =>
 
 vi.mock('../../src/services/audit-log.js', () => ({
   appendAuthAuditEvent: appendAuthAuditEventMock,
-  getAuditLogPath: () => '/tmp/unused-audit.log',
+  getAuditLogPath: () => '/private/azdo-test-unused-audit.log',
   readAuditEvents: readAuditEventsMock,
 }));
 
@@ -44,7 +44,7 @@ const loadConfigMock = vi.hoisted(() => vi.fn(() => ({}) as { org?: string }));
 
 vi.mock('../../src/services/config-store.js', () => ({
   loadConfig: loadConfigMock,
-  getConfigPath: () => '/tmp/unused-config.json',
+  getConfigPath: () => '/private/azdo-test-unused-config.json',
   saveConfig: vi.fn(),
   SETTINGS: [],
   getConfigValue: vi.fn(),
