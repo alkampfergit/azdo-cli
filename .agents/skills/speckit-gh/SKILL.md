@@ -45,7 +45,7 @@ Optional `key=value` args:
 - `claim-label` (default `in-progress`)
 - `done-label` (default `done`)
 - `fail-label` (default `needs-human`)
-- `base` (default: repo default branch)
+- `base` (default: repo default branch — for gitflow repos this is `develop`, which is the integration branch; never target `main`/`master` from a feature PR)
 - `dry-run=true` — stop after the draft PR opens; do not run `/speckit-implement`
 - `poll-seconds` (default `60`) — interval between issue/PR re-fetches while waiting on an owner reply
 - `approval-timeout-minutes` (default `60`) — cap on a single approval poll; on timeout, park the issue with `fail-label` and exit
@@ -114,6 +114,12 @@ has silently dropped owner comments in production.
   pre-approval of the spec / plan / tasks you have not yet written.
 - **Never** auto-merge or auto-close the PR. Merging and closure are
   owner decisions.
+- **Never** tag or release on merge. Merging a feature PR into the base
+  branch (e.g. `develop` in gitflow repos) is NOT a release event. Do not
+  run `git tag`, `gh release create`, bump a version in any manifest as
+  part of the merge, or invoke release tooling. Tagging and releases are
+  owned by the separate gitflow `release/*` process, driven manually by
+  the owner — out of scope for this skill.
 
 ### Channel transition is fixed
 
@@ -169,6 +175,7 @@ After the PR is marked ready in step 11, `speckit-gh` keeps ownership:
 - Auto-answer clarify or plan questions.
 - Skip any approval gate between speckit phases.
 - Auto-merge or auto-close PRs.
+- Tag, release, or bump a version on merge — gitflow release is separate.
 - Force branch naming or skip `Closes #<N>`.
 - Touch `.env` or read secrets.
 - Run integration tests against real external services unless the issue explicitly asked.

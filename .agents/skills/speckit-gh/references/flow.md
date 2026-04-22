@@ -302,10 +302,14 @@ For each owner comment asking for a change or raising a finding:
 Exit:
 - PR becomes `MERGED` → `speckit:status` on the **issue** with the
   merge commit, apply `done-label`, remove `claim-label`, exit.
+  **Do NOT create a git tag, do NOT cut a GitHub release, do NOT bump
+  a version.** In gitflow repos the feature lands on `develop` (the
+  integration branch); tagging and release branches are owned by the
+  separate gitflow `release/*` flow driven manually by the owner.
 - PR becomes `CLOSED` without merge → `speckit:status` on the issue
   noting the close, remove `claim-label`, apply `fail-label` if not
   owner-directed, exit.
 - Owner stand-down ("stand down", "stop polling", owner-filtered) →
   acknowledge and exit without `done-label`.
 
-Do NOT auto-merge.
+Do NOT auto-merge. Do NOT tag or release on merge.
