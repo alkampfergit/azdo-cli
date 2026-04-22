@@ -111,3 +111,9 @@ bd close <id>         # Complete work
 - NEVER say "ready to push when you are" - YOU must push
 - If push fails, resolve and retry until it succeeds
 <!-- END BEADS INTEGRATION -->
+
+## Active Technologies
+- TypeScript 5.x (strict mode), Node.js LTS + Node.js built-in `readline`, `process.stdin` raw mode (015-fix-pat-visibility)
+
+## Recent Changes
+- 015-fix-pat-visibility: Updated PAT prompt behavior to use `readline` with `output: null` and raw stdin handling so the token is never echoed during entry

@@ -28,7 +28,8 @@ export async function promptForPat(): Promise<string | null> {
   return new Promise<string | null>((resolve) => {
     const rl = createInterface({
       input: process.stdin,
-      output: process.stderr,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      output: null as any, // null disables readline's automatic echo
     });
 
     process.stderr.write(PAT_PROMPT);
