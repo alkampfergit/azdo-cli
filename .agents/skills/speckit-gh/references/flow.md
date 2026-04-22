@@ -299,17 +299,116 @@ For each owner comment asking for a change or raising a finding:
 2. Re-enter `gh pr checks --watch` to confirm CI stays green.
 3. Post a `speckit:status` reply summarising the change + commit hash.
 
-Exit:
-- PR becomes `MERGED` → `speckit:status` on the **issue** with the
-  merge commit, apply `done-label`, remove `claim-label`, exit.
-  **Do NOT create a git tag, do NOT cut a GitHub release, do NOT bump
-  a version.** In gitflow repos the feature lands on `develop` (the
-  integration branch); tagging and release branches are owned by the
-  separate gitflow `release/*` flow driven manually by the owner.
+### Owner-directed merge (when the owner says "close the branch" / "land it" / "merge this")
+
+"Close the branch in `<base>`" is gitflow for **merge the feature branch
+into the integration branch** — NOT `gh pr close` (which would close the
+PR without merging). Interpret these owner phrases as merge directives:
+
+- "close the branch in develop" / "land it" / "merge this" / "ready to
+  merge" / "ship it"
+
+When the owner posts such a directive on the PR (owner-login filter
+applies), execute the merge yourself — this is NOT "auto-merge" because
+the owner explicitly directed it. Procedure:
+
+1. **Confirm strategy + branch-deletion** via a `speckit:question` on
+   the PR if not already confirmed in this run. Strategy options:
+   `merge` / `squash` / `rebase`. If the owner said "rebase on
+   <base>" or similar, default to `rebase`. POLL for reply.
+
+2. **Rebase the feature branch onto the latest base** locally (so
+   conflicts are solved with full context, not via GitHub's merge UI):
+
+   ```bash
+   gh pr checkout <pr>                    # if not already on the PR head
+   git status --porcelain                 # must be empty
+   git fetch origin
+   git rebase origin/<base>
+   ```
+
+3. **Conflicts:**
+   - If the rebase completes cleanly, continue.
+   - If git reports conflicts, attempt to resolve using context from the
+     spec, plan, and existing PR diff. For each resolved file:
+     `git add <file>` then `git rebase --continue`.
+   - If a conflict is non-trivial, ambiguous, or touches logic outside
+     the scope of this PR, STOP: post a `speckit:question` on the PR
+     describing each unresolved conflict (file, hunk, both sides), run
+     `git rebase --abort` to restore the pre-rebase state, and POLL for
+     owner guidance. Do NOT guess on semantic conflicts.
+
+4. **Force-push the rebased branch:**
+
+   ```bash
+   git push --force-with-lease
+   ```
+
+   Use `--force-with-lease` (never plain `--force`) so a concurrent
+   push by someone else is not silently overwritten.
+
+5. **Re-watch CI on the rebased tip** — the force-push re-triggers
+   checks; wait for green before merging:
+
+   ```bash
+   gh pr checks <pr> --watch --fail-fast
+   ```
+
+   If a check fails on the rebased tip, fix on the feature branch,
+   push, re-watch. Do not merge red.
+
+6. **Merge via `gh` with branch deletion:**
+
+   ```bash
+   gh pr merge <pr> --<strategy> --delete-branch
+   ```
+
+   `<strategy>` matches the owner's confirmation (`--rebase` /
+   `--squash` / `--merge`). `--delete-branch` removes the remote
+   feature branch.
+
+7. **Return to base and pull the merged state:**
+
+   ```bash
+   git checkout <base>
+   git pull --ff-only origin <base>
+   ```
+
+   `--ff-only` guards against an unexpected diverged base.
+
+8. **Post a `speckit:status` on the issue** (the PR thread is now
+   closed-merged, so the final comment goes back to the issue) with:
+   - The merge commit SHA on `<base>`
+   - Confirmation that the feature branch was deleted
+   - Label changes: applied `done-label`, removed `claim-label`
+
+9. **Labels:** `gh issue edit <N> --remove-label <claim-label>
+   --add-label <done-label>`.
+
+10. **Do NOT tag, release, or bump a version.** Feature merging into
+    the integration branch is not a release event in gitflow; tagging
+    is owned by the separate `release/*` flow driven manually by the
+    owner. If the owner's directive includes "tag as X.Y.Z" or
+    "release", refuse and explain — redirect them to the manual
+    release flow.
+
+### Exit conditions
+
+- PR becomes `MERGED` (either by the procedure above or by the owner
+  merging it manually in the UI) → `speckit:status` on the **issue**
+  with the merge commit, apply `done-label`, remove `claim-label`,
+  exit. **Do NOT create a git tag, do NOT cut a GitHub release, do
+  NOT bump a version.** In gitflow repos the feature lands on `develop`
+  (the integration branch); tagging and release branches are owned by
+  the separate gitflow `release/*` flow driven manually by the owner.
 - PR becomes `CLOSED` without merge → `speckit:status` on the issue
   noting the close, remove `claim-label`, apply `fail-label` if not
   owner-directed, exit.
 - Owner stand-down ("stand down", "stop polling", owner-filtered) →
   acknowledge and exit without `done-label`.
 
-Do NOT auto-merge. Do NOT tag or release on merge.
+**Do NOT merge without an explicit owner directive.** "Auto-merge"
+means merging on a signal other than an owner-authored directive on
+the active channel (e.g. CI going green, timeout, label change by a
+non-owner, a reviewer approval from a non-owner). Those never merge.
+**Do NOT tag or release on merge.**
