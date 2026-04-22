@@ -13,7 +13,7 @@
 
 ## Requirement Completeness
 
-- [ ] No [NEEDS CLARIFICATION] markers remain
+- [x] No [NEEDS CLARIFICATION] markers remain
 - [x] Requirements are testable and unambiguous
 - [x] Success criteria are measurable
 - [x] Success criteria are technology-agnostic (no implementation details)
@@ -31,6 +31,6 @@
 
 ## Notes
 
-- **One [NEEDS CLARIFICATION] marker remains (FR-012)**: single-org vs multi-org scope. Left in place intentionally — will be resolved by `/speckit-clarify` posting the question on GitHub issue #33 per the speckit-gh protocol (no console Q&A).
+- All [NEEDS CLARIFICATION] markers resolved via `/speckit-clarify` on 2026-04-22 (see spec `## Clarifications` → Session 2026-04-22). Multi-org scope and hybrid org resolution are now documented in FR-012 through FR-015.
 - Platform-specific vault names (Windows Credential Manager, macOS Keychain, libsecret) appear in FR-004 and SC-005 because the feature is definitionally about OS-native secret storage — they identify platform contracts, not implementation choices, and the issue body explicitly named them.
-- Items marked incomplete require spec updates before `/speckit-clarify` or `/speckit-plan`.
+- Checklist now fully green; ready for `/speckit-plan`.
