@@ -17,9 +17,10 @@ A CLI user has no Personal Access Token (PAT) configured. They run `azdo auth` a
 
 **Acceptance Scenarios**:
 
-1. **Given** no PAT is in an environment variable and no PAT is stored in the OS vault, **When** the user runs `azdo auth` and completes the flow by pasting a valid PAT, **Then** the tool confirms the PAT works against Azure DevOps and reports that it has been stored in the OS vault.
-2. **Given** a PAT has been stored via `azdo auth`, **When** the user runs any authenticated `azdo` command in a new shell session with no PAT env var, **Then** the command authenticates successfully using the stored PAT.
+1. **Given** no PAT is in an environment variable and no PAT is stored in the OS vault, **When** the user runs `azdo auth --org <name>` (or `azdo auth` with an auto-detected or configured org) and completes the flow by pasting a valid PAT, **Then** the tool confirms the PAT works against Azure DevOps and reports that it has been stored in the OS vault, keyed to that org.
+2. **Given** a PAT has been stored for org A via `azdo auth`, **When** the user runs any authenticated `azdo` command in a new shell session with no PAT env var and org A is the resolved org (flag / auto-detect / config), **Then** the command authenticates successfully using the stored PAT for org A.
 3. **Given** the user pastes an invalid PAT during `azdo auth`, **When** the tool validates it against Azure DevOps, **Then** the tool reports the failure clearly, does NOT store the invalid token, and offers the user the option to retry.
+4. **Given** the user runs `azdo auth` with no `--org`, no detectable git remote, and no persistent `config set org`, **When** the tool attempts to resolve the org, **Then** it exits with a non-zero status and a diagnostic naming each resolution step and how to satisfy it.
 
 ---
 
@@ -61,6 +62,9 @@ A user needs to see whether a stored PAT is in use, rotate it when it's about to
 - What happens if the OS vault is locked (macOS Keychain not yet unlocked, Windows user not signed in)? (The tool surfaces the OS prompt or error verbatim rather than silently failing.)
 - What happens if the PAT is revoked server-side between `auth` and the next command? (The tool reports a clear authentication-failed error and suggests `azdo auth` to re-authenticate; it does NOT delete the stored PAT automatically — the user decides.)
 - What happens when the user pipes a PAT into stdin (scripted setup)? (See FR-011 — non-interactive paste must be supported so automation is possible.)
+- What happens when the working-context git remote points at a URL the tool recognises but the user wants a different org for one command? (See FR-013 — `--org` flag takes precedence over auto-detection, so overriding is explicit.)
+- What happens when auto-detection and the persistent `config set org` setting point at different orgs? (See FR-013 — auto-detection (step 2) wins over persistent setting (step 3); users wanting the persistent setting to override must pass `--org` explicitly or `cd` out of the conflicting working directory.)
+- What happens when a stored PAT exists for org A but the resolved org is B (no stored PAT for B)? (See FR-015 — exit with a clear error suggesting `azdo auth --org B`; never silently fall back to A's credential.)
 
 ## Requirements *(mandatory)*
 
@@ -77,8 +81,15 @@ A user needs to see whether a stored PAT is in use, rotate it when it's about to
 - **FR-009**: Environment-variable PAT MUST take precedence over stored PAT. When both are present, the env var is used and the tool MAY emit a single non-fatal notice to `stderr`.
 - **FR-010**: When the OS secret backend is unavailable (e.g., Linux without libsecret, CI container without D-Bus), `azdo auth` MUST fail with a clear diagnostic message explaining the missing dependency; it MUST NOT fall back to plaintext file storage.
 - **FR-011**: `azdo auth` MUST accept a PAT supplied non-interactively (e.g., piped via stdin or a dedicated flag) so automated provisioning is possible.
-- **FR-012**: The tool MUST support storing one PAT per Azure DevOps organization (multi-org scope). Each stored credential is keyed by the organization identifier, and the tool MUST be able to hold credentials for multiple organizations simultaneously without conflict. How the target organization is identified at `azdo auth` time and at subsequent command invocation time will be resolved in the clarify phase (see `## Clarifications` below).
-- **FR-013**: On PAT creation/update/removal, the tool MUST log a timestamped audit event (local only) containing the storage backend, the Azure DevOps organization (if applicable), and a masked identifier — never the full PAT.
+- **FR-012**: The tool MUST support storing one PAT per Azure DevOps organization (multi-org scope). Each stored credential is keyed by the organization identifier, and the tool MUST be able to hold credentials for multiple organizations simultaneously without conflict.
+- **FR-013**: The tool MUST resolve the target Azure DevOps organization for every `azdo` invocation (including `azdo auth`) using this order, stopping at the first match:
+    1. The `--org <name>` flag if given on the command line.
+    2. An organization auto-detected from the current working context (e.g., the `origin` git remote when it points at `dev.azure.com/<org>` or `<org>.visualstudio.com`).
+    3. A persistent "current organization" setting written via `azdo config set org <name>`.
+    4. If none of the above resolves, the tool MUST exit with a non-zero status and a clear diagnostic naming each resolution step and how to satisfy it (e.g., "run `azdo config set org <name>` or pass `--org <name>`").
+- **FR-014**: The tool MUST provide a `config` subcommand (at minimum `azdo config set org <name>` and `azdo config get org`) to manage the persistent "current organization" setting. The setting MUST persist across shell sessions and MUST be stored in a non-sensitive configuration file (not the OS vault; this is a preference, not a secret).
+- **FR-015**: When the user runs a command that touches a specific org and a stored PAT for that org does NOT exist, the tool MUST exit with a clear error instructing the user to run `azdo auth --org <name>`. The tool MUST NOT silently prompt mid-command for a missing credential on non-interactive commands.
+- **FR-016**: On PAT creation/update/removal, the tool MUST log a timestamped audit event (local only) containing the storage backend, the Azure DevOps organization, and a masked identifier — never the full PAT.
 
 ### Key Entities
 
@@ -99,15 +110,17 @@ A user needs to see whether a stored PAT is in use, rotate it when it's about to
 
 - **PAT remains the primary authentication mechanism.** The issue body explicitly states PAT is preferred over OAuth because of fine-grained scoping (work items, builds, etc.). `/speckit-plan` will document the PAT-vs-OAuth trade-off and confirm PAT; OAuth device-code flow is deferred to a future feature.
 - **Supported platforms are Windows, macOS, and Linux with libsecret.** Other Unix-like systems (BSDs, minimal Alpine containers without a secret service) are out of scope for this feature; they are covered by FR-010's explicit-failure mode.
-- **Multi-organization support: one PAT per Azure DevOps organization.** Confirmed by owner on 2026-04-22 (see `## Clarifications`). The remaining sub-question — how the target organization is identified at `auth` time and at command time — is pending.
+- **Multi-organization support: one PAT per Azure DevOps organization.** Confirmed by owner on 2026-04-22 (see `## Clarifications`).
+- **Org resolution is hybrid: `--org` flag → auto-detect from git remote → persistent `config set org` → error.** Confirmed by owner on 2026-04-22. This mirrors conventions used by tools like `gh`, `git`, and `az`.
 - **The tool will NOT implement its own encryption or secret-storage format.** Storage relies entirely on the OS-provided vault APIs; this keeps the security boundary aligned with the platform's existing user-credential protection.
 - **Azure DevOps PAT creation URL structure is stable.** The browser-assist feature (FR-006) depends on the Azure DevOps PAT creation page's URL being navigable by deep link; if Microsoft changes the URL, the browser-assist degrades to "print a URL" per FR-006's headless path.
 
 ## Clarifications
 
-- Q: Single-organization vs multi-organization scope — does the feature store one PAT globally, or one PAT per Azure DevOps organization the user interacts with?
-  → A: **One PAT per organization (multi-org scope).** [owner: alkampfergit, 2026-04-22]
-- Q: *(pending — will be asked in `/speckit-clarify`)* How is the target organization identified at `azdo auth` time and at subsequent command invocation time? Options include: a working-context setting, an explicit `--org` flag, an interactive pick, or a combination.
+### Session 2026-04-22
+
+- Q: Single-organization vs multi-organization scope — does the feature store one PAT globally, or one PAT per Azure DevOps organization the user interacts with? → A: **One PAT per organization (multi-org scope).** [owner: alkampfergit, 2026-04-22]
+- Q: How is the target organization identified at `azdo auth` time and at subsequent command invocation time? → A: **Hybrid resolution — `--org` flag → auto-detect from working context (git remote) → persistent `azdo config set org <name>` → error if none resolves.** [owner: alkampfergit, 2026-04-22]
 
 ## Out of Scope
 
