@@ -60,6 +60,20 @@ Confirm resolved values by posting a `speckit:status` comment on the issue
 3. Currently on the base branch. (`/speckit-specify` creates its own branch — starting elsewhere corrupts the tree.)
 4. `.specify/` is initialised: `spec-template.md`, `plan-template.md`, `tasks-template.md`, `pr-report-template.md` present, and `create-new-feature.sh` executable.
 5. Issue is open, unassigned (or assigned to `@me`), and does NOT already carry `claim-label`.
+6. **No open PR already closes this issue.** An earlier speckit run (or a
+   manual PR) may have produced a PR whose body contains `Closes #<N>`.
+   Re-running would duplicate the branch, the spec bundle, and the PR.
+   Check with:
+
+   ```bash
+   gh pr list --repo <owner/repo> --state open \
+     --json number,closingIssuesReferences,url \
+     --jq ".[] | select(.closingIssuesReferences[]?.number == <N>)"
+   ```
+
+   If any PR is returned, abort: post a `speckit:status` on the issue
+   linking the existing PR, do NOT apply `claim-label`, and exit cleanly
+   (do NOT apply `fail-label` — this is not a failure, just a no-op).
 
 Any failure → abort with a clear message. Do NOT bootstrap speckit from this skill.
 
@@ -121,6 +135,24 @@ has silently dropped owner comments in production.
   owned by the separate gitflow `release/*` process, driven manually by
   the owner — out of scope for this skill.
 
+### No mentioning @copilot or other third-party GitHub bots
+
+speckit-gh operates under the authority of the repo owner, not the bot
+account it posts from. It does NOT have the authority to `@copilot`,
+`@dependabot`, or any other GitHub-integrated AI bot. An `@copilot`
+mention in a comment enqueues work on Copilot under the repo owner's
+quota/identity — that is outside this skill's mandate.
+
+- **Never** write `@copilot` (or any other bot mention that triggers
+  action) in an issue or PR comment, PR body, commit message, or review.
+- If you believe Copilot input would help (e.g. reviewing code,
+  suggesting a fix, answering a clarify question), post a
+  `speckit:status` asking the owner to mention `@copilot` themselves,
+  and poll for the result like any other owner-gated action.
+- This rule also applies to every delegated skill
+  (`speckit-specify` / `speckit-clarify` / `speckit-plan` /
+  `speckit-tasks` / `speckit-implement`) — include it in the briefing.
+
 ### Channel transition is fixed
 
 The draft PR opens **between step 7 (PR-report init) and step 9
@@ -135,6 +167,38 @@ at the end.
 - Branch naming is owned by `/speckit-specify`; do NOT force `feature/<N>`.
 - Every PR body MUST contain `Closes #<N>`. That is the only binding
   between the issue and the branch.
+
+### Check out the PR branch before editing code
+
+Whenever work moves to a PR — whether this run opened it in step 8, or
+the skill is resuming against a PR that already exists (picked up in
+steps 12–13, or a `github-pr-fixer`-style follow-up) — the local working
+copy MUST be on the PR's head branch before ANY file edit, commit, or
+push.
+
+Concretely, before the first edit on a PR:
+
+```bash
+gh pr checkout <pr-number>   # fetches and switches to the PR head branch
+git status --porcelain       # must be empty
+git rev-parse --abbrev-ref HEAD  # must equal the PR's headRefName
+```
+
+If the working tree is dirty, stop and surface it — do NOT stash or
+discard changes blindly; they may be unrelated in-flight work.
+
+Never:
+- Edit files while still on the base branch (`develop` / `main`) and
+  then try to push to the PR branch.
+- Commit on a detached HEAD or on a branch whose name does not match the
+  PR's `headRefName`.
+- Assume you are on the right branch because `/speckit-specify` checked
+  it out earlier in this session — sessions restart, cron fires in a
+  fresh working directory, and `develop` is the startup branch.
+
+This rule applies to every skill that edits code in a PR phase
+(`speckit-implement`, CI-fix loops in step 12, reviewer-comment handling
+in step 13). Include it in the delegation briefing.
 
 ## Inherited protocol for delegated skills
 
@@ -176,6 +240,8 @@ After the PR is marked ready in step 11, `speckit-gh` keeps ownership:
 - Skip any approval gate between speckit phases.
 - Auto-merge or auto-close PRs.
 - Tag, release, or bump a version on merge — gitflow release is separate.
+- Mention `@copilot` or any other action-triggering bot — ask the owner to do it.
+- Edit files on a PR without first `gh pr checkout <pr-number>`.
 - Force branch naming or skip `Closes #<N>`.
 - Touch `.env` or read secrets.
 - Run integration tests against real external services unless the issue explicitly asked.
