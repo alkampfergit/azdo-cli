@@ -33,9 +33,38 @@ function wrapUnavailable<T>(fn: () => T): T {
   }
 }
 
+let legacyUnsetNoticeEmitted = false;
+
+function emitLegacyUnsetNoticeOnce(): void {
+  if (legacyUnsetNoticeEmitted) return;
+  legacyUnsetNoticeEmitted = true;
+  process.stderr.write(
+    'A legacy PAT exists in the OS vault from a previous azdo-cli version, but no "org" is set in config. ' +
+      'Run `azdo auth --org <name>` to re-store it under the per-org key, then `azdo clear-pat` to remove the legacy slot.\n',
+  );
+}
+
+// exported for tests
+export function _resetLegacyNoticeFlag(): void {
+  legacyUnsetNoticeEmitted = false;
+}
+
 async function maybeMigrateLegacy(targetOrg: string): Promise<string | null> {
   const config = loadConfig();
   if (!config.org || config.org !== targetOrg) {
+    // If a legacy slot exists but config.org is unset, emit a one-time notice.
+    if (!config.org) {
+      let legacyExists: boolean;
+      try {
+        const legacyEntry = new Entry(SERVICE, LEGACY_ACCOUNT);
+        legacyExists = legacyEntry.getPassword() !== null;
+      } catch {
+        legacyExists = false;
+      }
+      if (legacyExists) {
+        emitLegacyUnsetNoticeOnce();
+      }
+    }
     return null;
   }
   const newEntry = new Entry(SERVICE, accountFor(targetOrg));

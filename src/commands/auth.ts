@@ -104,6 +104,7 @@ async function handleAuthRoot(options: RootOptions): Promise<void> {
       const overwrite = await confirmOverwrite(org);
       if (!overwrite) {
         process.stderr.write('Aborted. Existing PAT preserved.\n');
+        process.exitCode = 1;
         return;
       }
     }

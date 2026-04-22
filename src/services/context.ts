@@ -16,7 +16,10 @@ export function resolveContext(options: { org?: string; project?: string }): Azd
   const config = loadConfig();
 
   const org = resolvedOrg?.org;
-  const project = options.project ?? gitContext?.project ?? config.project;
+  const project =
+    options.project ||
+    (gitContext?.project && gitContext.project.length > 0 ? gitContext.project : undefined) ||
+    config.project;
 
   if (org && project) {
     return { org, project };

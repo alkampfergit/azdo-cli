@@ -34,7 +34,7 @@ export async function promptForPat(): Promise<string | null> {
     const onData = (key: Buffer): void => {
       const ch = key.toString('utf8');
 
-      if (ch === '') {
+      if (ch === '\u0003') {
         process.stdin.setRawMode(false);
         process.stdin.removeListener('data', onData);
         rl.close();
@@ -46,7 +46,7 @@ export async function promptForPat(): Promise<string | null> {
         rl.close();
         process.stderr.write('\n');
         resolve(pat);
-      } else if (ch === '' || ch === '\b') {
+      } else if (ch === '\u007F' || ch === '\b') {
         if (pat.length > 0) {
           pat = pat.slice(0, -1);
           redraw();
@@ -125,5 +125,12 @@ export async function validatePatAgainstAzdo(pat: string, org: string): Promise<
       Accept: 'application/json',
     },
   });
-  return { ok: response.status === 200, status: response.status };
+  if (response.status === 200) {
+    return { ok: true, status: 200 };
+  }
+  if (response.status === 401 || response.status === 403) {
+    return { ok: false, status: response.status };
+  }
+  throw new Error(`Azure DevOps returned HTTP ${response.status} while validating PAT for org "${org}".`);
 }
+
