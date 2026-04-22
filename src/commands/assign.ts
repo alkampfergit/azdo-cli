@@ -1,7 +1,7 @@
 import { Command } from 'commander';
 import type { AzdoContext } from '../types/work-item.js';
 import { updateWorkItem } from '../services/azdo-client.js';
-import { resolvePat } from '../services/auth.js';
+import { requirePat } from '../services/auth.js';
 import { resolveContext } from '../services/context.js';
 import { parseWorkItemId, validateOrgProjectPair, handleCommandError } from '../services/command-helpers.js';
 
@@ -44,7 +44,7 @@ export function createAssignCommand(): Command {
 
         try {
           context = resolveContext(options);
-          const credential = await resolvePat();
+          const credential = await requirePat(context.org);
 
           const value = options.unassign ? '' : name!;
           const operations = [

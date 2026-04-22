@@ -13,7 +13,7 @@ vi.mock('../../src/services/git-remote.js', () => ({
 }));
 
 vi.mock('../../src/services/auth.js', () => ({
-  resolvePat: vi.fn(),
+  requirePat: vi.fn(),
 }));
 
 vi.mock('../../src/services/context.js', () => ({
@@ -22,7 +22,7 @@ vi.mock('../../src/services/context.js', () => ({
 
 import { getPullRequestChecks, listPullRequests } from '../../src/services/pr-client.js';
 import { detectRepoName, getCurrentBranch } from '../../src/services/git-remote.js';
-import { resolvePat } from '../../src/services/auth.js';
+import { requirePat } from '../../src/services/auth.js';
 import { resolveContext } from '../../src/services/context.js';
 
 const run = createCommandRunner(createPrStatusCommand);
@@ -63,7 +63,7 @@ function makeCheck(overrides: Partial<typeof baseCheck> = {}) {
 beforeEach(() => {
   setupProcessSpies();
   vi.mocked(resolveContext).mockReturnValue({ org: 'test-org', project: 'test-project' });
-  vi.mocked(resolvePat).mockResolvedValue({ pat: 'test-pat', source: 'env' });
+  vi.mocked(requirePat).mockResolvedValue({ pat: 'test-pat', source: 'env' });
   vi.mocked(detectRepoName).mockReturnValue('repo-name');
   vi.mocked(getCurrentBranch).mockReturnValue('feature/test');
   vi.mocked(listPullRequests).mockResolvedValue([]);

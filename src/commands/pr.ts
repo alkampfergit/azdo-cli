@@ -8,7 +8,7 @@ import type {
 } from '../types/pull-request.js';
 import type { AzdoContext } from '../types/work-item.js';
 import { listPullRequests, openPullRequest, getPullRequestThreads, getPullRequestChecks } from '../services/pr-client.js';
-import { resolvePat } from '../services/auth.js';
+import { requirePat } from '../services/auth.js';
 import { resolveContext } from '../services/context.js';
 import { validateOrgProjectPair } from '../services/command-helpers.js';
 import { detectRepoName, getCurrentBranch } from '../services/git-remote.js';
@@ -104,7 +104,7 @@ async function resolvePrCommandContext(options: PrCommandOptions): Promise<Resol
   const context = resolveContext(options);
   const repo = detectRepoName();
   const branch = getCurrentBranch();
-  const credential = await resolvePat();
+  const credential = await requirePat(context.org);
 
   return {
     context,

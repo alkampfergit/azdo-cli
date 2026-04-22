@@ -1,7 +1,7 @@
 import { Command } from 'commander';
 import type { AzdoContext, WorkItemComment, WorkItemCommentsResult } from '../types/work-item.js';
 import { addWorkItemComment, listWorkItemComments } from '../services/azdo-client.js';
-import { resolvePat } from '../services/auth.js';
+import { requirePat } from '../services/auth.js';
 import { resolveContext } from '../services/context.js';
 import { handleCommandError, parseWorkItemId, validateOrgProjectPair } from '../services/command-helpers.js';
 import { toMarkdown } from '../services/md-convert.js';
@@ -53,7 +53,7 @@ export function createCommentsListCommand(): Command {
 
       try {
         context = resolveContext(options);
-        const credential = await resolvePat();
+        const credential = await requirePat(context.org);
         const result = await listWorkItemComments(context, id, credential.pat);
 
         if (options.json) {
@@ -98,7 +98,7 @@ export function createCommentsAddCommand(): Command {
 
       try {
         context = resolveContext(options);
-        const credential = await resolvePat();
+        const credential = await requirePat(context.org);
         const format = options.markdown === true ? 'markdown' : 'html';
         const result = await addWorkItemComment(context, id, credential.pat, text, format);
 
