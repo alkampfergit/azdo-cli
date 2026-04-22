@@ -77,12 +77,12 @@ A user needs to see whether a stored PAT is in use, rotate it when it's about to
 - **FR-009**: Environment-variable PAT MUST take precedence over stored PAT. When both are present, the env var is used and the tool MAY emit a single non-fatal notice to `stderr`.
 - **FR-010**: When the OS secret backend is unavailable (e.g., Linux without libsecret, CI container without D-Bus), `azdo auth` MUST fail with a clear diagnostic message explaining the missing dependency; it MUST NOT fall back to plaintext file storage.
 - **FR-011**: `azdo auth` MUST accept a PAT supplied non-interactively (e.g., piped via stdin or a dedicated flag) so automated provisioning is possible.
-- **FR-012**: The tool MUST [NEEDS CLARIFICATION: single-organization vs multi-organization scope — does the feature store one PAT globally, or one PAT per Azure DevOps organization the user interacts with? If multi-org: is the org inferred from the current working context, selected at `auth` time, or both?]
+- **FR-012**: The tool MUST support storing one PAT per Azure DevOps organization (multi-org scope). Each stored credential is keyed by the organization identifier, and the tool MUST be able to hold credentials for multiple organizations simultaneously without conflict. How the target organization is identified at `azdo auth` time and at subsequent command invocation time will be resolved in the clarify phase (see `## Clarifications` below).
 - **FR-013**: On PAT creation/update/removal, the tool MUST log a timestamped audit event (local only) containing the storage backend, the Azure DevOps organization (if applicable), and a masked identifier — never the full PAT.
 
 ### Key Entities
 
-- **Stored Credential**: represents a single stored PAT. Attributes: storage backend (Windows CM / macOS Keychain / libsecret), Azure DevOps organization identifier (if multi-org is in scope — see FR-012), creation/last-updated timestamp, opaque service/account key used to index into the OS vault. Does NOT persist the PAT value itself in any file managed by the tool; the PAT is held only in the OS vault.
+- **Stored Credential**: represents a single stored PAT, scoped to one Azure DevOps organization. Attributes: storage backend (Windows CM / macOS Keychain / libsecret), Azure DevOps organization identifier (required key — see FR-012), creation/last-updated timestamp, opaque service/account key used to index into the OS vault. Multiple Stored Credentials may coexist (one per org). Does NOT persist the PAT value itself in any file managed by the tool; the PAT is held only in the OS vault.
 - **Auth Session**: transient — the decrypted PAT pulled from the OS vault for the duration of a single CLI invocation. Never persisted to disk by the tool.
 
 ## Success Criteria *(mandatory)*
@@ -99,9 +99,15 @@ A user needs to see whether a stored PAT is in use, rotate it when it's about to
 
 - **PAT remains the primary authentication mechanism.** The issue body explicitly states PAT is preferred over OAuth because of fine-grained scoping (work items, builds, etc.). `/speckit-plan` will document the PAT-vs-OAuth trade-off and confirm PAT; OAuth device-code flow is deferred to a future feature.
 - **Supported platforms are Windows, macOS, and Linux with libsecret.** Other Unix-like systems (BSDs, minimal Alpine containers without a secret service) are out of scope for this feature; they are covered by FR-010's explicit-failure mode.
-- **One PAT per installation is the minimum bar.** Multi-organization support depends on FR-012's resolution in `/speckit-clarify`.
+- **Multi-organization support: one PAT per Azure DevOps organization.** Confirmed by owner on 2026-04-22 (see `## Clarifications`). The remaining sub-question — how the target organization is identified at `auth` time and at command time — is pending.
 - **The tool will NOT implement its own encryption or secret-storage format.** Storage relies entirely on the OS-provided vault APIs; this keeps the security boundary aligned with the platform's existing user-credential protection.
 - **Azure DevOps PAT creation URL structure is stable.** The browser-assist feature (FR-006) depends on the Azure DevOps PAT creation page's URL being navigable by deep link; if Microsoft changes the URL, the browser-assist degrades to "print a URL" per FR-006's headless path.
+
+## Clarifications
+
+- Q: Single-organization vs multi-organization scope — does the feature store one PAT globally, or one PAT per Azure DevOps organization the user interacts with?
+  → A: **One PAT per organization (multi-org scope).** [owner: alkampfergit, 2026-04-22]
+- Q: *(pending — will be asked in `/speckit-clarify`)* How is the target organization identified at `azdo auth` time and at subsequent command invocation time? Options include: a working-context setting, an explicit `--org` flag, an interactive pick, or a combination.
 
 ## Out of Scope
 
