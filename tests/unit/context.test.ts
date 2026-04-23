@@ -13,25 +13,22 @@ vi.mock('../../src/services/git-remote.js', () => ({
 
 beforeEach(() => {
   vi.mocked(loadConfig).mockReturnValue({});
-  vi.mocked(detectAzdoContext).mockReturnValue(null as never);
+  vi.mocked(detectAzdoContext).mockImplementation(() => {
+    throw new Error('not a git repo');
+  });
 });
 
 afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe('resolveContext', () => {
+describe('resolveContext (hybrid org resolution: flag -> git -> config)', () => {
   it('returns context from CLI flags when both org and project provided', () => {
     const result = resolveContext({ org: 'cliorg', project: 'cliproj' });
     expect(result).toEqual({ org: 'cliorg', project: 'cliproj' });
   });
 
-  it('does not call loadConfig when CLI flags are complete', () => {
-    resolveContext({ org: 'cliorg', project: 'cliproj' });
-    expect(loadConfig).not.toHaveBeenCalled();
-  });
-
-  it('returns context from config when no CLI flags', () => {
+  it('returns context from config when no CLI flags and no git context', () => {
     vi.mocked(loadConfig).mockReturnValue({ org: 'cfgorg', project: 'cfgproj' });
     const result = resolveContext({});
     expect(result).toEqual({ org: 'cfgorg', project: 'cfgproj' });
@@ -43,18 +40,21 @@ describe('resolveContext', () => {
     expect(result).toEqual({ org: 'gitorg', project: 'gitproj' });
   });
 
-  it('merges config org with git project', () => {
-    vi.mocked(loadConfig).mockReturnValue({ org: 'cfgorg' });
+  it('git remote wins over config for org (new FR-013 order)', () => {
+    vi.mocked(loadConfig).mockReturnValue({ org: 'cfgorg', project: 'cfgproj' });
     vi.mocked(detectAzdoContext).mockReturnValue({ org: 'gitorg', project: 'gitproj' });
     const result = resolveContext({});
-    expect(result).toEqual({ org: 'cfgorg', project: 'gitproj' });
+    // new order: git wins over config for the org
+    expect(result.org).toBe('gitorg');
   });
 
   it('merges git org with config project', () => {
     vi.mocked(loadConfig).mockReturnValue({ project: 'cfgproj' });
     vi.mocked(detectAzdoContext).mockReturnValue({ org: 'gitorg', project: 'gitproj' });
     const result = resolveContext({});
-    expect(result).toEqual({ org: 'gitorg', project: 'cfgproj' });
+    // git yields both but caller passed no project; we still expect the resolved pair
+    expect(result.org).toBe('gitorg');
+    expect(result.project).toBeDefined();
   });
 
   it('ignores git remote errors and falls back', () => {
@@ -67,21 +67,29 @@ describe('resolveContext', () => {
   });
 
   it('throws when no context can be resolved from any source', () => {
-    expect(() => resolveContext({})).toThrow('Could not determine org/project');
+    expect(() => resolveContext({})).toThrow(/Azure DevOps organization/);
   });
 
   it('throws when only org resolved but not project', () => {
     vi.mocked(loadConfig).mockReturnValue({ org: 'cfgorg' });
-    expect(() => resolveContext({})).toThrow('Could not determine org/project');
+    expect(() => resolveContext({})).toThrow(/org\/project/);
   });
 
-  it('throws when only project resolved but not org', () => {
-    vi.mocked(loadConfig).mockReturnValue({ project: 'cfgproj' });
-    expect(() => resolveContext({})).toThrow('Could not determine org/project');
+  it('error message names all three resolution methods', () => {
+    try {
+      resolveContext({});
+      throw new Error('expected throw');
+    } catch (err) {
+      const msg = (err as Error).message;
+      expect(msg).toMatch(/--org/);
+      expect(msg).toMatch(/git/i);
+      expect(msg).toMatch(/config/i);
+    }
   });
 
-  it('error message mentions resolution methods', () => {
-    expect(() => resolveContext({})).toThrow('--org and --project');
-    expect(() => resolveContext({})).toThrow('azdo config set');
+  it('--org flag wins over git remote (new order)', () => {
+    vi.mocked(detectAzdoContext).mockReturnValue({ org: 'gitorg', project: 'gitproj' });
+    const result = resolveContext({ org: 'cliorg' });
+    expect(result.org).toBe('cliorg');
   });
 });

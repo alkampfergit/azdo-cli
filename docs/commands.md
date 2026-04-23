@@ -15,7 +15,10 @@
 | `azdo list-fields <id>` | List all fields of a work item | `--json`, `--org`, `--project` |
 | `azdo pr <subcommand>` | Manage pull requests for the current branch | `status`, `open`, `comments`, `--json`, `--org`, `--project` |
 | `azdo config <subcommand>` | Manage saved settings | `set`, `get`, `list`, `unset`, `wizard`, `--json` |
-| `azdo clear-pat` | Remove stored PAT | none |
+| `azdo auth` | Store a PAT for an Azure DevOps organization in the OS secret vault | `--org`, `--from-stdin`, `--no-browser` |
+| `azdo auth status` | Report whether a PAT is stored for the resolved org (masked only) | `--org`, `--json` |
+| `azdo auth logout` | Remove the stored PAT for an org, or every org with `--all` | `--org`, `--all` |
+| `azdo clear-pat` | **Deprecated** alias for `azdo auth logout` | `--org` |
 
 ---
 

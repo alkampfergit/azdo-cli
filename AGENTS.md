@@ -114,6 +114,8 @@ bd close <id>         # Complete work
 
 ## Active Technologies
 - TypeScript 5.x (strict mode), Node.js LTS + Node.js built-in `readline`, `process.stdin` raw mode (015-fix-pat-visibility)
+- TypeScript 5.x strict on Node.js LTS (≥18) — no change + `commander.js` (CLI), `@napi-rs/keyring` (credential store, already a dependency) (016-pat-secure-storage)
+- OS secret vault for PATs (Windows Credential Manager / macOS Keychain / Linux libsecret via `@napi-rs/keyring`); `~/.azdo/config.json` for non-secret prefs; `~/.azdo/audit.log` (new, JSON-lines) for credential-event audit trail (016-pat-secure-storage)
 
 ## Recent Changes
 - 015-fix-pat-visibility: Updated PAT prompt behavior to use `readline` with `output: null` and raw stdin handling so the token is never echoed during entry

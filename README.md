@@ -16,7 +16,7 @@ Azure DevOps CLI focused on work item read/write workflows.
 - Check branch pull request status, open PRs to `develop`, and review active comments (`pr`)
 - Persist org/project/default fields in local config (`config`)
 - List all fields of a work item (`list-fields`)
-- Store PAT in OS credential store (or use `AZDO_PAT`)
+- Store a PAT per Azure DevOps organization in the OS credential store via `azdo auth` (or use `AZDO_PAT`). Inspect with `azdo auth status`, remove with `azdo auth logout`. See [docs/authentication.md](docs/authentication.md).
 
 ## Installation
 

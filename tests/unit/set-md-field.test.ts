@@ -7,7 +7,7 @@ vi.mock('../../src/services/azdo-client.js', () => ({
 }));
 
 vi.mock('../../src/services/auth.js', () => ({
-  resolvePat: vi.fn(),
+  requirePat: vi.fn(),
 }));
 
 vi.mock('../../src/services/context.js', () => ({
@@ -20,7 +20,7 @@ vi.mock('node:fs', () => ({
 }));
 
 import { updateWorkItem } from '../../src/services/azdo-client.js';
-import { resolvePat } from '../../src/services/auth.js';
+import { requirePat } from '../../src/services/auth.js';
 import { resolveContext } from '../../src/services/context.js';
 import { existsSync, readFileSync } from 'node:fs';
 
@@ -36,7 +36,7 @@ const run = createCommandRunner(createSetMdFieldCommand);
 
 beforeEach(() => {
   vi.mocked(resolveContext).mockReturnValue({ org: 'testorg', project: 'testproj' });
-  vi.mocked(resolvePat).mockResolvedValue({ pat: 'test-pat', source: 'env' });
+  vi.mocked(requirePat).mockResolvedValue({ pat: 'test-pat', source: 'env' });
   vi.mocked(updateWorkItem).mockResolvedValue(defaultResult);
   setupProcessSpies();
 });

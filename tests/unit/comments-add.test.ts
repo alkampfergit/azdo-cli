@@ -14,7 +14,7 @@ vi.mock('../../src/services/azdo-client.js', () => ({
 }));
 
 vi.mock('../../src/services/auth.js', () => ({
-  resolvePat: vi.fn(),
+  requirePat: vi.fn(),
 }));
 
 vi.mock('../../src/services/context.js', () => ({
@@ -22,7 +22,7 @@ vi.mock('../../src/services/context.js', () => ({
 }));
 
 import { addWorkItemComment } from '../../src/services/azdo-client.js';
-import { resolvePat } from '../../src/services/auth.js';
+import { requirePat } from '../../src/services/auth.js';
 import { resolveContext } from '../../src/services/context.js';
 
 const run = createCommandRunner(createCommentsCommand);
@@ -30,7 +30,7 @@ const run = createCommandRunner(createCommentsCommand);
 beforeEach(() => {
   setupProcessSpies();
   vi.mocked(resolveContext).mockReturnValue({ org: 'test-org', project: 'test-project' });
-  vi.mocked(resolvePat).mockResolvedValue({ pat: 'test-pat', source: 'env' });
+  vi.mocked(requirePat).mockResolvedValue({ pat: 'test-pat', source: 'env' });
   vi.mocked(addWorkItemComment).mockResolvedValue({
     workItemId: 42,
     commentId: 77,
