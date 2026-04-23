@@ -68,6 +68,13 @@ jobs:
           AZDO_PAT: ${{ secrets.AZDO_PAT }}
           AZDO_ORG: ${{ secrets.AZDO_ORG }}
           AZDO_PROJECT: ${{ secrets.AZDO_PROJECT }}
+          # Wiring AZDO_REPO and AZDO_PR_ID so the PR-thread integration
+          # tests (read path + round-trip resolve/reopen) actually run in
+          # CI — previously both were absent, so the describe.skipIf
+          # blocks gated on them silently skipped and left issue #34's
+          # regression uncovered against a live API.
+          AZDO_REPO: ${{ secrets.AZDO_REPO }}
+          AZDO_PR_ID: ${{ vars.AZDO_PR_ID || '64' }}
         run: npm run build && npx vitest run tests/integration --reporter=default --reporter=junit --outputFile.junit=test-results/integration.xml
 
       - name: Upload integration test report
