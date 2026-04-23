@@ -312,10 +312,27 @@ When the owner posts such a directive on the PR (owner-login filter
 applies), execute the merge yourself — this is NOT "auto-merge" because
 the owner explicitly directed it. Procedure:
 
-1. **Confirm strategy + branch-deletion** via a `speckit:question` on
-   the PR if not already confirmed in this run. Strategy options:
-   `merge` / `squash` / `rebase`. If the owner said "rebase on
-   <base>" or similar, default to `rebase`. POLL for reply.
+1. **Determine strategy from the owner's phrasing.** When the phrasing
+   is unambiguous, proceed **without** a confirmation poll — the owner
+   already made the call:
+
+   - **"close" / "close the branch" / "close on `<base>`" / "close this
+     in `<base>`"** → **gitflow close style**: strategy = `merge`
+     (no-fast-forward merge commit, matches `Merge pull request #N from
+     …` history) plus `--delete-branch`. In gitflow this phrasing
+     IS the strategy; do NOT ask, do NOT default to squash or rebase.
+   - **"squash" / "squash-merge" / "squash this"** → `squash` +
+     `--delete-branch`. No poll.
+   - **"rebase on `<base>`" / "rebase and merge" / "linear merge"** →
+     `rebase` + `--delete-branch`. No poll.
+   - **Ambiguous phrasings** ("land it", "merge this", "ready to
+     merge", "ship it") → post a `speckit:question` offering `merge`
+     / `squash` / `rebase` (gitflow repos default to `merge`) plus
+     `--delete-branch`, and POLL for reply.
+
+   Once strategy is determined, post a single `speckit:status` naming
+   the strategy you will use so the decision is visible in the PR
+   thread before the merge happens.
 
 2. **Rebase the feature branch onto the latest base** locally (so
    conflicts are solved with full context, not via GitHub's merge UI):
