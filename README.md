@@ -13,7 +13,7 @@ Azure DevOps CLI focused on work item read/write workflows.
 - Create or update work items from markdown documents (`upsert`)
 - Read and post work item comments (`comments`)
 - Read/write rich-text fields as markdown (`get-md-field`, `set-md-field`)
-- Check branch pull request status, open PRs to `develop`, and review active comments (`pr`)
+- Check branch pull request status, open PRs to `develop`, list PR comment threads for any PR (`--pr-number`), and resolve/reopen threads from the CLI (`pr`)
 - Persist org/project/default fields in local config (`config`)
 - List all fields of a work item (`list-fields`)
 - Store a PAT per Azure DevOps organization in the OS credential store via `azdo auth` (or use `AZDO_PAT`). Inspect with `azdo auth status`, remove with `azdo auth logout`. See [docs/authentication.md](docs/authentication.md).
@@ -40,9 +40,16 @@ azdo set-state 12345 "Active"
 # Create a work item from markdown
 azdo upsert --type "User Story" --content $'---\nTitle: Improve markdown import UX\nState: New\n---'
 
-# Read and post comments
+# Read and post work item comments
 azdo comments list 12345
 azdo comments add 12345 "Investigating the root cause now."
+
+# PR comment threads — list, filter, target by number, resolve or reopen
+azdo pr comments                        # active-branch PR
+azdo pr comments --pr-number 64         # any PR by number (skips branch lookup)
+azdo pr comments --pr-number 64 --hide-resolved
+azdo pr comment-resolve 17 --pr-number 64   # idempotent: exit 0 even when already resolved
+azdo pr comment-reopen 17  --pr-number 64
 ```
 
 ## Documentation

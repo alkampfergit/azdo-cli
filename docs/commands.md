@@ -13,7 +13,7 @@
 | `azdo get-md-field <id> <field>` | Get rich-text field as markdown | `--org`, `--project` |
 | `azdo set-md-field <id> <field> [content]` | Set markdown field | `--file`, `--json`, `--org`, `--project` |
 | `azdo list-fields <id>` | List all fields of a work item | `--json`, `--org`, `--project` |
-| `azdo pr <subcommand>` | Manage pull requests for the current branch | `status`, `open`, `comments`, `--json`, `--org`, `--project` |
+| `azdo pr <subcommand>` | Manage pull requests (current branch or by `--pr-number`) | `status`, `open`, `comments`, `comment-resolve`, `comment-reopen`, `--pr-number`, `--hide-resolved`, `--json`, `--org`, `--project` |
 | `azdo config <subcommand>` | Manage saved settings | `set`, `get`, `list`, `unset`, `wizard`, `--json` |
 | `azdo auth` | Store a PAT for an Azure DevOps organization in the OS secret vault | `--org`, `--from-stdin`, `--no-browser` |
 | `azdo auth status` | Report whether a PAT is stored for the resolved org (masked only) | `--org`, `--json` |
@@ -68,9 +68,13 @@ The `pr` group uses the current git branch and the Azure DevOps `origin` remote 
 Requires a PAT with **Code (Read)** scope for reads and **Code (Read & Write)** for creation.
 
 ```bash
-azdo pr status                          # list PRs for current branch + checks
-azdo pr open --title "…" --description "…"   # open PR targeting develop
-azdo pr comments                        # active review comments for current branch's PR
+azdo pr status                             # list PRs for current branch + checks
+azdo pr open --title "…" --description "…"      # open PR targeting develop
+azdo pr comments                           # list threads for current branch's PR
+azdo pr comments --pr-number 64            # list threads for any PR by number
+azdo pr comments --hide-resolved           # triage view — hide settled threads
+azdo pr comment-resolve  17 --pr-number 64 # mark thread as resolved (idempotent)
+azdo pr comment-reopen   17 --pr-number 64 # reopen a previously resolved thread
 ```
 
 **`azdo pr status`**
@@ -85,8 +89,20 @@ azdo pr comments                        # active review comments for current bra
 - Fails when run from `develop` or when multiple active PRs exist
 
 **`azdo pr comments`**
-- Returns only active/pending threads with visible, non-deleted comments
-- Groups output by thread; shows file context when available
+- Lists every comment thread on the target PR with a bracketed status indicator (`[active]`, `[pending]`, `[resolved]`) next to each thread title
+- `--pr-number <N>` targets any PR by numeric id and bypasses the current-branch lookup entirely; invalid numbers and missing PRs fail cleanly with non-zero exit, no crash
+- `--hide-resolved` drops threads whose backend state is settled (`fixed`, `wontFix`, `closed`, `byDesign`) — useful when triaging only the threads that still need attention
+- Tolerant of Azure DevOps responses that omit `_links.web` (root cause of the original crash reported in issue #34)
+
+**`azdo pr comment-resolve <threadId>`**
+- Marks a single comment thread as resolved on the target PR
+- Idempotent: exits 0 with a clear "already resolved" message when the thread is already in any settled state (no redundant backend call, `noop:true` in `--json` output)
+- Shares `--pr-number`, `--org`, `--project`, and `--json` with `pr comments`
+
+**`azdo pr comment-reopen <threadId>`**
+- Mirror of `comment-resolve` — flips any settled thread back to `active`
+- Idempotent: exits 0 with "already active" when the thread is already open/pending
+- Same flags as `comment-resolve`
 
 ## Work item comment commands
 
@@ -176,4 +192,4 @@ azdo config list --json
 
 All commands that produce structured data support `--json`:
 `list-fields`, `set-state`, `assign`, `set-field`, `set-md-field`, `upsert`,
-`comments list|add`, `pr status|open|comments`, `config set|get|list|unset`
+`comments list|add`, `pr status|open|comments|comment-resolve|comment-reopen`, `config set|get|list|unset`
