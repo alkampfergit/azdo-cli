@@ -14,8 +14,11 @@
 
 import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import {
+  getPullRequestById,
   getPullRequestThreads,
+  isThreadResolved,
   listPullRequests,
+  patchThreadStatus,
 } from '../../src/services/pr-client.js';
 import {
   AZDO_PAT,
@@ -156,6 +159,74 @@ describe.skipIf(SKIP_PR)('pull-requests integration', () => {
       await expect(
         getPullRequestThreads(context, repo, 'bad-pat', prId),
       ).rejects.toThrow('AUTH_FAILED');
+    });
+  });
+
+  // ── getPullRequestById ─────────────────────────────────────────────────
+
+  describe.skipIf(!AZDO_PR_ID)('getPullRequestById', () => {
+    const prId = AZDO_PR_ID!;
+
+    it('fetches the reference PR by numeric id (covers --pr-number happy path)', async () => {
+      const pr = await getPullRequestById(context, repo, pat, prId);
+      expect(pr.id).toBe(prId);
+      expect(typeof pr.title).toBe('string');
+    });
+
+    it('throws NOT_FOUND for a PR that does not exist', async () => {
+      await expect(getPullRequestById(context, repo, pat, 999999999)).rejects.toThrow(/NOT_FOUND/);
+    });
+  });
+
+  // ── patchThreadStatus round-trip ───────────────────────────────────────
+
+  // Self-healing test: picks the first mutable thread on the reference PR,
+  // flips its state, asserts, then restores the original state. Works
+  // whether the thread starts active/pending or already settled.
+  describe.skipIf(!AZDO_PR_ID)('patchThreadStatus round-trip', () => {
+    const prId = AZDO_PR_ID!;
+
+    it('can flip a thread between fixed and active and back', async () => {
+      const before = await getPullRequestThreads(context, repo, pat, prId);
+      if (before.length === 0) {
+        // Nothing to mutate — skip quietly rather than fail.
+        return;
+      }
+
+      const subject = before[0];
+      const startActive = !isThreadResolved(subject.status);
+
+      try {
+        if (startActive) {
+          const resolved = await patchThreadStatus(context, repo, pat, prId, subject.id, 'fixed');
+          expect(isThreadResolved(resolved.status)).toBe(true);
+          const afterFixed = await getPullRequestThreads(context, repo, pat, prId);
+          const refetched = afterFixed.find((t) => t.id === subject.id);
+          expect(refetched && isThreadResolved(refetched.status)).toBe(true);
+
+          const reopened = await patchThreadStatus(context, repo, pat, prId, subject.id, 'active');
+          expect(reopened.status).toBe('active');
+        } else {
+          const reopened = await patchThreadStatus(context, repo, pat, prId, subject.id, 'active');
+          expect(reopened.status).toBe('active');
+          const afterActive = await getPullRequestThreads(context, repo, pat, prId);
+          const refetched = afterActive.find((t) => t.id === subject.id);
+          expect(refetched?.status).toBe('active');
+
+          const resolvedAgain = await patchThreadStatus(context, repo, pat, prId, subject.id, 'fixed');
+          expect(isThreadResolved(resolvedAgain.status)).toBe(true);
+        }
+      } finally {
+        // Best-effort restore to the original state so the test is idempotent
+        // across runs. Failures here are swallowed — the outer assertion has
+        // already reported any real problem.
+        try {
+          const restoreStatus = startActive ? 'active' : 'fixed';
+          await patchThreadStatus(context, repo, pat, prId, subject.id, restoreStatus);
+        } catch {
+          // ignore — best effort restoration only.
+        }
+      }
     });
   });
 });

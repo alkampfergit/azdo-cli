@@ -15,6 +15,7 @@ import {
   getPullRequestChecks,
   getPullRequestById,
   isThreadResolved,
+  patchThreadStatus,
 } from '../services/pr-client.js';
 import { requirePat } from '../services/auth.js';
 import { resolveContext } from '../services/context.js';
@@ -382,11 +383,182 @@ export function createPrCommentsCommand(): Command {
   return command;
 }
 
+// Shared resolver for the two new state-change subcommands — returns the
+// target PR (by --pr-number or current branch), the resolved context, and
+// the raw threadId after validation. Callers use this to look up the
+// current thread status before deciding whether to PATCH.
+interface ResolvedThreadTarget {
+  context: AzdoContext;
+  repo: string;
+  pat: string;
+  pullRequest: BranchPullRequestMatch;
+  threadId: number;
+}
+
+async function resolveThreadTarget(
+  threadIdRaw: string,
+  options: PrCommandOptions,
+): Promise<ResolvedThreadTarget | null> {
+  validateOrgProjectPair(options);
+
+  const threadId = parsePositivePrNumber(threadIdRaw);
+  if (threadId === null) {
+    writeError(`Invalid thread id "${threadIdRaw}"; expected a positive integer.`);
+    return null;
+  }
+
+  let explicitPrId: number | null = null;
+  if (options.prNumber !== undefined) {
+    explicitPrId = parsePositivePrNumber(options.prNumber);
+    if (explicitPrId === null) {
+      writeError(`Invalid --pr-number "${options.prNumber}"; expected a positive integer.`);
+      return null;
+    }
+  }
+
+  const resolved = await resolvePrCommandContext(options, { requireBranch: explicitPrId === null });
+
+  let pullRequest: BranchPullRequestMatch;
+  if (explicitPrId !== null) {
+    try {
+      pullRequest = await getPullRequestById(resolved.context, resolved.repo, resolved.pat, explicitPrId);
+    } catch (err) {
+      if (err instanceof Error && err.message.startsWith('NOT_FOUND')) {
+        writeError(`Pull request #${explicitPrId} not found in ${resolved.context.org}/${resolved.context.project}/${resolved.repo}.`);
+        return null;
+      }
+      throw err;
+    }
+  } else {
+    const pullRequests = await listPullRequests(resolved.context, resolved.repo, resolved.pat, resolved.branch!, {
+      status: 'active',
+    });
+    if (pullRequests.length === 0) {
+      writeError(`No active pull request found for branch ${resolved.branch}.`);
+      return null;
+    }
+    if (pullRequests.length > 1) {
+      const ids = pullRequests.map((pr) => `#${pr.id}`).join(', ');
+      writeError(`Multiple active pull requests found for branch ${resolved.branch}: ${ids}. Use pr status to review them.`);
+      return null;
+    }
+    pullRequest = pullRequests[0];
+  }
+
+  return { context: resolved.context, repo: resolved.repo, pat: resolved.pat, pullRequest, threadId };
+}
+
+interface ThreadStateChangeResult {
+  pullRequestId: number;
+  threadId: number;
+  status: 'active' | 'fixed';
+  noop: boolean;
+}
+
+async function runThreadStateChange(
+  threadIdRaw: string,
+  options: PrCommandOptions,
+  direction: 'resolve' | 'reopen',
+): Promise<void> {
+  let context: AzdoContext | undefined;
+
+  try {
+    const target = await resolveThreadTarget(threadIdRaw, options);
+    if (target === null) {
+      return;
+    }
+    context = target.context;
+
+    const threads = await getPullRequestThreads(target.context, target.repo, target.pat, target.pullRequest.id);
+    const thread = threads.find((t) => t.id === target.threadId);
+    if (!thread) {
+      writeError(`Thread #${target.threadId} not found on pull request #${target.pullRequest.id}.`);
+      return;
+    }
+
+    const alreadyInTargetState = direction === 'resolve'
+      ? isThreadResolved(thread.status)
+      : !isThreadResolved(thread.status);
+    const targetStatus: 'active' | 'fixed' = direction === 'resolve' ? 'fixed' : 'active';
+
+    if (alreadyInTargetState) {
+      const humanLabel = direction === 'resolve' ? 'resolved' : 'active';
+      const noopResult: ThreadStateChangeResult = {
+        pullRequestId: target.pullRequest.id,
+        threadId: target.threadId,
+        status: targetStatus,
+        noop: true,
+      };
+      if (options.json) {
+        process.stdout.write(`${JSON.stringify(noopResult, null, 2)}\n`);
+        return;
+      }
+      process.stdout.write(`Thread #${target.threadId} is already ${humanLabel} on pull request #${target.pullRequest.id}.\n`);
+      return;
+    }
+
+    const updated = await patchThreadStatus(
+      target.context,
+      target.repo,
+      target.pat,
+      target.pullRequest.id,
+      target.threadId,
+      targetStatus,
+    );
+    const result: ThreadStateChangeResult = {
+      pullRequestId: target.pullRequest.id,
+      threadId: target.threadId,
+      status: targetStatus,
+      noop: false,
+    };
+    if (options.json) {
+      process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+      return;
+    }
+    const verb = direction === 'resolve' ? 'resolved' : 'reopened';
+    process.stdout.write(`Thread #${target.threadId} ${verb} on pull request #${target.pullRequest.id} (status: ${updated.status}).\n`);
+  } catch (err) {
+    handlePrCommandError(err, context, 'write');
+  }
+}
+
+export function createPrCommentResolveCommand(): Command {
+  const command = new Command('comment-resolve');
+  command
+    .description('Mark a pull request comment thread as resolved')
+    .argument('<threadId>', 'numeric id of the thread to resolve')
+    .option('--org <org>', 'Azure DevOps organization')
+    .option('--project <project>', 'Azure DevOps project')
+    .option('--pr-number <N>', 'target the pull request with this numeric id, instead of the current branch\'s PR')
+    .option('--json', 'output JSON')
+    .action(async (threadIdRaw: string, options: PrCommandOptions) => {
+      await runThreadStateChange(threadIdRaw, options, 'resolve');
+    });
+  return command;
+}
+
+export function createPrCommentReopenCommand(): Command {
+  const command = new Command('comment-reopen');
+  command
+    .description('Reopen (set to active) a previously resolved pull request comment thread')
+    .argument('<threadId>', 'numeric id of the thread to reopen')
+    .option('--org <org>', 'Azure DevOps organization')
+    .option('--project <project>', 'Azure DevOps project')
+    .option('--pr-number <N>', 'target the pull request with this numeric id, instead of the current branch\'s PR')
+    .option('--json', 'output JSON')
+    .action(async (threadIdRaw: string, options: PrCommandOptions) => {
+      await runThreadStateChange(threadIdRaw, options, 'reopen');
+    });
+  return command;
+}
+
 export function createPrCommand(): Command {
   const command = new Command('pr');
   command.description('Manage Azure DevOps pull requests');
   command.addCommand(createPrStatusCommand());
   command.addCommand(createPrOpenCommand());
   command.addCommand(createPrCommentsCommand());
+  command.addCommand(createPrCommentResolveCommand());
+  command.addCommand(createPrCommentReopenCommand());
   return command;
 }

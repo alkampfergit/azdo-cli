@@ -7,6 +7,7 @@ import {
   isThreadResolved,
   listPullRequests,
   openPullRequest,
+  patchThreadStatus,
 } from '../../src/services/pr-client.js';
 
 const context: AzdoContext = { org: 'test-org', project: 'test-project' };
@@ -197,6 +198,75 @@ describe('pr-client', () => {
 
       const result = await getPullRequestById(context, 'repo-name', 'pat', 77);
       expect(result.url).toBeNull();
+    });
+  });
+
+  describe('patchThreadStatus', () => {
+    it('sends PATCH with the right URL and body for resolve (fixed)', async () => {
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          id: 17,
+          status: 'fixed',
+          comments: [
+            { id: 1, author: { displayName: 'Alice' }, content: 'done', publishedDate: null },
+          ],
+        }),
+      } as Response);
+
+      const result = await patchThreadStatus(context, 'repo-name', 'pat', 64, 17, 'fixed');
+
+      expect(result.status).toBe('fixed');
+      expect(result.id).toBe(17);
+      expect(fetchSpy).toHaveBeenCalledWith(
+        expect.stringContaining('/pullRequests/64/threads/17'),
+        expect.objectContaining({
+          method: 'PATCH',
+          body: JSON.stringify({ status: 'fixed' }),
+          headers: expect.objectContaining({ 'Content-Type': 'application/json' }),
+        }),
+      );
+    });
+
+    it('sends PATCH with status=active for reopen', async () => {
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          id: 17,
+          status: 'active',
+          comments: [
+            { id: 1, author: { displayName: 'Alice' }, content: 'back open', publishedDate: null },
+          ],
+        }),
+      } as Response);
+
+      const result = await patchThreadStatus(context, 'repo-name', 'pat', 64, 17, 'active');
+
+      expect(result.status).toBe('active');
+      expect(fetchSpy).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({ body: JSON.stringify({ status: 'active' }) }),
+      );
+    });
+
+    it('throws NOT_FOUND on a 404 response (thread missing)', async () => {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+        ok: false,
+        status: 404,
+      } as Response);
+
+      await expect(patchThreadStatus(context, 'repo-name', 'pat', 64, 9999, 'fixed')).rejects.toThrow(/NOT_FOUND/);
+    });
+
+    it('throws AUTH_FAILED on a 401 response', async () => {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+        ok: false,
+        status: 401,
+      } as Response);
+
+      await expect(patchThreadStatus(context, 'repo-name', 'pat', 64, 17, 'fixed')).rejects.toThrow('AUTH_FAILED');
     });
   });
 

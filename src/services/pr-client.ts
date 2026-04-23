@@ -130,6 +130,20 @@ function mapThread(thread: AzdoThread): ActiveCommentThread | null {
   };
 }
 
+function toActiveCommentThread(thread: AzdoThread): ActiveCommentThread {
+  // Unlike mapThread() this does not drop threads whose visible comments
+  // list is empty; the state-change path needs to round-trip any thread
+  // the PATCH call returns so callers can confirm the new status.
+  return {
+    id: thread.id,
+    status: thread.status,
+    threadContext: thread.threadContext?.filePath ?? null,
+    comments: thread.comments
+      .map(mapComment)
+      .filter((comment): comment is ActivePullRequestComment => comment !== null),
+  };
+}
+
 const RESOLVED_THREAD_STATUSES = new Set<string>(['fixed', 'wontFix', 'closed', 'byDesign']);
 
 // Returns true when the thread's status is one the Azure DevOps UI treats
@@ -146,6 +160,37 @@ async function readJsonResponse<T>(response: Response): Promise<T> {
   }
 
   return response.json() as Promise<T>;
+}
+
+// Patches a pull request comment thread's status. Used by the CLI's
+// comment-resolve / comment-reopen subcommands to flip a thread between
+// 'active' and 'fixed' on the backend. Only those two status values are
+// accepted at the boundary — richer backend states (wontFix, closed,
+// byDesign) are visible in listings but out of scope for CLI-driven
+// transitions in this iteration (per the spec's Assumptions).
+export async function patchThreadStatus(
+  context: AzdoContext,
+  repo: string,
+  pat: string,
+  prId: number,
+  threadId: number,
+  status: 'active' | 'fixed',
+): Promise<ActiveCommentThread> {
+  const url = new URL(
+    `https://dev.azure.com/${encodeURIComponent(context.org)}/${encodeURIComponent(context.project)}/_apis/git/repositories/${encodeURIComponent(repo)}/pullRequests/${prId}/threads/${threadId}`,
+  );
+  url.searchParams.set('api-version', '7.1');
+
+  const response = await fetchWithErrors(url.toString(), {
+    method: 'PATCH',
+    headers: {
+      ...authHeaders(pat),
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ status }),
+  });
+  const data = await readJsonResponse<AzdoThread>(response);
+  return toActiveCommentThread(data);
 }
 
 // Fetches a single pull request by its numeric id. Used by the
