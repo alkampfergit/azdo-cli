@@ -68,6 +68,13 @@ jobs:
           AZDO_PAT: ${{ secrets.AZDO_PAT }}
           AZDO_ORG: ${{ secrets.AZDO_ORG }}
           AZDO_PROJECT: ${{ secrets.AZDO_PROJECT }}
+          # AZDO_PR_ID drives the PR-thread read + round-trip integration
+          # tests for issue #34. Falls back to PR 64 (the spec's canonical
+          # reference PR) when no repository variable is set. When
+          # AZDO_REPO secret is configured alongside AZDO_PAT/ORG/PROJECT
+          # the pull-requests.test.ts suite will also run end-to-end; when
+          # it isn't, those tests skip cleanly via SKIP_PR.
+          AZDO_PR_ID: ${{ vars.AZDO_PR_ID || '64' }}
         run: npm run build && npx vitest run tests/integration --reporter=default --reporter=junit --outputFile.junit=test-results/integration.xml
 
       - name: Upload integration test report

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createPrStatusCommand } from '../../src/commands/pr.js';
-import { createCommandRunner, getStderr, getStdout, setupProcessSpies } from './helpers/command-test-utils.js';
+import { createCommandRunner, getExitCode, getStderr, getStdout, setupProcessSpies } from './helpers/command-test-utils.js';
 
 vi.mock('../../src/services/pr-client.js', () => ({
   listPullRequests: vi.fn(),
@@ -162,7 +162,7 @@ describe('pr status command', () => {
     vi.mocked(listPullRequests).mockRejectedValue(new Error('AUTH_FAILED'));
     await run([]);
     expect(getStderr()).toContain('Authentication failed');
-    expect(process.exit).toHaveBeenCalledWith(1);
+    expect(getExitCode()).toBe(1);
   });
 
   it('fails when Azure DevOps check lookup fails', async () => {
@@ -172,7 +172,7 @@ describe('pr status command', () => {
     await run([]);
 
     expect(getStderr()).toContain('Azure DevOps request failed with HTTP_500.');
-    expect(process.exit).toHaveBeenCalledWith(1);
+    expect(getExitCode()).toBe(1);
   });
 
   it('prints a detached HEAD error and exits with code 1', async () => {
@@ -181,6 +181,6 @@ describe('pr status command', () => {
     });
     await run([]);
     expect(getStderr()).toContain('Not on a named branch. Check out a named branch and try again.');
-    expect(process.exit).toHaveBeenCalledWith(1);
+    expect(getExitCode()).toBe(1);
   });
 });

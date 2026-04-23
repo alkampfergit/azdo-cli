@@ -6,7 +6,7 @@ export interface BranchPullRequestMatch {
   targetRefName: string;
   status: string;
   createdBy: string | null;
-  url: string;
+  url: string | null;
 }
 
 export interface PullRequestCheck {
@@ -51,6 +51,18 @@ export interface ActivePullRequestComment {
   publishedAt: string | null;
 }
 
+// Azure DevOps comment-thread status enum. The backend may return other
+// strings in the future; we keep `string` as the compile-time type on the
+// thread itself and use this union only where we reason about the enum.
+export type AzdoThreadStatus =
+  | 'unknown'
+  | 'active'
+  | 'fixed'
+  | 'wontFix'
+  | 'closed'
+  | 'byDesign'
+  | 'pending';
+
 export interface ActiveCommentThread {
   id: number;
   status: string;
@@ -78,9 +90,9 @@ export interface AzdoPullRequest {
   createdBy?: {
     displayName?: string;
   };
-  _links: {
-    web: {
-      href: string;
+  _links?: {
+    web?: {
+      href?: string;
     };
   };
 }
