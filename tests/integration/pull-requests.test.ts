@@ -115,11 +115,23 @@ describe.skipIf(SKIP_PR)('pull-requests integration', () => {
 
     it('each thread has a numeric id and a valid status', async () => {
       const threads = await getPullRequestThreads(context, repo, pat, prId);
+      const validStatuses = ['unknown', 'active', 'fixed', 'wontFix', 'closed', 'byDesign', 'pending'];
       for (const thread of threads) {
         expect(thread.id).toBeTypeOf('number');
         expect(thread.id).toBeGreaterThan(0);
-        expect(['active', 'pending']).toContain(thread.status);
+        expect(validStatuses).toContain(thread.status);
       }
+    });
+
+    it('returns at least one thread with at least one comment (covers #34 read-path fix)', async () => {
+      // The canonical AZDO_PR_ID for this project's test org is PR 64, which
+      // carries two user-authored comments. This assertion guards against a
+      // regression of the reported #34 crash by exercising the real Azure
+      // DevOps API end-to-end.
+      const threads = await getPullRequestThreads(context, repo, pat, prId);
+      expect(threads.length).toBeGreaterThan(0);
+      const commentCount = threads.reduce((acc, thread) => acc + thread.comments.length, 0);
+      expect(commentCount).toBeGreaterThan(0);
     });
 
     it('each thread contains at least one non-deleted comment', async () => {

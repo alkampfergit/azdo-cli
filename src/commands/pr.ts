@@ -7,7 +7,13 @@ import type {
   PullRequestStatusResult,
 } from '../types/pull-request.js';
 import type { AzdoContext } from '../types/work-item.js';
-import { listPullRequests, openPullRequest, getPullRequestThreads, getPullRequestChecks } from '../services/pr-client.js';
+import {
+  listPullRequests,
+  openPullRequest,
+  getPullRequestThreads,
+  getPullRequestChecks,
+  isThreadResolved,
+} from '../services/pr-client.js';
 import { requirePat } from '../services/auth.js';
 import { resolveContext } from '../services/context.js';
 import { validateOrgProjectPair } from '../services/command-helpers.js';
@@ -17,6 +23,7 @@ interface PrCommandOptions {
   org?: string;
   project?: string;
   json?: boolean;
+  hideResolved?: boolean;
 }
 
 interface ResolvedPrCommandContext {
@@ -97,11 +104,19 @@ function formatPullRequestBlock(pullRequest: PullRequestStatusPullRequest): stri
   ].join('\n');
 }
 
+// Short user-facing label for a thread's backend status. Any state that
+// isThreadResolved() considers settled collapses to "resolved" to match the
+// spec's short status convention (FR-003); active and pending keep their
+// backend names since operators recognise them from the Azure DevOps UI.
+function threadStatusLabel(status: string): string {
+  return isThreadResolved(status) ? 'resolved' : status;
+}
+
 function formatThreads(prId: number, title: string, threads: ActiveCommentThread[]): string {
   const lines = [`Active comments for pull request #${prId}: ${title}`];
 
   for (const thread of threads) {
-    lines.push('', `Thread #${thread.id} [${thread.status}] ${thread.threadContext ?? '(general)'}`);
+    lines.push('', `Thread #${thread.id} [${threadStatusLabel(thread.status)}] ${thread.threadContext ?? '(general)'}`);
     for (const comment of thread.comments) {
       lines.push(`  ${comment.author ?? 'Unknown'}: ${comment.content}`);
     }
@@ -252,9 +267,10 @@ export function createPrCommentsCommand(): Command {
   const command = new Command('comments');
 
   command
-    .description('List active pull request comments for the current branch')
+    .description('List pull request comment threads for the current branch')
     .option('--org <org>', 'Azure DevOps organization')
     .option('--project <project>', 'Azure DevOps project')
+    .option('--hide-resolved', 'hide threads whose status is resolved / won\'t fix / closed / by design')
     .option('--json', 'output JSON')
     .action(async (options: PrCommandOptions) => {
       validateOrgProjectPair(options);
@@ -281,7 +297,10 @@ export function createPrCommentsCommand(): Command {
         }
 
         const pullRequest = pullRequests[0];
-        const threads = await getPullRequestThreads(resolved.context, resolved.repo, resolved.pat, pullRequest.id);
+        const allThreads = await getPullRequestThreads(resolved.context, resolved.repo, resolved.pat, pullRequest.id);
+        const threads = options.hideResolved
+          ? allThreads.filter((thread) => !isThreadResolved(thread.status))
+          : allThreads;
         const result: PullRequestCommentsResult = { branch: resolved.branch, pullRequest, threads };
 
         if (options.json) {

@@ -1,6 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AzdoContext } from '../../src/types/work-item.js';
-import { getPullRequestChecks, getPullRequestThreads, listPullRequests, openPullRequest } from '../../src/services/pr-client.js';
+import {
+  getPullRequestChecks,
+  getPullRequestThreads,
+  isThreadResolved,
+  listPullRequests,
+  openPullRequest,
+} from '../../src/services/pr-client.js';
 
 const context: AzdoContext = { org: 'test-org', project: 'test-project' };
 
@@ -67,6 +73,74 @@ describe('pr-client', () => {
       } as Response);
 
       await expect(listPullRequests(context, 'repo-name', 'pat', 'feature/test')).rejects.toThrow('AUTH_FAILED');
+    });
+
+    it('tolerates pull requests whose _links.web is missing (root cause of #34)', async () => {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          count: 1,
+          value: [
+            {
+              pullRequestId: 77,
+              title: 'PR without web link',
+              status: 'active',
+              sourceRefName: 'refs/heads/feature/x',
+              targetRefName: 'refs/heads/develop',
+              createdBy: { displayName: 'Alice' },
+              // no _links at all — the Azure DevOps API can omit this field
+            },
+          ],
+        }),
+      } as Response);
+
+      const result = await listPullRequests(context, 'repo-name', 'pat', 'feature/x');
+      expect(result).toEqual([
+        expect.objectContaining({
+          id: 77,
+          title: 'PR without web link',
+          url: null,
+        }),
+      ]);
+    });
+
+    it('tolerates a _links envelope without the nested web.href', async () => {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          count: 1,
+          value: [
+            {
+              pullRequestId: 78,
+              title: 'PR with half-populated _links',
+              status: 'active',
+              sourceRefName: 'refs/heads/feature/y',
+              targetRefName: 'refs/heads/develop',
+              createdBy: { displayName: 'Alice' },
+              _links: { web: {} },
+            },
+          ],
+        }),
+      } as Response);
+
+      const result = await listPullRequests(context, 'repo-name', 'pat', 'feature/y');
+      expect(result[0].url).toBeNull();
+    });
+  });
+
+  describe('isThreadResolved', () => {
+    it.each([
+      ['active', false],
+      ['pending', false],
+      ['unknown', false],
+      ['fixed', true],
+      ['wontFix', true],
+      ['closed', true],
+      ['byDesign', true],
+    ])('classifies %s as resolved=%s', (status, expected) => {
+      expect(isThreadResolved(status)).toBe(expected);
     });
   });
 

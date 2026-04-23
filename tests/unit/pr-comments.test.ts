@@ -2,10 +2,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createPrCommentsCommand } from '../../src/commands/pr.js';
 import { createCommandRunner, getExitCode, getStderr, getStdout, setupProcessSpies } from './helpers/command-test-utils.js';
 
-vi.mock('../../src/services/pr-client.js', () => ({
-  listPullRequests: vi.fn(),
-  getPullRequestThreads: vi.fn(),
-}));
+vi.mock('../../src/services/pr-client.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/services/pr-client.js')>();
+  return {
+    ...actual,
+    listPullRequests: vi.fn(),
+    getPullRequestThreads: vi.fn(),
+  };
+});
 
 vi.mock('../../src/services/git-remote.js', () => ({
   detectRepoName: vi.fn(),
@@ -117,6 +121,55 @@ describe('pr comments command', () => {
     expect(output).toContain('  Alice: Please fix this');
     expect(output).toContain('Thread #101 [pending] (general)');
     expect(output).toContain('  Bob: Still waiting');
+  });
+
+  it('renders a [resolved] indicator for every settled thread status (FR-003)', async () => {
+    vi.mocked(getPullRequestThreads).mockResolvedValue([
+      { id: 200, status: 'active', threadContext: null, comments: [{ id: 1, author: 'A', content: 'open', publishedAt: null }] },
+      { id: 201, status: 'fixed', threadContext: null, comments: [{ id: 2, author: 'A', content: 'done', publishedAt: null }] },
+      { id: 202, status: 'wontFix', threadContext: null, comments: [{ id: 3, author: 'A', content: 'no thanks', publishedAt: null }] },
+      { id: 203, status: 'closed', threadContext: null, comments: [{ id: 4, author: 'A', content: 'closed', publishedAt: null }] },
+      { id: 204, status: 'byDesign', threadContext: null, comments: [{ id: 5, author: 'A', content: 'intentional', publishedAt: null }] },
+      { id: 205, status: 'pending', threadContext: null, comments: [{ id: 6, author: 'A', content: 'waiting', publishedAt: null }] },
+    ]);
+
+    await run([]);
+    const output = getStdout();
+
+    expect(output).toContain('Thread #200 [active]');
+    expect(output).toContain('Thread #201 [resolved]');
+    expect(output).toContain('Thread #202 [resolved]');
+    expect(output).toContain('Thread #203 [resolved]');
+    expect(output).toContain('Thread #204 [resolved]');
+    expect(output).toContain('Thread #205 [pending]');
+  });
+
+  it('hides settled threads when --hide-resolved is set (FR-004a)', async () => {
+    vi.mocked(getPullRequestThreads).mockResolvedValue([
+      { id: 300, status: 'active', threadContext: null, comments: [{ id: 1, author: 'A', content: 'open', publishedAt: null }] },
+      { id: 301, status: 'fixed', threadContext: null, comments: [{ id: 2, author: 'A', content: 'done', publishedAt: null }] },
+      { id: 302, status: 'pending', threadContext: null, comments: [{ id: 3, author: 'A', content: 'waiting', publishedAt: null }] },
+      { id: 303, status: 'closed', threadContext: null, comments: [{ id: 4, author: 'A', content: 'shut', publishedAt: null }] },
+    ]);
+
+    await run(['--hide-resolved']);
+    const output = getStdout();
+
+    expect(output).toContain('Thread #300 [active]');
+    expect(output).toContain('Thread #302 [pending]');
+    expect(output).not.toContain('Thread #301');
+    expect(output).not.toContain('Thread #303');
+  });
+
+  it('still shows settled threads when --hide-resolved is absent', async () => {
+    vi.mocked(getPullRequestThreads).mockResolvedValue([
+      { id: 400, status: 'fixed', threadContext: null, comments: [{ id: 1, author: 'A', content: 'done', publishedAt: null }] },
+    ]);
+
+    await run([]);
+    const output = getStdout();
+
+    expect(output).toContain('Thread #400 [resolved]');
   });
 
   it('prints JSON output with --json', async () => {
