@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createPrCommentsCommand } from '../../src/commands/pr.js';
-import { createCommandRunner, getStderr, getStdout, setupProcessSpies } from './helpers/command-test-utils.js';
+import { createCommandRunner, getExitCode, getStderr, getStdout, setupProcessSpies } from './helpers/command-test-utils.js';
 
 vi.mock('../../src/services/pr-client.js', () => ({
   listPullRequests: vi.fn(),
@@ -65,7 +65,7 @@ describe('pr comments command', () => {
     vi.mocked(listPullRequests).mockResolvedValue([]);
     await run([]);
     expect(getStderr()).toContain('No active pull request found for branch feature/test.');
-    expect(process.exit).toHaveBeenCalledWith(1);
+    expect(getExitCode()).toBe(1);
   });
 
   it('fails when multiple active pull requests exist', async () => {
@@ -81,7 +81,7 @@ describe('pr comments command', () => {
     await run([]);
 
     expect(getStderr()).toContain('Multiple active pull requests found for branch feature/test: #12, #13. Use pr status to review them.');
-    expect(process.exit).toHaveBeenCalledWith(1);
+    expect(getExitCode()).toBe(1);
   });
 
   it('prints a no-active-comments message when no active threads exist', async () => {

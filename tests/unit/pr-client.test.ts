@@ -276,7 +276,7 @@ describe('pr-client', () => {
   });
 
   describe('getPullRequestThreads', () => {
-    it('returns only active and pending threads with visible comments', async () => {
+    it('returns every thread status with visible comments, regardless of resolution state', async () => {
       vi.spyOn(globalThis, 'fetch').mockResolvedValue({
         ok: true,
         status: 200,
@@ -329,6 +329,19 @@ describe('pr-client', () => {
               id: 10,
               author: 'Alice',
               content: 'Needs work',
+              publishedAt: '2026-03-27T00:00:00Z',
+            },
+          ],
+        },
+        {
+          id: 2,
+          status: 'closed',
+          threadContext: null,
+          comments: [
+            {
+              id: 12,
+              author: 'Alice',
+              content: 'Closed',
               publishedAt: '2026-03-27T00:00:00Z',
             },
           ],

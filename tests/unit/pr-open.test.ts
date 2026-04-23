@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createPrOpenCommand } from '../../src/commands/pr.js';
-import { createCommandRunner, getStderr, getStdout, setupProcessSpies } from './helpers/command-test-utils.js';
+import { createCommandRunner, getExitCode, getStderr, getStdout, setupProcessSpies } from './helpers/command-test-utils.js';
 
 vi.mock('../../src/services/pr-client.js', () => ({
   openPullRequest: vi.fn(),
@@ -57,20 +57,20 @@ describe('pr open command', () => {
   it('requires --title', async () => {
     await run(['--description', 'Description']);
     expect(getStderr()).toContain('--title is required for pull request creation.');
-    expect(process.exit).toHaveBeenCalledWith(1);
+    expect(getExitCode()).toBe(1);
   });
 
   it('requires --description', async () => {
     await run(['--title', 'Title']);
     expect(getStderr()).toContain('--description is required for pull request creation.');
-    expect(process.exit).toHaveBeenCalledWith(1);
+    expect(getExitCode()).toBe(1);
   });
 
   it('rejects opening a pull request from develop', async () => {
     vi.mocked(getCurrentBranch).mockReturnValue('develop');
     await run(['--title', 'Title', '--description', 'Description']);
     expect(getStderr()).toContain('Pull request creation requires a source branch other than develop.');
-    expect(process.exit).toHaveBeenCalledWith(1);
+    expect(getExitCode()).toBe(1);
   });
 
   it('prints a creation message when a new pull request is created', async () => {
@@ -107,7 +107,7 @@ describe('pr open command', () => {
     await run(['--title', 'Title', '--description', 'Description']);
 
     expect(getStderr()).toContain('Multiple active pull requests already exist for this branch targeting develop: #12, #13.');
-    expect(process.exit).toHaveBeenCalledWith(1);
+    expect(getExitCode()).toBe(1);
   });
 
   it('prints JSON output with --json', async () => {

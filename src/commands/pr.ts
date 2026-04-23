@@ -30,9 +30,14 @@ function formatBranchName(refName: string): string {
   return refName.startsWith('refs/heads/') ? refName.slice('refs/heads/'.length) : refName;
 }
 
-function writeError(message: string): never {
+// Writes a user-facing error to stderr and flags the process for a non-zero
+// exit code. Returns void — does NOT call process.exit(), because a
+// synchronous exit from inside an async .action() handler can race libuv's
+// async-handle close on Windows pwsh (observed in issue #34). Callers MUST
+// `return` after writeError() to avoid falling through to the happy path.
+function writeError(message: string): void {
   process.stderr.write(`Error: ${message}\n`);
-  process.exit(1);
+  process.exitCode = 1;
 }
 
 function handlePrCommandError(err: unknown, context?: AzdoContext, mode: 'read' | 'write' = 'read'): void {
@@ -41,22 +46,27 @@ function handlePrCommandError(err: unknown, context?: AzdoContext, mode: 'read' 
   if (error.message === 'AUTH_FAILED') {
     const scopeLabel = mode === 'write' ? 'Code (Read & Write)' : 'Code (Read)';
     writeError(`Authentication failed. Check that your PAT is valid and has the "${scopeLabel}" scope.`);
+    return;
   }
 
   if (error.message === 'PERMISSION_DENIED') {
     writeError(`Access denied. Your PAT may lack ${mode} permissions for project "${context?.project}".`);
+    return;
   }
 
   if (error.message === 'NETWORK_ERROR') {
     writeError('Could not connect to Azure DevOps. Check your network connection.');
+    return;
   }
 
   if (error.message.startsWith('NOT_FOUND')) {
     writeError(`Azure DevOps repository not found in ${context?.org}/${context?.project}.`);
+    return;
   }
 
   if (error.message.startsWith('HTTP_')) {
     writeError(`Azure DevOps request failed with ${error.message}.`);
+    return;
   }
 
   writeError(error.message);
@@ -82,7 +92,7 @@ function formatPullRequestBlock(pullRequest: PullRequestStatusPullRequest): stri
   return [
     `#${pullRequest.id} [${pullRequest.status}] ${pullRequest.title}`,
     `${formatBranchName(pullRequest.sourceRefName)} -> ${formatBranchName(pullRequest.targetRefName)}`,
-    pullRequest.url,
+    pullRequest.url ?? '—',
     ...formatPullRequestChecks(pullRequest.checks),
   ].join('\n');
 }
@@ -182,11 +192,13 @@ export function createPrOpenCommand(): Command {
       const title = options.title?.trim();
       if (!title) {
         writeError('--title is required for pull request creation.');
+        return;
       }
 
       const description = options.description?.trim();
       if (!description) {
         writeError('--description is required for pull request creation.');
+        return;
       }
 
       let context: AzdoContext | undefined;
@@ -197,6 +209,7 @@ export function createPrOpenCommand(): Command {
 
         if (resolved.branch === 'develop') {
           writeError('Pull request creation requires a source branch other than develop.');
+          return;
         }
 
         const result = await openPullRequest(
@@ -214,17 +227,18 @@ export function createPrOpenCommand(): Command {
         }
 
         if (result.created) {
-          process.stdout.write(`Created pull request #${result.pullRequest.id}: ${result.pullRequest.title}\n${result.pullRequest.url}\n`);
+          process.stdout.write(`Created pull request #${result.pullRequest.id}: ${result.pullRequest.title}\n${result.pullRequest.url ?? '—'}\n`);
           return;
         }
 
         process.stdout.write(
-          `Active pull request already exists for ${resolved.branch} -> develop: #${result.pullRequest.id}\n${result.pullRequest.url}\n`,
+          `Active pull request already exists for ${resolved.branch} -> develop: #${result.pullRequest.id}\n${result.pullRequest.url ?? '—'}\n`,
         );
       } catch (err) {
         if (err instanceof Error && err.message.startsWith('AMBIGUOUS_PRS:')) {
           const ids = err.message.replace('AMBIGUOUS_PRS:', '').split(',').map((id) => `#${id}`).join(', ');
           writeError(`Multiple active pull requests already exist for this branch targeting develop: ${ids}. Use pr status to review them.`);
+          return;
         }
 
         handlePrCommandError(err, context, 'write');
@@ -257,11 +271,13 @@ export function createPrCommentsCommand(): Command {
 
         if (pullRequests.length === 0) {
           writeError(`No active pull request found for branch ${resolved.branch}.`);
+          return;
         }
 
         if (pullRequests.length > 1) {
           const ids = pullRequests.map((pullRequest) => `#${pullRequest.id}`).join(', ');
           writeError(`Multiple active pull requests found for branch ${resolved.branch}: ${ids}. Use pr status to review them.`);
+          return;
         }
 
         const pullRequest = pullRequests[0];

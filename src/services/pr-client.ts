@@ -55,7 +55,7 @@ function mapPullRequest(repo: string, pullRequest: AzdoPullRequest): BranchPullR
     targetRefName: pullRequest.targetRefName,
     status: pullRequest.status,
     createdBy: pullRequest.createdBy?.displayName ?? null,
-    url: pullRequest._links.web.href,
+    url: pullRequest._links?.web?.href ?? null,
   };
 }
 
@@ -110,10 +110,10 @@ function mapComment(comment: AzdoThread['comments'][number]): ActivePullRequestC
 }
 
 function mapThread(thread: AzdoThread): ActiveCommentThread | null {
-  if (thread.status !== 'active' && thread.status !== 'pending') {
-    return null;
-  }
-
+  // Pass every backend thread status through — the formatter renders a
+  // status indicator and the command-level filter (`--hide-resolved`)
+  // decides which ones to keep. We still drop threads whose only comments
+  // are deleted or whitespace-only; those are metadata-only threads.
   const comments = thread.comments
     .map(mapComment)
     .filter((comment): comment is ActivePullRequestComment => comment !== null);
@@ -128,6 +128,16 @@ function mapThread(thread: AzdoThread): ActiveCommentThread | null {
     threadContext: thread.threadContext?.filePath ?? null,
     comments,
   };
+}
+
+const RESOLVED_THREAD_STATUSES = new Set<string>(['fixed', 'wontFix', 'closed', 'byDesign']);
+
+// Returns true when the thread's status is one the Azure DevOps UI treats
+// as settled (resolved, won't fix, closed, by design). Used by the
+// --hide-resolved filter on `pr comments` and by the idempotency check in
+// `pr comment-resolve` / `pr comment-reopen`.
+export function isThreadResolved(status: string): boolean {
+  return RESOLVED_THREAD_STATUSES.has(status);
 }
 
 async function readJsonResponse<T>(response: Response): Promise<T> {
