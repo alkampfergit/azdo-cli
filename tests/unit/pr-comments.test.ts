@@ -8,6 +8,7 @@ vi.mock('../../src/services/pr-client.js', async (importOriginal) => {
     ...actual,
     listPullRequests: vi.fn(),
     getPullRequestThreads: vi.fn(),
+    getPullRequestById: vi.fn(),
   };
 });
 
@@ -24,7 +25,7 @@ vi.mock('../../src/services/context.js', () => ({
   resolveContext: vi.fn(),
 }));
 
-import { getPullRequestThreads, listPullRequests } from '../../src/services/pr-client.js';
+import { getPullRequestById, getPullRequestThreads, listPullRequests } from '../../src/services/pr-client.js';
 import { detectRepoName, getCurrentBranch } from '../../src/services/git-remote.js';
 import { requirePat } from '../../src/services/auth.js';
 import { resolveContext } from '../../src/services/context.js';
@@ -51,6 +52,7 @@ function makePullRequest(
 }
 
 beforeEach(() => {
+  vi.clearAllMocks();
   setupProcessSpies();
   vi.mocked(resolveContext).mockReturnValue({ org: 'test-org', project: 'test-project' });
   vi.mocked(requirePat).mockResolvedValue({ pat: 'test-pat', source: 'env' });
@@ -62,6 +64,62 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.restoreAllMocks();
+});
+
+describe('pr comments command --pr-number', () => {
+  it.each([
+    ['abc'],
+    ['-3'],
+    ['0'],
+    ['3.14'],
+    [' 42'],
+    ['+7'],
+    ['0x10'],
+  ])('rejects invalid --pr-number %s and exits non-zero without crashing', async (raw) => {
+    await run(['--pr-number', raw]);
+    expect(getStderr()).toContain(`Invalid --pr-number "${raw}"`);
+    expect(getExitCode()).toBe(1);
+  });
+
+  it('targets the PR by number, bypassing branch resolution', async () => {
+    vi.mocked(getPullRequestById).mockResolvedValue({
+      id: 64,
+      title: 'Reference PR',
+      repository: 'repo-name',
+      sourceRefName: 'refs/heads/feature/other',
+      targetRefName: 'refs/heads/develop',
+      status: 'active',
+      createdBy: 'Alice',
+      url: 'https://example.test/pr/64',
+    });
+    vi.mocked(getPullRequestThreads).mockResolvedValue([
+      { id: 500, status: 'active', threadContext: null, comments: [{ id: 1, author: 'A', content: 'hi', publishedAt: null }] },
+    ]);
+
+    await run(['--pr-number', '64']);
+
+    expect(vi.mocked(getPullRequestById)).toHaveBeenCalledWith(expect.any(Object), 'repo-name', 'test-pat', 64);
+    expect(vi.mocked(listPullRequests)).not.toHaveBeenCalled();
+    expect(getStdout()).toContain('Active comments for pull request #64: Reference PR');
+    expect(getStdout()).toContain('Thread #500 [active]');
+    expect(getExitCode()).toBe(0);
+  });
+
+  it('surfaces a clean PR-not-found error on a 404', async () => {
+    vi.mocked(getPullRequestById).mockRejectedValue(new Error('NOT_FOUND: pull request 9999999'));
+
+    await run(['--pr-number', '9999999']);
+
+    expect(getStderr()).toContain('Pull request #9999999 not found in test-org/test-project/repo-name');
+    expect(getExitCode()).toBe(1);
+  });
+
+  it('falls back to branch lookup when --pr-number is absent', async () => {
+    vi.mocked(getPullRequestThreads).mockResolvedValue([]);
+    await run([]);
+    expect(vi.mocked(listPullRequests)).toHaveBeenCalled();
+    expect(vi.mocked(getPullRequestById)).not.toHaveBeenCalled();
+  });
 });
 
 describe('pr comments command', () => {

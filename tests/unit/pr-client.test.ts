@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AzdoContext } from '../../src/types/work-item.js';
 import {
+  getPullRequestById,
   getPullRequestChecks,
   getPullRequestThreads,
   isThreadResolved,
@@ -127,6 +128,75 @@ describe('pr-client', () => {
 
       const result = await listPullRequests(context, 'repo-name', 'pat', 'feature/y');
       expect(result[0].url).toBeNull();
+    });
+  });
+
+  describe('getPullRequestById', () => {
+    it('maps the single-PR response via mapPullRequest and hits the by-id endpoint', async () => {
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          pullRequestId: 64,
+          title: 'Reference PR',
+          status: 'active',
+          sourceRefName: 'refs/heads/feature/x',
+          targetRefName: 'refs/heads/develop',
+          createdBy: { displayName: 'Alice' },
+          _links: { web: { href: 'https://example.test/pr/64' } },
+        }),
+      } as Response);
+
+      const result = await getPullRequestById(context, 'repo-name', 'pat', 64);
+      expect(result).toEqual({
+        id: 64,
+        title: 'Reference PR',
+        repository: 'repo-name',
+        sourceRefName: 'refs/heads/feature/x',
+        targetRefName: 'refs/heads/develop',
+        status: 'active',
+        createdBy: 'Alice',
+        url: 'https://example.test/pr/64',
+      });
+      expect(fetchSpy).toHaveBeenCalledWith(
+        expect.stringContaining('/pullRequests/64'),
+        expect.any(Object),
+      );
+    });
+
+    it('throws NOT_FOUND on a 404 response', async () => {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+        ok: false,
+        status: 404,
+      } as Response);
+
+      await expect(getPullRequestById(context, 'repo-name', 'pat', 999999)).rejects.toThrow(/NOT_FOUND/);
+    });
+
+    it('throws AUTH_FAILED on a 401 response', async () => {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+        ok: false,
+        status: 401,
+      } as Response);
+
+      await expect(getPullRequestById(context, 'repo-name', 'pat', 64)).rejects.toThrow('AUTH_FAILED');
+    });
+
+    it('tolerates a response without _links (same defensiveness as listPullRequests)', async () => {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          pullRequestId: 77,
+          title: 'No web link',
+          status: 'active',
+          sourceRefName: 'refs/heads/feature/y',
+          targetRefName: 'refs/heads/develop',
+        }),
+      } as Response);
+
+      const result = await getPullRequestById(context, 'repo-name', 'pat', 77);
+      expect(result.url).toBeNull();
     });
   });
 

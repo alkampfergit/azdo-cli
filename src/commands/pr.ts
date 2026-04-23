@@ -1,6 +1,7 @@
 import { Command } from 'commander';
 import type {
   ActiveCommentThread,
+  BranchPullRequestMatch,
   PullRequestCommentsResult,
   PullRequestCheck,
   PullRequestStatusPullRequest,
@@ -12,6 +13,7 @@ import {
   openPullRequest,
   getPullRequestThreads,
   getPullRequestChecks,
+  getPullRequestById,
   isThreadResolved,
 } from '../services/pr-client.js';
 import { requirePat } from '../services/auth.js';
@@ -24,12 +26,24 @@ interface PrCommandOptions {
   project?: string;
   json?: boolean;
   hideResolved?: boolean;
+  prNumber?: string;
+}
+
+// Parses `--pr-number <N>` into a positive integer. Returns null on any
+// invalid input — leading sign, whitespace, float, zero, negative,
+// non-numeric — letting the caller print a validation error.
+function parsePositivePrNumber(raw: string): number | null {
+  if (!/^\d+$/.test(raw)) {
+    return null;
+  }
+  const n = Number.parseInt(raw, 10);
+  return Number.isFinite(n) && n > 0 ? n : null;
 }
 
 interface ResolvedPrCommandContext {
   context: AzdoContext;
   repo: string;
-  branch: string;
+  branch: string | null;
   pat: string;
 }
 
@@ -125,10 +139,25 @@ function formatThreads(prId: number, title: string, threads: ActiveCommentThread
   return lines.join('\n');
 }
 
-async function resolvePrCommandContext(options: PrCommandOptions): Promise<ResolvedPrCommandContext> {
+async function resolvePrCommandContext(
+  options: PrCommandOptions,
+  resolveOpts: { requireBranch?: boolean } = {},
+): Promise<ResolvedPrCommandContext> {
+  const requireBranch = resolveOpts.requireBranch ?? true;
   const context = resolveContext(options);
   const repo = detectRepoName();
-  const branch = getCurrentBranch();
+  let branch: string | null;
+  if (requireBranch) {
+    branch = getCurrentBranch();
+  } else {
+    try {
+      branch = getCurrentBranch();
+    } catch {
+      // Working on detached HEAD or a branch that can't be resolved is
+      // fine when the caller is targeting a PR by number.
+      branch = null;
+    }
+  }
   const credential = await requirePat(context.org);
 
   return {
@@ -156,15 +185,17 @@ export function createPrStatusCommand(): Command {
         const resolved = await resolvePrCommandContext(options);
         context = resolved.context;
 
-        const pullRequests = await listPullRequests(resolved.context, resolved.repo, resolved.pat, resolved.branch);
+        // pr status uses the default requireBranch=true resolver, so branch
+        // is guaranteed non-null at runtime.
+        const branch = resolved.branch!;
+        const pullRequests = await listPullRequests(resolved.context, resolved.repo, resolved.pat, branch);
         const pullRequestsWithChecks: PullRequestStatusPullRequest[] = await Promise.all(
           pullRequests.map(async (pullRequest) => ({
             ...pullRequest,
             checks: await getPullRequestChecks(resolved.context, resolved.repo, resolved.pat, pullRequest.id),
           })),
         );
-        const { branch, repo } = resolved;
-        const result: PullRequestStatusResult = { branch, repository: repo, pullRequests: pullRequestsWithChecks };
+        const result: PullRequestStatusResult = { branch, repository: resolved.repo, pullRequests: pullRequestsWithChecks };
 
         if (options.json) {
           process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
@@ -227,11 +258,13 @@ export function createPrOpenCommand(): Command {
           return;
         }
 
+        // pr open uses the default requireBranch=true resolver.
+        const openBranch = resolved.branch!;
         const result = await openPullRequest(
           resolved.context,
           resolved.repo,
           resolved.pat,
-          resolved.branch,
+          openBranch,
           title,
           description,
         );
@@ -270,38 +303,65 @@ export function createPrCommentsCommand(): Command {
     .description('List pull request comment threads for the current branch')
     .option('--org <org>', 'Azure DevOps organization')
     .option('--project <project>', 'Azure DevOps project')
+    .option('--pr-number <N>', 'target the pull request with this numeric id, instead of the current branch\'s PR')
     .option('--hide-resolved', 'hide threads whose status is resolved / won\'t fix / closed / by design')
     .option('--json', 'output JSON')
     .action(async (options: PrCommandOptions) => {
       validateOrgProjectPair(options);
 
       let context: AzdoContext | undefined;
+      let explicitPrId: number | null = null;
+      if (options.prNumber !== undefined) {
+        explicitPrId = parsePositivePrNumber(options.prNumber);
+        if (explicitPrId === null) {
+          writeError(`Invalid --pr-number "${options.prNumber}"; expected a positive integer.`);
+          return;
+        }
+      }
 
       try {
-        const resolved = await resolvePrCommandContext(options);
+        const resolved = await resolvePrCommandContext(options, { requireBranch: explicitPrId === null });
         context = resolved.context;
 
-        const pullRequests = await listPullRequests(resolved.context, resolved.repo, resolved.pat, resolved.branch, {
-          status: 'active',
-        });
+        let pullRequest: BranchPullRequestMatch;
+        let branchLabel: string;
 
-        if (pullRequests.length === 0) {
-          writeError(`No active pull request found for branch ${resolved.branch}.`);
-          return;
+        if (explicitPrId !== null) {
+          try {
+            pullRequest = await getPullRequestById(resolved.context, resolved.repo, resolved.pat, explicitPrId);
+          } catch (err) {
+            if (err instanceof Error && err.message.startsWith('NOT_FOUND')) {
+              writeError(`Pull request #${explicitPrId} not found in ${resolved.context.org}/${resolved.context.project}/${resolved.repo}.`);
+              return;
+            }
+            throw err;
+          }
+          branchLabel = resolved.branch ?? pullRequest.sourceRefName;
+        } else {
+          const pullRequests = await listPullRequests(resolved.context, resolved.repo, resolved.pat, resolved.branch!, {
+            status: 'active',
+          });
+
+          if (pullRequests.length === 0) {
+            writeError(`No active pull request found for branch ${resolved.branch}.`);
+            return;
+          }
+
+          if (pullRequests.length > 1) {
+            const ids = pullRequests.map((pr) => `#${pr.id}`).join(', ');
+            writeError(`Multiple active pull requests found for branch ${resolved.branch}: ${ids}. Use pr status to review them.`);
+            return;
+          }
+
+          pullRequest = pullRequests[0];
+          branchLabel = resolved.branch!;
         }
 
-        if (pullRequests.length > 1) {
-          const ids = pullRequests.map((pullRequest) => `#${pullRequest.id}`).join(', ');
-          writeError(`Multiple active pull requests found for branch ${resolved.branch}: ${ids}. Use pr status to review them.`);
-          return;
-        }
-
-        const pullRequest = pullRequests[0];
         const allThreads = await getPullRequestThreads(resolved.context, resolved.repo, resolved.pat, pullRequest.id);
         const threads = options.hideResolved
           ? allThreads.filter((thread) => !isThreadResolved(thread.status))
           : allThreads;
-        const result: PullRequestCommentsResult = { branch: resolved.branch, pullRequest, threads };
+        const result: PullRequestCommentsResult = { branch: branchLabel, pullRequest, threads };
 
         if (options.json) {
           process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);

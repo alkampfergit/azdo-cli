@@ -148,6 +148,28 @@ async function readJsonResponse<T>(response: Response): Promise<T> {
   return response.json() as Promise<T>;
 }
 
+// Fetches a single pull request by its numeric id. Used by the
+// --pr-number flag on `azdo pr comments` (and related subcommands) so the
+// command can target any PR without going through the current-branch
+// resolution path. fetchWithErrors maps a 404 response to a NOT_FOUND
+// error; callers translate that into a user-facing "PR not found"
+// message.
+export async function getPullRequestById(
+  context: AzdoContext,
+  repo: string,
+  pat: string,
+  prId: number,
+): Promise<BranchPullRequestMatch> {
+  const url = new URL(
+    `https://dev.azure.com/${encodeURIComponent(context.org)}/${encodeURIComponent(context.project)}/_apis/git/repositories/${encodeURIComponent(repo)}/pullRequests/${prId}`,
+  );
+  url.searchParams.set('api-version', '7.1');
+
+  const response = await fetchWithErrors(url.toString(), { headers: authHeaders(pat) });
+  const data = await readJsonResponse<AzdoPullRequest>(response);
+  return mapPullRequest(repo, data);
+}
+
 export async function listPullRequests(
   context: AzdoContext,
   repo: string,
