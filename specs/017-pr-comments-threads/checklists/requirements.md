@@ -13,7 +13,7 @@
 
 ## Requirement Completeness
 
-- [ ] No [NEEDS CLARIFICATION] markers remain (2 open — see Notes; both within the 3-marker limit)
+- [x] No [NEEDS CLARIFICATION] markers remain (both resolved via owner answers on issue #34, 2026-04-23)
 - [x] Requirements are testable and unambiguous
 - [x] Success criteria are measurable
 - [x] Success criteria are technology-agnostic (no implementation details)
@@ -31,17 +31,14 @@
 
 ## Notes
 
-Two open `[NEEDS CLARIFICATION]` markers remain — both expected to be
-resolved in `/speckit-clarify`:
+Both `[NEEDS CLARIFICATION]` markers were resolved via owner comment on
+issue #34 on 2026-04-23. The Clarifications section in `spec.md` records
+the exact Q/A pairs, and FR-003, FR-004a, and FR-011 were updated in
+place:
 
-1. **FR-003** — Exact output rendering for active vs. resolved threads
-   (column / tag / colour / annotation). Default assumption recorded: a
-   short status column next to each thread title.
-2. **US3 Acceptance Scenario 3 / FR-011** — Behaviour when a
-   resolve/reopen command is issued against a thread already in the target
-   state (no-op success vs. informational warning vs. hard error). Default
-   assumption recorded: warn + exit non-zero.
+1. **FR-003 / FR-004a** — Threads render with a short status indicator
+   next to each title; an optional filter flag hides resolved threads.
+2. **US3 AS3 / FR-011** — Idempotent resolve/reopen returns exit 0 and
+   a "already in desired state" message.
 
-Both are within the 3-marker cap. All other items are green.
-
-Items marked incomplete require spec updates before `/speckit.clarify` or `/speckit.plan`.
+All checklist items now pass; spec is ready for `/speckit-plan`.

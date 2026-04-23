@@ -117,11 +117,9 @@ command reverses the change.
    exits 0.
 3. **Given** an operator tries to resolve a thread that is already
    resolved (or reopen one that is already active), **when** the command
-   runs, **then** it reports the current state clearly and exits with a
-   non-zero status (idempotent-but-informative), without making a redundant
-   change. [NEEDS CLARIFICATION: should repeated resolve/reopen of an
-   already-in-that-state thread be a no-op success, an informational warning,
-   or an outright error? Default assumption below is "warn + exit non-zero".]
+   runs, **then** it reports that the thread was already in the desired
+   state and exits 0 (no-op success), without making a redundant backend
+   call.
 4. **Given** `--pr-number` is supplied alongside the resolve/reopen command,
    **when** the command runs, **then** the target PR is the one on the flag,
    not the branch's PR.
@@ -161,13 +159,17 @@ command reverses the change.
   comment thread (author display metadata, rendered links, inline-file
   context) and still list the thread.
 - **FR-003**: The command MUST distinguish in its output between *active*
-  and *resolved* threads, so that operators can triage at a glance.
-  [NEEDS CLARIFICATION: exact rendering — columnar label, coloured tag,
-  trailing annotation, or something else — is unspecified. Default
-  assumption: a short status column next to each thread title.]
+  and *resolved* threads, so that operators can triage at a glance, by
+  rendering a short status indicator (e.g. `[active]` / `[resolved]`) next
+  to each thread title.
 - **FR-004**: The command MUST exit with a non-zero status (and no crash)
   when run outside the context of any pull request — i.e. no branch PR and
   no explicit `--pr-number`.
+- **FR-004a**: The command MUST accept an optional filter flag that
+  excludes *resolved* threads from the output (leaving active and any other
+  non-resolved threads visible), so that operators can focus on threads
+  that still need attention. Default behaviour (no flag) shows every
+  thread.
 
 #### `--pr-number` flag (new)
 
@@ -190,11 +192,10 @@ command reverses the change.
 - **FR-010**: The CLI MUST provide a way to **reopen** a previously
   resolved comment thread on a pull request, targeting either the current
   branch's PR or a PR given by `--pr-number`.
-- **FR-011**: Resolve and reopen commands MUST be idempotent-but-informative:
-  attempting to resolve a thread that is already resolved, or reopen one
-  that is already active, reports the current state and does not make a
-  redundant change. Exact exit-status semantics: see User Story 3,
-  Acceptance Scenario 3.
+- **FR-011**: Resolve and reopen commands MUST be idempotent: attempting to
+  resolve a thread that is already resolved, or reopen one that is already
+  active, reports that the thread is already in the desired state, makes
+  no redundant backend call, and exits 0 (no-op success).
 - **FR-012**: On success, the resolve/reopen commands MUST return a clear
   confirmation identifying the thread and its new state, and exit 0.
 
@@ -267,6 +268,11 @@ command reverses the change.
   credential mechanisms.
 - The feature targets the already-supported CLI platforms (macOS, Linux,
   Windows). No new platform support is introduced.
+
+## Clarifications
+
+- Q: Exact rendering of active vs. resolved threads in the `azdo pr comments` output — column, coloured tag, trailing annotation, or something else? → A: a short status indicator (e.g. `[active]` / `[resolved]`) next to each thread title is fine as the default, and the command should also accept an optional filter flag to hide *resolved* threads entirely for triage. [owner: alkampfergit, 2026-04-23]
+- Q: Behaviour when resolve/reopen is issued on a thread already in the target state — no-op success, informational warning, or outright error? → A: no warning; exit 0 with a message stating the thread was already in the desired state. [owner: alkampfergit, 2026-04-23]
 
 ## Out of scope
 
