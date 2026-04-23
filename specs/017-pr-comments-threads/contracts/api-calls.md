@@ -84,7 +84,7 @@ transition.
 | 401 | `AUTH_FAILED` as above. |
 | 403 | `PERMISSION_DENIED` — "Permission denied updating thread #<id>." |
 | 404 | `NOT_FOUND` — "Thread #<id> not found on pull request #<pr>." |
-| 409 | `CONFLICT` — "Thread #<id> is locked and cannot be updated." |
+| 409 | Surfaces as the generic `HTTP_409` through `handlePrCommandError` (e.g. a locked or archived thread). A dedicated `CONFLICT` code + bespoke "thread is locked" message is a reasonable follow-up but is NOT part of this iteration — `fetchWithErrors` does not map 409 specially today, and wiring that in would touch every service that uses it. |
 | 5xx / network | same generic mapping. |
 
 New helper:

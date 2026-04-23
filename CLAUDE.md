@@ -4,9 +4,5 @@ Check [AGENTS.md](/workspaces/azdo-cli/AGENTS.md) for the real repository guidan
 
 Skills live in `.agents/skills`.
 
-## Active Technologies
-- TypeScript 5.x (strict mode) + commander.js (CLI framework), native `fetch` (HTTP), `node:child_process` (git) — all already in the repo (017-pr-comments-threads)
-- N/A (reads and writes to Azure DevOps REST API only) (017-pr-comments-threads)
-
 ## Recent Changes
-- 017-pr-comments-threads: Added TypeScript 5.x (strict mode) + commander.js (CLI framework), native `fetch` (HTTP), `node:child_process` (git) — all already in the repo
+- 017-pr-comments-threads: Fixed `azdo pr comments` crash (tolerant `_links`, libuv-safe exit). Added `--pr-number <N>`, `--hide-resolved`, and `pr comment-resolve` / `pr comment-reopen` subcommands. No new runtime deps; kept the existing TypeScript 5.x / commander.js / native `fetch` stack.

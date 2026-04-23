@@ -100,7 +100,7 @@ describe('pr comments command --pr-number', () => {
 
     expect(vi.mocked(getPullRequestById)).toHaveBeenCalledWith(expect.any(Object), 'repo-name', 'test-pat', 64);
     expect(vi.mocked(listPullRequests)).not.toHaveBeenCalled();
-    expect(getStdout()).toContain('Active comments for pull request #64: Reference PR');
+    expect(getStdout()).toContain('Comment threads for pull request #64: Reference PR');
     expect(getStdout()).toContain('Thread #500 [active]');
     expect(getExitCode()).toBe(0);
   });
@@ -148,7 +148,7 @@ describe('pr comments command', () => {
 
   it('prints a no-active-comments message when no active threads exist', async () => {
     await run([]);
-    expect(getStdout()).toContain('Pull request #12 has no active comments.');
+    expect(getStdout()).toContain('Pull request #12 has no comment threads.');
   });
 
   it('prints thread headers and indented comments for active threads', async () => {
@@ -174,7 +174,7 @@ describe('pr comments command', () => {
     await run([]);
 
     const output = getStdout();
-    expect(output).toContain('Active comments for pull request #12: Test PR');
+    expect(output).toContain('Comment threads for pull request #12: Test PR');
     expect(output).toContain('Thread #100 [active] /src/file.ts');
     expect(output).toContain('  Alice: Please fix this');
     expect(output).toContain('Thread #101 [pending] (general)');

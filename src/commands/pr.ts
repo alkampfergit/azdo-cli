@@ -128,7 +128,7 @@ function threadStatusLabel(status: string): string {
 }
 
 function formatThreads(prId: number, title: string, threads: ActiveCommentThread[]): string {
-  const lines = [`Active comments for pull request #${prId}: ${title}`];
+  const lines = [`Comment threads for pull request #${prId}: ${title}`];
 
   for (const thread of threads) {
     lines.push('', `Thread #${thread.id} [${threadStatusLabel(thread.status)}] ${thread.threadContext ?? '(general)'}`);
@@ -147,18 +147,10 @@ async function resolvePrCommandContext(
   const requireBranch = resolveOpts.requireBranch ?? true;
   const context = resolveContext(options);
   const repo = detectRepoName();
-  let branch: string | null;
-  if (requireBranch) {
-    branch = getCurrentBranch();
-  } else {
-    try {
-      branch = getCurrentBranch();
-    } catch {
-      // Working on detached HEAD or a branch that can't be resolved is
-      // fine when the caller is targeting a PR by number.
-      branch = null;
-    }
-  }
+  // When the caller is targeting a PR by explicit number we skip the git
+  // branch lookup entirely — it's unnecessary and would fail loudly on
+  // detached HEAD or a branch that can't be resolved.
+  const branch: string | null = requireBranch ? getCurrentBranch() : null;
   const credential = await requirePat(context.org);
 
   return {
@@ -370,7 +362,11 @@ export function createPrCommentsCommand(): Command {
         }
 
         if (threads.length === 0) {
-          process.stdout.write(`Pull request #${pullRequest.id} has no active comments.\n`);
+          if (options.hideResolved && allThreads.length > 0) {
+            process.stdout.write(`Pull request #${pullRequest.id} has no unresolved comment threads (${allThreads.length} resolved thread${allThreads.length === 1 ? '' : 's'} hidden by --hide-resolved).\n`);
+          } else {
+            process.stdout.write(`Pull request #${pullRequest.id} has no comment threads.\n`);
+          }
           return;
         }
 
@@ -451,7 +447,11 @@ async function resolveThreadTarget(
 interface ThreadStateChangeResult {
   pullRequestId: number;
   threadId: number;
-  status: 'active' | 'fixed';
+  // When noop is true, this is the thread's ACTUAL backend status at the
+  // moment the command ran (e.g. "wontFix", "closed", "pending") — not the
+  // nominal target. When noop is false, this is the new status after the
+  // successful PATCH ("active" or "fixed").
+  status: string;
   noop: boolean;
 }
 
@@ -483,17 +483,20 @@ async function runThreadStateChange(
 
     if (alreadyInTargetState) {
       const humanLabel = direction === 'resolve' ? 'resolved' : 'active';
+      // Report the thread's actual backend status so automation built on
+      // --json can distinguish e.g. "wontFix" / "closed" / "byDesign"
+      // no-ops from a plain "fixed" one.
       const noopResult: ThreadStateChangeResult = {
         pullRequestId: target.pullRequest.id,
         threadId: target.threadId,
-        status: targetStatus,
+        status: thread.status,
         noop: true,
       };
       if (options.json) {
         process.stdout.write(`${JSON.stringify(noopResult, null, 2)}\n`);
         return;
       }
-      process.stdout.write(`Thread #${target.threadId} is already ${humanLabel} on pull request #${target.pullRequest.id}.\n`);
+      process.stdout.write(`Thread #${target.threadId} is already ${humanLabel} on pull request #${target.pullRequest.id} (current status: ${thread.status}).\n`);
       return;
     }
 

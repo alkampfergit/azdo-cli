@@ -121,7 +121,7 @@ describe('pr comment-resolve command', () => {
     expect(getExitCode()).toBe(0);
   });
 
-  it('treats every settled backend state as "already resolved"', async () => {
+  it('treats every settled backend state as "already resolved" and surfaces the actual backend status in --json noop output', async () => {
     for (const settled of ['wontFix', 'closed', 'byDesign']) {
       vi.clearAllMocks();
       setupProcessSpies();
@@ -132,10 +132,18 @@ describe('pr comment-resolve command', () => {
       vi.mocked(getPullRequestById).mockResolvedValue(referencePr);
       vi.mocked(getPullRequestThreads).mockResolvedValue([thread(17, settled)]);
 
-      await runResolve(['17', '--pr-number', '64']);
+      await runResolve(['17', '--pr-number', '64', '--json']);
 
       expect(vi.mocked(patchThreadStatus)).not.toHaveBeenCalled();
-      expect(getStdout()).toContain('Thread #17 is already resolved on pull request #64');
+      const payload = JSON.parse(getStdout());
+      expect(payload).toEqual({
+        pullRequestId: 64,
+        threadId: 17,
+        // The actual backend status MUST surface here, not the nominal
+        // target ("fixed"), so --json consumers can branch on e.g. wontFix.
+        status: settled,
+        noop: true,
+      });
       expect(getExitCode()).toBe(0);
     }
   });
@@ -185,13 +193,18 @@ describe('pr comment-reopen command', () => {
     expect(getExitCode()).toBe(0);
   });
 
-  it('treats "pending" as already-open (no PATCH)', async () => {
+  it('treats "pending" as already-open (no PATCH) and surfaces the pending status in --json', async () => {
     vi.mocked(getPullRequestThreads).mockResolvedValue([thread(17, 'pending')]);
 
-    await runReopen(['17', '--pr-number', '64']);
+    await runReopen(['17', '--pr-number', '64', '--json']);
 
     expect(vi.mocked(patchThreadStatus)).not.toHaveBeenCalled();
-    expect(getStdout()).toContain('Thread #17 is already active on pull request #64');
+    expect(JSON.parse(getStdout())).toEqual({
+      pullRequestId: 64,
+      threadId: 17,
+      status: 'pending',
+      noop: true,
+    });
     expect(getExitCode()).toBe(0);
   });
 });
