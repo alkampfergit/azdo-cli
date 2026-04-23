@@ -28,7 +28,7 @@ Single project: `src/` and `tests/` at repository root.
 
 **Purpose**: Baseline sanity; the repository is already initialised (package.json, tsconfig, eslint, prettier, tsup, vitest are all in place).
 
-- [ ] T001 Confirm baseline: run `npm ci`, `npm run lint`, `npx tsc --noEmit`, `npm test`, `npm run build` on branch `017-pr-comments-threads` and record that they're green before any code edits. No code changes in this task.
+- [X] T001 Confirm baseline: run `npm ci`, `npm run lint`, `npx tsc --noEmit`, `npm test`, `npm run build` on branch `017-pr-comments-threads` and record that they're green before any code edits. No code changes in this task.
 
 ---
 
@@ -38,9 +38,9 @@ Single project: `src/` and `tests/` at repository root.
 
 **⚠️ CRITICAL**: No user story work can begin until this phase is complete.
 
-- [ ] T002 Relax `AzdoPullRequest._links` to optional in the type definition (likely in `src/types/pr.ts` or co-located with the existing `AzdoPullRequest` declaration — grep `_links:` under `src/` to locate), and update `mapPullRequest` in `src/services/pr-client.ts:49-60` to optional-chain the dereference (`pullRequest._links?.web?.href ?? null`), widening `BranchPullRequestMatch.url` to `string | null`. Adjust any existing consumer of `.url` (`formatPullRequestInfo` and similar in `src/commands/pr.ts`) to render null as `—`.
-- [ ] T003 [P] Refactor the error-exit path in `src/commands/pr.ts` (`writeError`, `handlePrCommandError`) to set `process.exitCode = 1` and return / throw a typed CLI error, instead of calling `process.exit(1)` synchronously. Goal: no synchronous `process.exit()` from inside an async `.action()` handler, so stdout/stderr drain cleanly and the libuv `async.c` assertion in issue #34 no longer fires on Windows pwsh. Keep stderr messages unchanged.
-- [ ] T004 [P] Add `isThreadResolved(status: AzdoThreadStatus): boolean` helper in `src/services/pr-client.ts` — returns true for `"fixed" | "wontFix" | "closed" | "byDesign"`. Export it for use by both US1's `--hide-resolved` filter and US3's idempotent resolve/reopen short-circuit.
+- [X] T002 Relax `AzdoPullRequest._links` to optional in the type definition (likely in `src/types/pr.ts` or co-located with the existing `AzdoPullRequest` declaration — grep `_links:` under `src/` to locate), and update `mapPullRequest` in `src/services/pr-client.ts:49-60` to optional-chain the dereference (`pullRequest._links?.web?.href ?? null`), widening `BranchPullRequestMatch.url` to `string | null`. Adjust any existing consumer of `.url` (`formatPullRequestInfo` and similar in `src/commands/pr.ts`) to render null as `—`.
+- [X] T003 [P] Refactor the error-exit path in `src/commands/pr.ts` (`writeError`, `handlePrCommandError`) to set `process.exitCode = 1` and return / throw a typed CLI error, instead of calling `process.exit(1)` synchronously. Goal: no synchronous `process.exit()` from inside an async `.action()` handler, so stdout/stderr drain cleanly and the libuv `async.c` assertion in issue #34 no longer fires on Windows pwsh. Keep stderr messages unchanged.
+- [X] T004 [P] Add `isThreadResolved(status: AzdoThreadStatus): boolean` helper in `src/services/pr-client.ts` — returns true for `"fixed" | "wontFix" | "closed" | "byDesign"`. Export it for use by both US1's `--hide-resolved` filter and US3's idempotent resolve/reopen short-circuit.
 
 **Checkpoint**: shared type + exit-handling + status helper ready; user story work can now begin in parallel.
 
@@ -54,15 +54,15 @@ Single project: `src/` and `tests/` at repository root.
 
 ### Tests for User Story 1 (write FIRST, let them fail before implementation)
 
-- [ ] T005 [US1] Add unit tests in `tests/unit/pr-client.test.ts` (create file if absent): (a) `mapPullRequest` tolerates `_links` missing entirely and `_links.web` missing — returns `url: null` without throwing; (b) `mapThread` returns every thread status verbatim (assert for each of `active`, `pending`, `fixed`, `wontFix`, `closed`, `byDesign`) and no longer drops non-active threads; (c) `isThreadResolved` returns true for settled statuses and false for `active`/`pending`.
+- [X] T005 [US1] Add unit tests in `tests/unit/pr-client.test.ts` (create file if absent): (a) `mapPullRequest` tolerates `_links` missing entirely and `_links.web` missing — returns `url: null` without throwing; (b) `mapThread` returns every thread status verbatim (assert for each of `active`, `pending`, `fixed`, `wontFix`, `closed`, `byDesign`) and no longer drops non-active threads; (c) `isThreadResolved` returns true for settled statuses and false for `active`/`pending`.
 
 ### Implementation for User Story 1
 
-- [ ] T006 [US1] Widen `AzdoThreadStatus` to the full backend enum (`"unknown" | "active" | "fixed" | "wontFix" | "closed" | "byDesign" | "pending"`) and update `ActiveCommentThread.status` accordingly in `src/services/pr-client.ts` (or the co-located types file). Update any downstream type that re-exports or consumes this union.
-- [ ] T007 [US1] Remove the `thread.status !== 'active' && thread.status !== 'pending'` early-return in `mapThread` (`src/services/pr-client.ts:112-115`) — let every thread flow through. Keep the empty-thread suppression (drop threads whose non-deleted comments list is empty).
-- [ ] T008 [US1] Update the thread formatter in `src/commands/pr.ts` (`formatThreads` near lines 90-101) to prefix each thread title with a bracketed status indicator derived from the thread's backend status (`[active]`, `[pending]`, `[resolved]` for settled states; the specific backend state appears in verbose mode only if we add one later — not in scope now). Keep author + content lines unchanged.
-- [ ] T009 [US1] Add the `--hide-resolved` boolean flag to the `pr comments` command in `src/commands/pr.ts` (`createPrCommentsCommand`). Before rendering, filter threads with `isThreadResolved(thread.status) === true` out of the list. Default (flag absent) keeps every thread visible.
-- [ ] T010 [US1] Integration test: in `tests/integration/pull-requests.test.ts`, add a `describe.skipIf(SKIP_PR || !AZDO_PR_ID)` block that (a) calls `getPullRequestThreads(makeContext(), AZDO_REPO, AZDO_PAT, AZDO_PR_ID!)` against the reference PR (AZDO_PR_ID=64 per the feature spec) and asserts ≥1 thread with ≥1 non-deleted comment; (b) runs the CLI entry point (via `execa` or the existing command-test harness) with `--pr-number ${AZDO_PR_ID}` and asserts exit code 0 plus non-empty stdout. Documentation pointer: set `AZDO_PR_ID=64` locally.
+- [X] T006 [US1] Widen `AzdoThreadStatus` to the full backend enum (`"unknown" | "active" | "fixed" | "wontFix" | "closed" | "byDesign" | "pending"`) and update `ActiveCommentThread.status` accordingly in `src/services/pr-client.ts` (or the co-located types file). Update any downstream type that re-exports or consumes this union.
+- [X] T007 [US1] Remove the `thread.status !== 'active' && thread.status !== 'pending'` early-return in `mapThread` (`src/services/pr-client.ts:112-115`) — let every thread flow through. Keep the empty-thread suppression (drop threads whose non-deleted comments list is empty).
+- [X] T008 [US1] Update the thread formatter in `src/commands/pr.ts` (`formatThreads` near lines 90-101) to prefix each thread title with a bracketed status indicator derived from the thread's backend status (`[active]`, `[pending]`, `[resolved]` for settled states; the specific backend state appears in verbose mode only if we add one later — not in scope now). Keep author + content lines unchanged.
+- [X] T009 [US1] Add the `--hide-resolved` boolean flag to the `pr comments` command in `src/commands/pr.ts` (`createPrCommentsCommand`). Before rendering, filter threads with `isThreadResolved(thread.status) === true` out of the list. Default (flag absent) keeps every thread visible.
+- [X] T010 [US1] Integration test: in `tests/integration/pull-requests.test.ts`, add a `describe.skipIf(SKIP_PR || !AZDO_PR_ID)` block that (a) calls `getPullRequestThreads(makeContext(), AZDO_REPO, AZDO_PAT, AZDO_PR_ID!)` against the reference PR (AZDO_PR_ID=64 per the feature spec) and asserts ≥1 thread with ≥1 non-deleted comment; (b) runs the CLI entry point (via `execa` or the existing command-test harness) with `--pr-number ${AZDO_PR_ID}` and asserts exit code 0 plus non-empty stdout. Documentation pointer: set `AZDO_PR_ID=64` locally.
 
 **Checkpoint**: US1 deliverable — `azdo pr comments` is fixed, shows status indicators, hides resolved threads on demand, and is covered by a real integration test.
 
@@ -76,13 +76,13 @@ Single project: `src/` and `tests/` at repository root.
 
 ### Tests for User Story 2
 
-- [ ] T011 [US2] Add unit tests in `tests/unit/pr-client.test.ts`: `getPullRequestById` returns a mapped `BranchPullRequestMatch` on a 200 response; maps a 404 response to `NOT_FOUND` / "PR not found" in the error flow; maps 401/403/5xx consistently with the existing helpers.
-- [ ] T012 [US2] Add unit tests in `tests/unit/pr-commands.test.ts` (create if absent) covering `--pr-number` validation: `--pr-number abc`, `--pr-number -3`, `--pr-number 0`, `--pr-number 3.14`, `--pr-number " 42"` (leading space / sign / float) all fail validation with a clear stderr message and non-zero exit, no crash.
+- [X] T011 [US2] Add unit tests in `tests/unit/pr-client.test.ts`: `getPullRequestById` returns a mapped `BranchPullRequestMatch` on a 200 response; maps a 404 response to `NOT_FOUND` / "PR not found" in the error flow; maps 401/403/5xx consistently with the existing helpers.
+- [X] T012 [US2] Add unit tests in `tests/unit/pr-commands.test.ts` (create if absent) covering `--pr-number` validation: `--pr-number abc`, `--pr-number -3`, `--pr-number 0`, `--pr-number 3.14`, `--pr-number " 42"` (leading space / sign / float) all fail validation with a clear stderr message and non-zero exit, no crash.
 
 ### Implementation for User Story 2
 
-- [ ] T013 [US2] Implement `getPullRequestById(context: AzdoContext, repo: string, pat: string, prId: number): Promise<BranchPullRequestMatch>` in `src/services/pr-client.ts`, reusing `fetchWithErrors` / `readJsonResponse` / `mapPullRequest`. URL: `https://dev.azure.com/{org}/{project}/_apis/git/repositories/{repo}/pullRequests/{prId}?api-version=7.1`. Export from the module.
-- [ ] T014 [US2] Add the `--pr-number <N>` option to `createPrCommentsCommand` in `src/commands/pr.ts`. Add a shared `parsePositivePrNumber(raw: string): number` validator (export from a common CLI helper or inline for now). When the flag is present: skip `getCurrentBranch` + `listPullRequests` and call `getPullRequestById`; on 404 surface "Pull request #<N> not found in <org>/<project>/<repo>." and exit non-zero; on invalid input surface commander-style validation error and exit non-zero. When absent: existing branch-lookup path is unchanged.
+- [X] T013 [US2] Implement `getPullRequestById(context: AzdoContext, repo: string, pat: string, prId: number): Promise<BranchPullRequestMatch>` in `src/services/pr-client.ts`, reusing `fetchWithErrors` / `readJsonResponse` / `mapPullRequest`. URL: `https://dev.azure.com/{org}/{project}/_apis/git/repositories/{repo}/pullRequests/{prId}?api-version=7.1`. Export from the module.
+- [X] T014 [US2] Add the `--pr-number <N>` option to `createPrCommentsCommand` in `src/commands/pr.ts`. Add a shared `parsePositivePrNumber(raw: string): number` validator (export from a common CLI helper or inline for now). When the flag is present: skip `getCurrentBranch` + `listPullRequests` and call `getPullRequestById`; on 404 surface "Pull request #<N> not found in <org>/<project>/<repo>." and exit non-zero; on invalid input surface commander-style validation error and exit non-zero. When absent: existing branch-lookup path is unchanged.
 
 **Checkpoint**: US2 deliverable — the read command works end-to-end with an explicit `--pr-number`, validation is clean, the legacy branch path is untouched.
 
@@ -96,16 +96,16 @@ Single project: `src/` and `tests/` at repository root.
 
 ### Tests for User Story 3
 
-- [ ] T015 [P] [US3] Unit test for `patchThreadStatus` in `tests/unit/pr-client.test.ts`: issues PATCH with the right URL + body, returns the mapped updated thread; maps 401/403/404/409 (409 = locked thread) consistently.
-- [ ] T016 [US3] Unit tests in `tests/unit/pr-commands.test.ts` for the two new commands: (a) resolve on an active thread → exit 0, "resolved", `noop:false` in JSON; (b) resolve on an already-settled thread → exit 0, "already resolved", `noop:true`, no backend PATCH call (assert via mock); (c) reopen on a settled thread → exit 0, "reopened", `noop:false`; (d) reopen on an already-active thread → exit 0, "already active", `noop:true`, no PATCH; (e) invalid `<threadId>` (non-integer / non-positive) → validation error, exit non-zero.
-- [ ] T017 [US3] Integration test in `tests/integration/pull-requests.test.ts`, gated on `SKIP_PR || !AZDO_PR_ID`: picks the first active thread from `AZDO_PR_ID`, resolves it via the new helper, asserts the next `getPullRequestThreads` call reports status in the settled set, reopens it, asserts the next call reports status `active`. Self-healing — always returns the PR to its starting state, even on failure (wrap in a `try/finally` that best-effort reopens).
+- [X] T015 [P] [US3] Unit test for `patchThreadStatus` in `tests/unit/pr-client.test.ts`: issues PATCH with the right URL + body, returns the mapped updated thread; maps 401/403/404/409 (409 = locked thread) consistently.
+- [X] T016 [US3] Unit tests in `tests/unit/pr-commands.test.ts` for the two new commands: (a) resolve on an active thread → exit 0, "resolved", `noop:false` in JSON; (b) resolve on an already-settled thread → exit 0, "already resolved", `noop:true`, no backend PATCH call (assert via mock); (c) reopen on a settled thread → exit 0, "reopened", `noop:false`; (d) reopen on an already-active thread → exit 0, "already active", `noop:true`, no PATCH; (e) invalid `<threadId>` (non-integer / non-positive) → validation error, exit non-zero.
+- [X] T017 [US3] Integration test in `tests/integration/pull-requests.test.ts`, gated on `SKIP_PR || !AZDO_PR_ID`: picks the first active thread from `AZDO_PR_ID`, resolves it via the new helper, asserts the next `getPullRequestThreads` call reports status in the settled set, reopens it, asserts the next call reports status `active`. Self-healing — always returns the PR to its starting state, even on failure (wrap in a `try/finally` that best-effort reopens).
 
 ### Implementation for User Story 3
 
-- [ ] T018 [US3] Implement `patchThreadStatus(context: AzdoContext, repo: string, pat: string, prId: number, threadId: number, status: "active" | "fixed"): Promise<ActiveCommentThread>` in `src/services/pr-client.ts`. Request: `PATCH /pullRequests/{prId}/threads/{threadId}?api-version=7.1`, `Content-Type: application/json`, body `{"status": "<status>"}`. Reuse `fetchWithErrors`. Map the 200 response through `mapThread` (widened in T007).
-- [ ] T019 [US3] Implement `createPrCommentResolveCommand(): Command` in `src/commands/pr.ts`: positional `<threadId>` (positive integer), shared options (`--org`, `--project`, `--pr-number`, `--json`). Flow: resolve context (branch PR or `--pr-number` via `getPullRequestById`); fetch threads; look up the thread by id (error cleanly if missing); if `isThreadResolved(current.status)` → print "Thread #<id> is already resolved on pull request #<pr>." and exit 0 with `noop:true` in `--json`; else call `patchThreadStatus(..., "fixed")`, print the success confirmation, exit 0.
-- [ ] T020 [US3] Implement `createPrCommentReopenCommand(): Command` in `src/commands/pr.ts`, mirroring T019 but targeting `"active"` and the inverse idempotency condition (current status ∈ settled set → PATCH; current status ∈ active/pending → no-op).
-- [ ] T021 [US3] Register both new subcommands under the existing `pr` parent in `createPrCommand()` (`src/commands/pr.ts`, around line 290), and ensure any top-level wiring in `src/index.ts` still compiles.
+- [X] T018 [US3] Implement `patchThreadStatus(context: AzdoContext, repo: string, pat: string, prId: number, threadId: number, status: "active" | "fixed"): Promise<ActiveCommentThread>` in `src/services/pr-client.ts`. Request: `PATCH /pullRequests/{prId}/threads/{threadId}?api-version=7.1`, `Content-Type: application/json`, body `{"status": "<status>"}`. Reuse `fetchWithErrors`. Map the 200 response through `mapThread` (widened in T007).
+- [X] T019 [US3] Implement `createPrCommentResolveCommand(): Command` in `src/commands/pr.ts`: positional `<threadId>` (positive integer), shared options (`--org`, `--project`, `--pr-number`, `--json`). Flow: resolve context (branch PR or `--pr-number` via `getPullRequestById`); fetch threads; look up the thread by id (error cleanly if missing); if `isThreadResolved(current.status)` → print "Thread #<id> is already resolved on pull request #<pr>." and exit 0 with `noop:true` in `--json`; else call `patchThreadStatus(..., "fixed")`, print the success confirmation, exit 0.
+- [X] T020 [US3] Implement `createPrCommentReopenCommand(): Command` in `src/commands/pr.ts`, mirroring T019 but targeting `"active"` and the inverse idempotency condition (current status ∈ settled set → PATCH; current status ∈ active/pending → no-op).
+- [X] T021 [US3] Register both new subcommands under the existing `pr` parent in `createPrCommand()` (`src/commands/pr.ts`, around line 290), and ensure any top-level wiring in `src/index.ts` still compiles.
 
 **Checkpoint**: All three user stories are independently functional and tested.
 
@@ -115,8 +115,8 @@ Single project: `src/` and `tests/` at repository root.
 
 **Purpose**: Finish the feature cleanly. Constitution §Development Workflow requires the README update before merge.
 
-- [ ] T022 Update `README.md` to document: the `--pr-number <N>` and `--hide-resolved` flags on `pr comments`, and the two new subcommands `pr comment-resolve <threadId>` and `pr comment-reopen <threadId>` (with one example each, and a note about the idempotent no-op exit-0 semantics). Cross-link to `specs/017-pr-comments-threads/quickstart.md` for deeper walkthroughs.
-- [ ] T023 [P] Final verification sweep: run `npm run lint`, `npx tsc --noEmit`, `npm test`, `npm run build`. All four must be clean — zero warnings, zero errors (constitution §Development Workflow and §IV require this before the PR is marked ready).
+- [X] T022 Update `README.md` to document: the `--pr-number <N>` and `--hide-resolved` flags on `pr comments`, and the two new subcommands `pr comment-resolve <threadId>` and `pr comment-reopen <threadId>` (with one example each, and a note about the idempotent no-op exit-0 semantics). Cross-link to `specs/017-pr-comments-threads/quickstart.md` for deeper walkthroughs.
+- [X] T023 [P] Final verification sweep: run `npm run lint`, `npx tsc --noEmit`, `npm test`, `npm run build`. All four must be clean — zero warnings, zero errors (constitution §Development Workflow and §IV require this before the PR is marked ready).
 - [ ] T024 [P] Walk through `specs/017-pr-comments-threads/quickstart.md` locally against a real PR (ideally PR #64 in the test org) to confirm the documented commands behave as written — read, resolve, reopen, hide-resolved, and both happy/error paths of `--pr-number`.
 
 ---
