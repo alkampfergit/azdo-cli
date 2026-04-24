@@ -1,7 +1,7 @@
 import { Command } from 'commander';
 import type { AzdoContext } from '../types/work-item.js';
 import { getWorkItemFieldValue } from '../services/azdo-client.js';
-import { resolvePat } from '../services/auth.js';
+import { requirePat } from '../services/auth.js';
 import { resolveContext } from '../services/context.js';
 import { toMarkdown } from '../services/md-convert.js';
 import { parseWorkItemId, validateOrgProjectPair, handleCommandError } from '../services/command-helpers.js';
@@ -28,7 +28,7 @@ export function createGetMdFieldCommand(): Command {
 
         try {
           context = resolveContext(options);
-          const credential = await resolvePat();
+          const credential = await requirePat(context.org);
 
           const value = await getWorkItemFieldValue(context, id, credential.pat, field);
 

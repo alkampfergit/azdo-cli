@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createPrOpenCommand } from '../../src/commands/pr.js';
-import { createCommandRunner, getStderr, getStdout, setupProcessSpies } from './helpers/command-test-utils.js';
+import { createCommandRunner, getExitCode, getStderr, getStdout, setupProcessSpies } from './helpers/command-test-utils.js';
 
 vi.mock('../../src/services/pr-client.js', () => ({
   openPullRequest: vi.fn(),
@@ -12,7 +12,7 @@ vi.mock('../../src/services/git-remote.js', () => ({
 }));
 
 vi.mock('../../src/services/auth.js', () => ({
-  resolvePat: vi.fn(),
+  requirePat: vi.fn(),
 }));
 
 vi.mock('../../src/services/context.js', () => ({
@@ -21,7 +21,7 @@ vi.mock('../../src/services/context.js', () => ({
 
 import { openPullRequest } from '../../src/services/pr-client.js';
 import { detectRepoName, getCurrentBranch } from '../../src/services/git-remote.js';
-import { resolvePat } from '../../src/services/auth.js';
+import { requirePat } from '../../src/services/auth.js';
 import { resolveContext } from '../../src/services/context.js';
 
 const run = createCommandRunner(createPrOpenCommand);
@@ -29,7 +29,7 @@ const run = createCommandRunner(createPrOpenCommand);
 beforeEach(() => {
   setupProcessSpies();
   vi.mocked(resolveContext).mockReturnValue({ org: 'test-org', project: 'test-project' });
-  vi.mocked(resolvePat).mockResolvedValue({ pat: 'test-pat', source: 'env' });
+  vi.mocked(requirePat).mockResolvedValue({ pat: 'test-pat', source: 'env' });
   vi.mocked(detectRepoName).mockReturnValue('repo-name');
   vi.mocked(getCurrentBranch).mockReturnValue('feature/test');
   vi.mocked(openPullRequest).mockResolvedValue({
@@ -57,20 +57,20 @@ describe('pr open command', () => {
   it('requires --title', async () => {
     await run(['--description', 'Description']);
     expect(getStderr()).toContain('--title is required for pull request creation.');
-    expect(process.exit).toHaveBeenCalledWith(1);
+    expect(getExitCode()).toBe(1);
   });
 
   it('requires --description', async () => {
     await run(['--title', 'Title']);
     expect(getStderr()).toContain('--description is required for pull request creation.');
-    expect(process.exit).toHaveBeenCalledWith(1);
+    expect(getExitCode()).toBe(1);
   });
 
   it('rejects opening a pull request from develop', async () => {
     vi.mocked(getCurrentBranch).mockReturnValue('develop');
     await run(['--title', 'Title', '--description', 'Description']);
     expect(getStderr()).toContain('Pull request creation requires a source branch other than develop.');
-    expect(process.exit).toHaveBeenCalledWith(1);
+    expect(getExitCode()).toBe(1);
   });
 
   it('prints a creation message when a new pull request is created', async () => {
@@ -107,7 +107,7 @@ describe('pr open command', () => {
     await run(['--title', 'Title', '--description', 'Description']);
 
     expect(getStderr()).toContain('Multiple active pull requests already exist for this branch targeting develop: #12, #13.');
-    expect(process.exit).toHaveBeenCalledWith(1);
+    expect(getExitCode()).toBe(1);
   });
 
   it('prints JSON output with --json', async () => {

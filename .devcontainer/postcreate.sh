@@ -56,3 +56,8 @@ sudo apt-get install -y gnome-keyring libsecret-tools xvfb xdotool python3-dbus 
 # Initialise the GNOME Keyring default collection so credential-store
 # integration tests can run without a real desktop session.
 bash /workspaces/azdo-cli/scripts/setup-keyring.sh || true
+
+# Expose .agents/skills/ to Claude Code by mirroring them under .claude/skills/
+# (Claude Code's auto-discovery path). Idempotent.
+echo "Linking skills into .claude/skills/..."
+bash /workspaces/azdo-cli/scripts/link-skills.sh

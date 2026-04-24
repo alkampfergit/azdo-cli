@@ -1,6 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AzdoContext } from '../../src/types/work-item.js';
-import { getPullRequestChecks, getPullRequestThreads, listPullRequests, openPullRequest } from '../../src/services/pr-client.js';
+import {
+  getPullRequestById,
+  getPullRequestChecks,
+  getPullRequestThreads,
+  isThreadResolved,
+  listPullRequests,
+  openPullRequest,
+  patchThreadStatus,
+} from '../../src/services/pr-client.js';
 
 const context: AzdoContext = { org: 'test-org', project: 'test-project' };
 
@@ -67,6 +75,212 @@ describe('pr-client', () => {
       } as Response);
 
       await expect(listPullRequests(context, 'repo-name', 'pat', 'feature/test')).rejects.toThrow('AUTH_FAILED');
+    });
+
+    it('tolerates pull requests whose _links.web is missing (root cause of #34)', async () => {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          count: 1,
+          value: [
+            {
+              pullRequestId: 77,
+              title: 'PR without web link',
+              status: 'active',
+              sourceRefName: 'refs/heads/feature/x',
+              targetRefName: 'refs/heads/develop',
+              createdBy: { displayName: 'Alice' },
+              // no _links at all — the Azure DevOps API can omit this field
+            },
+          ],
+        }),
+      } as Response);
+
+      const result = await listPullRequests(context, 'repo-name', 'pat', 'feature/x');
+      expect(result).toEqual([
+        expect.objectContaining({
+          id: 77,
+          title: 'PR without web link',
+          url: null,
+        }),
+      ]);
+    });
+
+    it('tolerates a _links envelope without the nested web.href', async () => {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          count: 1,
+          value: [
+            {
+              pullRequestId: 78,
+              title: 'PR with half-populated _links',
+              status: 'active',
+              sourceRefName: 'refs/heads/feature/y',
+              targetRefName: 'refs/heads/develop',
+              createdBy: { displayName: 'Alice' },
+              _links: { web: {} },
+            },
+          ],
+        }),
+      } as Response);
+
+      const result = await listPullRequests(context, 'repo-name', 'pat', 'feature/y');
+      expect(result[0].url).toBeNull();
+    });
+  });
+
+  describe('getPullRequestById', () => {
+    it('maps the single-PR response via mapPullRequest and hits the by-id endpoint', async () => {
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          pullRequestId: 64,
+          title: 'Reference PR',
+          status: 'active',
+          sourceRefName: 'refs/heads/feature/x',
+          targetRefName: 'refs/heads/develop',
+          createdBy: { displayName: 'Alice' },
+          _links: { web: { href: 'https://example.test/pr/64' } },
+        }),
+      } as Response);
+
+      const result = await getPullRequestById(context, 'repo-name', 'pat', 64);
+      expect(result).toEqual({
+        id: 64,
+        title: 'Reference PR',
+        repository: 'repo-name',
+        sourceRefName: 'refs/heads/feature/x',
+        targetRefName: 'refs/heads/develop',
+        status: 'active',
+        createdBy: 'Alice',
+        url: 'https://example.test/pr/64',
+      });
+      expect(fetchSpy).toHaveBeenCalledWith(
+        expect.stringContaining('/pullRequests/64'),
+        expect.any(Object),
+      );
+    });
+
+    it('throws NOT_FOUND on a 404 response', async () => {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+        ok: false,
+        status: 404,
+      } as Response);
+
+      await expect(getPullRequestById(context, 'repo-name', 'pat', 999999)).rejects.toThrow(/NOT_FOUND/);
+    });
+
+    it('throws AUTH_FAILED on a 401 response', async () => {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+        ok: false,
+        status: 401,
+      } as Response);
+
+      await expect(getPullRequestById(context, 'repo-name', 'pat', 64)).rejects.toThrow('AUTH_FAILED');
+    });
+
+    it('tolerates a response without _links (same defensiveness as listPullRequests)', async () => {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          pullRequestId: 77,
+          title: 'No web link',
+          status: 'active',
+          sourceRefName: 'refs/heads/feature/y',
+          targetRefName: 'refs/heads/develop',
+        }),
+      } as Response);
+
+      const result = await getPullRequestById(context, 'repo-name', 'pat', 77);
+      expect(result.url).toBeNull();
+    });
+  });
+
+  describe('patchThreadStatus', () => {
+    it('sends PATCH with the right URL and body for resolve (fixed)', async () => {
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          id: 17,
+          status: 'fixed',
+          comments: [
+            { id: 1, author: { displayName: 'Alice' }, content: 'done', publishedDate: null },
+          ],
+        }),
+      } as Response);
+
+      const result = await patchThreadStatus(context, 'repo-name', 'pat', 64, 17, 'fixed');
+
+      expect(result.status).toBe('fixed');
+      expect(result.id).toBe(17);
+      expect(fetchSpy).toHaveBeenCalledWith(
+        expect.stringContaining('/pullRequests/64/threads/17'),
+        expect.objectContaining({
+          method: 'PATCH',
+          body: JSON.stringify({ status: 'fixed' }),
+          headers: expect.objectContaining({ 'Content-Type': 'application/json' }),
+        }),
+      );
+    });
+
+    it('sends PATCH with status=active for reopen', async () => {
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          id: 17,
+          status: 'active',
+          comments: [
+            { id: 1, author: { displayName: 'Alice' }, content: 'back open', publishedDate: null },
+          ],
+        }),
+      } as Response);
+
+      const result = await patchThreadStatus(context, 'repo-name', 'pat', 64, 17, 'active');
+
+      expect(result.status).toBe('active');
+      expect(fetchSpy).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({ body: JSON.stringify({ status: 'active' }) }),
+      );
+    });
+
+    it('throws NOT_FOUND on a 404 response (thread missing)', async () => {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+        ok: false,
+        status: 404,
+      } as Response);
+
+      await expect(patchThreadStatus(context, 'repo-name', 'pat', 64, 9999, 'fixed')).rejects.toThrow(/NOT_FOUND/);
+    });
+
+    it('throws AUTH_FAILED on a 401 response', async () => {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+        ok: false,
+        status: 401,
+      } as Response);
+
+      await expect(patchThreadStatus(context, 'repo-name', 'pat', 64, 17, 'fixed')).rejects.toThrow('AUTH_FAILED');
+    });
+  });
+
+  describe('isThreadResolved', () => {
+    it.each([
+      ['active', false],
+      ['pending', false],
+      ['unknown', false],
+      ['fixed', true],
+      ['wontFix', true],
+      ['closed', true],
+      ['byDesign', true],
+    ])('classifies %s as resolved=%s', (status, expected) => {
+      expect(isThreadResolved(status)).toBe(expected);
     });
   });
 
@@ -276,7 +490,7 @@ describe('pr-client', () => {
   });
 
   describe('getPullRequestThreads', () => {
-    it('returns only active and pending threads with visible comments', async () => {
+    it('returns every thread status with visible comments, regardless of resolution state', async () => {
       vi.spyOn(globalThis, 'fetch').mockResolvedValue({
         ok: true,
         status: 200,
@@ -329,6 +543,19 @@ describe('pr-client', () => {
               id: 10,
               author: 'Alice',
               content: 'Needs work',
+              publishedAt: '2026-03-27T00:00:00Z',
+            },
+          ],
+        },
+        {
+          id: 2,
+          status: 'closed',
+          threadContext: null,
+          comments: [
+            {
+              id: 12,
+              author: 'Alice',
+              content: 'Closed',
               publishedAt: '2026-03-27T00:00:00Z',
             },
           ],

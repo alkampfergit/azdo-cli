@@ -15,11 +15,25 @@ export function getStderr(): string {
 }
 
 export function setupProcessSpies(): void {
+  // Reset the process exit code so an earlier test's failure flag doesn't
+  // bleed into the next test's assertions.
+  process.exitCode = 0;
   vi.spyOn(process, 'exit').mockImplementation((code?: number) => {
+    // Mirror real process.exit semantics: setting the exit code before
+    // aborting. Tests that assert via getExitCode() must see the intended
+    // code regardless of whether the command uses process.exit(code) or
+    // the libuv-safe process.exitCode = N + return pattern.
+    if (typeof code === 'number') {
+      process.exitCode = code;
+    }
     throw new Error(`EXIT_${code}`);
   });
   vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
   vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+}
+
+export function getExitCode(): number {
+  return typeof process.exitCode === 'number' ? process.exitCode : 0;
 }
 
 export function createCommandRunner(factory: () => Command) {
@@ -60,7 +74,7 @@ export function describeCommandErrors(
       mockFn.mockRejectedValue(new Error(errorCode));
       await run(baseArgs);
       expect(getStderr()).toContain(expectedMessage);
-      expect(process.exit).toHaveBeenCalledWith(1);
+      expect(getExitCode()).toBe(1);
     },
   );
 }

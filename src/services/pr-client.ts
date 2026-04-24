@@ -55,7 +55,7 @@ function mapPullRequest(repo: string, pullRequest: AzdoPullRequest): BranchPullR
     targetRefName: pullRequest.targetRefName,
     status: pullRequest.status,
     createdBy: pullRequest.createdBy?.displayName ?? null,
-    url: pullRequest._links.web.href,
+    url: pullRequest._links?.web?.href ?? null,
   };
 }
 
@@ -110,10 +110,10 @@ function mapComment(comment: AzdoThread['comments'][number]): ActivePullRequestC
 }
 
 function mapThread(thread: AzdoThread): ActiveCommentThread | null {
-  if (thread.status !== 'active' && thread.status !== 'pending') {
-    return null;
-  }
-
+  // Pass every backend thread status through — the formatter renders a
+  // status indicator and the command-level filter (`--hide-resolved`)
+  // decides which ones to keep. We still drop threads whose only comments
+  // are deleted or whitespace-only; those are metadata-only threads.
   const comments = thread.comments
     .map(mapComment)
     .filter((comment): comment is ActivePullRequestComment => comment !== null);
@@ -130,12 +130,89 @@ function mapThread(thread: AzdoThread): ActiveCommentThread | null {
   };
 }
 
+function toActiveCommentThread(thread: AzdoThread): ActiveCommentThread {
+  // Unlike mapThread() this does not drop threads whose visible comments
+  // list is empty; the state-change path needs to round-trip any thread
+  // the PATCH call returns so callers can confirm the new status.
+  return {
+    id: thread.id,
+    status: thread.status,
+    threadContext: thread.threadContext?.filePath ?? null,
+    comments: thread.comments
+      .map(mapComment)
+      .filter((comment): comment is ActivePullRequestComment => comment !== null),
+  };
+}
+
+const RESOLVED_THREAD_STATUSES = new Set<string>(['fixed', 'wontFix', 'closed', 'byDesign']);
+
+// Returns true when the thread's status is one the Azure DevOps UI treats
+// as settled (resolved, won't fix, closed, by design). Used by the
+// --hide-resolved filter on `pr comments` and by the idempotency check in
+// `pr comment-resolve` / `pr comment-reopen`.
+export function isThreadResolved(status: string): boolean {
+  return RESOLVED_THREAD_STATUSES.has(status);
+}
+
 async function readJsonResponse<T>(response: Response): Promise<T> {
   if (!response.ok) {
     throw new Error(`HTTP_${response.status}`);
   }
 
   return response.json() as Promise<T>;
+}
+
+// Patches a pull request comment thread's status. Used by the CLI's
+// comment-resolve / comment-reopen subcommands to flip a thread between
+// 'active' and 'fixed' on the backend. Only those two status values are
+// accepted at the boundary — richer backend states (wontFix, closed,
+// byDesign) are visible in listings but out of scope for CLI-driven
+// transitions in this iteration (per the spec's Assumptions).
+export async function patchThreadStatus(
+  context: AzdoContext,
+  repo: string,
+  pat: string,
+  prId: number,
+  threadId: number,
+  status: 'active' | 'fixed',
+): Promise<ActiveCommentThread> {
+  const url = new URL(
+    `https://dev.azure.com/${encodeURIComponent(context.org)}/${encodeURIComponent(context.project)}/_apis/git/repositories/${encodeURIComponent(repo)}/pullRequests/${prId}/threads/${threadId}`,
+  );
+  url.searchParams.set('api-version', '7.1');
+
+  const response = await fetchWithErrors(url.toString(), {
+    method: 'PATCH',
+    headers: {
+      ...authHeaders(pat),
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ status }),
+  });
+  const data = await readJsonResponse<AzdoThread>(response);
+  return toActiveCommentThread(data);
+}
+
+// Fetches a single pull request by its numeric id. Used by the
+// --pr-number flag on `azdo pr comments` (and related subcommands) so the
+// command can target any PR without going through the current-branch
+// resolution path. fetchWithErrors maps a 404 response to a NOT_FOUND
+// error; callers translate that into a user-facing "PR not found"
+// message.
+export async function getPullRequestById(
+  context: AzdoContext,
+  repo: string,
+  pat: string,
+  prId: number,
+): Promise<BranchPullRequestMatch> {
+  const url = new URL(
+    `https://dev.azure.com/${encodeURIComponent(context.org)}/${encodeURIComponent(context.project)}/_apis/git/repositories/${encodeURIComponent(repo)}/pullRequests/${prId}`,
+  );
+  url.searchParams.set('api-version', '7.1');
+
+  const response = await fetchWithErrors(url.toString(), { headers: authHeaders(pat) });
+  const data = await readJsonResponse<AzdoPullRequest>(response);
+  return mapPullRequest(repo, data);
 }
 
 export async function listPullRequests(

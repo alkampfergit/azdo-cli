@@ -8,7 +8,7 @@ import type {
   WriteResult,
 } from '../types/work-item.js';
 import { applyWorkItemPatch, createWorkItem } from '../services/azdo-client.js';
-import { resolvePat } from '../services/auth.js';
+import { requirePat } from '../services/auth.js';
 import { resolveContext } from '../services/context.js';
 import {
   formatCreateError,
@@ -231,7 +231,7 @@ export function createUpsertCommand(): Command {
         }
 
         const operations = toPatchOperations(document.fields, action);
-        const credential = await resolvePat();
+        const credential = await requirePat(context.org);
         let writeResult: WriteResult;
         if (action === 'created') {
           writeResult = await createWorkItem(context, createType, credential.pat, operations);
