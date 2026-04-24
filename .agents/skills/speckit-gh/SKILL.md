@@ -75,7 +75,65 @@ Confirm resolved values by posting a `speckit:status` comment on the issue
    linking the existing PR, do NOT apply `claim-label`, and exit cleanly
    (do NOT apply `fail-label` — this is not a failure, just a no-op).
 
-Any failure → abort with a clear message. Do NOT bootstrap speckit from this skill.
+Precondition failures that are mechanical git state (pending changes,
+unpushed commits, non-fast-forward push rejections) are NOT surfaced to
+the user — they are delegated to the `fixer` skill in a subagent without
+asking. See **Precondition repair — delegate to `fixer` (no user
+prompt)** below. Non-git failures (`.specify/` missing, `gh` not
+authenticated, issue not open, PR already exists) still abort with a
+clear message. Do NOT bootstrap speckit from this skill.
+
+## Precondition repair — delegate to `fixer` (no user prompt)
+
+If preconditions 2 or 3 fail (working tree not clean, or not on the base
+branch with clean state) — or any later step produces a "repo is not in
+a clean state" signal — delegate repair to the `fixer` skill **in a
+subagent, without asking the user first**. The fixer is autonomous,
+never reverts code, and returns a single-line summary that this skill
+then relays back to the main prompt.
+
+**Default stance:** do not prompt the user for confirmation on mechanical
+git anomalies. Invoke the fixer and continue based on its output.
+
+**Invoke the fixer when:**
+- `git status --porcelain` is non-empty on any branch.
+- `git push` is rejected as non-fast-forward.
+- A previous run left a local commit that was never pushed.
+
+**Do NOT invoke the fixer (abort with `fail-label` and surface to user):**
+- `.git/MERGE_HEAD`, `.git/rebase-merge`, or `.git/CHERRY_PICK_HEAD`
+  exists (a human operation is in progress).
+- `HEAD` is detached.
+- Untracked files that look like secrets are present.
+- The failure is not git state (missing `.specify/`, `gh` not
+  authenticated, issue closed, PR already binds this issue).
+
+**How to invoke — via the `Agent` tool, with an explicit "do not ask the
+user, do not revert code" briefing:**
+
+```
+Agent(
+  description: "Repair dirty working tree",
+  subagent_type: "general-purpose",
+  prompt: "Use the /fixer skill to bring this working tree to a clean,
+  pushed state so speckit-gh can proceed on issue #<N>. Do NOT ask the
+  user anything — apply the rules autonomously or stop and report. Do
+  NOT revert or discard any code. Reason: <why>. Current branch:
+  <branch>. Base branch: <base>. Report the single-line fixer output
+  and stop."
+)
+```
+
+Parse the returned summary:
+- `fixer: rule-1|rule-2|rule-3 | ... | pushed=yes` — re-check
+  preconditions once. If still failing, abort with `fail-label`.
+- `fixer: skipped | ... | note=<reason>` — do NOT retry. Abort with
+  `fail-label` and post the note as a `speckit:status` on the issue.
+
+**Invoke the fixer at most once per run.** If the first repair didn't
+clear preconditions, stop. Rule-2 leaves the caller on a new
+`feature/<slug>` branch; check out the base branch again before
+retrying.
 
 ## Critical rules — do not violate
 
