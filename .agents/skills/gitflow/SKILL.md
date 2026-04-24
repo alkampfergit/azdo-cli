@@ -36,8 +36,10 @@ Does NOT:
 
 ## Required / optional args
 
-- `version` (optional) — explicit target version, e.g. `1.4.0` or `v1.4.0`.
-  If omitted, compute from the latest tag on `master` by bumping the minor.
+- `version` (optional) — explicit target version, e.g. `1.4.0`. A leading
+  `v` is accepted on input but stripped — tags are always written without
+  the `v` prefix (see *Tag format* below). If omitted, compute from the
+  latest tag on `master` by bumping the minor.
 - `bump` (optional) — `major` | `minor` | `patch`. Default `minor`. Ignored
   when `version` is set.
 - `remote` (optional, default `origin`) — remote to push to.
@@ -78,7 +80,9 @@ LATEST_TAG=$(git -c versionsort.suffix=-rc -c versionsort.suffix=-beta \
 
 - If `LATEST_TAG` is empty, the repo has never been released. Require the
   caller to pass `version` explicitly — don't invent `0.1.0`.
-- Strip a leading `v` if present: `1.2.3`.
+- Strip a leading `v` if present so the working version is bare `X.Y.Z`.
+  Tolerating `v`-prefixed historical tags is fine for *reading*; writing
+  is always bare (see *Tag format*).
 - Parse `X.Y.Z` with a regex. If the tag does not match `^\d+\.\d+\.\d+$`
   (e.g. it's `1.2` or `1.2.3-rc1`), stop and ask the caller for `version`.
 - Apply `bump`:
@@ -86,15 +90,27 @@ LATEST_TAG=$(git -c versionsort.suffix=-rc -c versionsort.suffix=-beta \
   - `minor` → `X.Y+1.0` (default)
   - `patch` → `X.Y.Z+1`
 - If the computed/supplied version tag already exists (`git rev-parse <tag>`
-  succeeds), stop.
+  succeeds), stop. Also check the `v`-prefixed variant (`git rev-parse
+  v<tag>`) — if a legacy `v`-prefixed tag on the same version exists, stop
+  and surface it to the caller; do not silently create a second tag at a
+  different ref.
 
-Preserve the original tag prefix (with or without `v`) — whatever the
-previous tag used, use the same. If the repo has no prior tag and the
-caller passes `version` without a prefix, use no prefix; with `v`, use `v`.
+## Tag format
+
+Tags are written **without** the `v` prefix. `1.4.0`, not `v1.4.0`.
+
+- This is the repo's current convention. The CI workflow
+  (`.github/workflows/ci.yml`) detects versions with a tolerant regex
+  (`^v?[0-9]+\.[0-9]+\.[0-9]+...`) and strips any leading `v` before use,
+  so bare tags are the canonical form and `v`-prefixed tags only exist as
+  legacy.
+- If the caller supplies `version=v1.4.0`, normalise to `1.4.0` and
+  proceed. Do NOT echo the `v` back into the tag.
+- Never create both `X.Y.Z` and `vX.Y.Z` in one release flow.
 
 ## Release flow (the actual work)
 
-Assume version `X.Y.Z` and tag `TAG = [v]X.Y.Z`.
+Assume version `X.Y.Z` and tag `TAG = X.Y.Z` (no `v` prefix — see above).
 
 ```bash
 # 1. Start release branch from develop
