@@ -118,13 +118,29 @@ jobs:
           SAFE_BRANCH=$(echo "$BRANCH" | sed 's/[^a-zA-Z0-9-]/-/g')
 
           if [ "$BRANCH" = "master" ]; then
-            TAG="latest"
             HEAD_TAG=$(git tag --points-at HEAD | grep -E '^v?[0-9]+\.[0-9]+\.[0-9]+([.-].*)?$' | head -n 1)
             if [ -z "$HEAD_TAG" ]; then
               echo "No version tag found on HEAD for master branch."
               exit 1
             fi
             VERSION="${HEAD_TAG#v}"
+
+            # Only promote to `latest` when this version is >= the current
+            # `latest` on npm. Hotfixes on master for an older minor (e.g.
+            # 0.8.1 merged after 0.9.0) would otherwise regress the tag.
+            CURRENT_LATEST=$(npm view azdo-cli dist-tags.latest 2>/dev/null || true)
+            if [ -z "$CURRENT_LATEST" ]; then
+              TAG="latest"
+            else
+              HIGHEST=$(printf '%s\n%s\n' "$VERSION" "$CURRENT_LATEST" | sort -V | tail -n 1)
+              if [ "$HIGHEST" = "$VERSION" ]; then
+                TAG="latest"
+              else
+                MAJOR_MINOR=$(echo "$VERSION" | cut -d. -f1,2)
+                TAG="maint-${MAJOR_MINOR}"
+                echo "Not promoting $VERSION to 'latest' (current latest is $CURRENT_LATEST); using '$TAG' instead."
+              fi
+            fi
           elif [ "$BRANCH" = "develop" ]; then
             TAG="dev"
             LATEST_TAG=$(git tag --sort=-v:refname | grep -E '^v?[0-9]+\.[0-9]+\.[0-9]+$' | head -n 1)
