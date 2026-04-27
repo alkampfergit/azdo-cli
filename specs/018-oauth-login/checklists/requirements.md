@@ -13,7 +13,7 @@
 
 ## Requirement Completeness
 
-- [ ] No [NEEDS CLARIFICATION] markers remain
+- [x] No [NEEDS CLARIFICATION] markers remain
 - [x] Requirements are testable and unambiguous
 - [x] Success criteria are measurable
 - [x] Success criteria are technology-agnostic (no implementation details)
@@ -31,5 +31,5 @@
 
 ## Notes
 
-- One [NEEDS CLARIFICATION] marker remains (FR-014). FR-012 and FR-013 were resolved by the owner on 2026-04-27. FR-013 = hybrid OAuth client model (option C): default project-owned PKCE-only public app whose client id ships in the binary, with env-var / config override for self-registered apps. FR-013a was added to codify the security model — client id non-secret, PKCE + redirect URI + state validation + least-privilege scopes; never embed a client secret. Recorded in `## Clarifications`. FR-014 will be surfaced next.
+- All three FR clarifications resolved by the owner on 2026-04-27. FR-012 = OAuth default + `--use-pat` opt-in. FR-013 = hybrid OAuth client model (option C). FR-014 = surface refresh failures and require explicit re-login (option B). FR-013a codifies the public-client security model. New FR-015 captures the owner's request for a markdown guide on registering the AzDO OAuth app (for the maintainer producing the shared client id, and for end users on the override path). All recorded in `## Clarifications`. Q3 (OAuth scopes) follows next via `/speckit-clarify`.
 - This is the only checklist item that does not pass at submission time; resolving it is the explicit purpose of the next phase.
