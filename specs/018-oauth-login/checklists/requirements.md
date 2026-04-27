@@ -31,5 +31,5 @@
 
 ## Notes
 
-- Two [NEEDS CLARIFICATION] markers remain (FR-013 and FR-014). FR-012 was resolved by the owner on 2026-04-27 ahead of the formal `/speckit-clarify` phase (OAuth is the default; PAT is opt-in via `--use-pat`; OAuth and PAT coexist as first-class methods; runtime credential resolution checks the PAT env var first, then OS credential store, and the stored record carries an explicit kind marker). Recorded in `## Clarifications`. The remaining two will be surfaced one-by-one on issue #37 by `/speckit-clarify`.
+- One [NEEDS CLARIFICATION] marker remains (FR-014). FR-012 and FR-013 were resolved by the owner on 2026-04-27. FR-013 = hybrid OAuth client model (option C): default project-owned PKCE-only public app whose client id ships in the binary, with env-var / config override for self-registered apps. FR-013a was added to codify the security model — client id non-secret, PKCE + redirect URI + state validation + least-privilege scopes; never embed a client secret. Recorded in `## Clarifications`. FR-014 will be surfaced next.
 - This is the only checklist item that does not pass at submission time; resolving it is the explicit purpose of the next phase.
