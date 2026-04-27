@@ -31,5 +31,5 @@
 
 ## Notes
 
-- Three [NEEDS CLARIFICATION] markers remain (FR-012, FR-013, FR-014). Per the speckit-gh per-issue protocol, these are intentionally NOT resolved inline — they will be surfaced one-by-one to the repo owner on issue #37 by `/speckit-clarify` at the next phase, with each question answered on the issue and the spec updated accordingly. No console Q&A.
+- Two [NEEDS CLARIFICATION] markers remain (FR-013 and FR-014). FR-012 was resolved by the owner on 2026-04-27 ahead of the formal `/speckit-clarify` phase (OAuth is the default; PAT is opt-in via `--use-pat`; OAuth and PAT coexist as first-class methods; runtime credential resolution checks the PAT env var first, then OS credential store, and the stored record carries an explicit kind marker). Recorded in `## Clarifications`. The remaining two will be surfaced one-by-one on issue #37 by `/speckit-clarify`.
 - This is the only checklist item that does not pass at submission time; resolving it is the explicit purpose of the next phase.
