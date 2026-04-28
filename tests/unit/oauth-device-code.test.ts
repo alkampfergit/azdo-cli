@@ -30,8 +30,13 @@ describe('oauth-device-code — request /devicecode', () => {
     const oauthConfig = resolveOAuthConfig({ clientIdOverride: 'cid' });
     const calls: { url: string; body: string }[] = [];
     const fetchFn = (async (url: string, init: RequestInit) => {
-      const bodyAsString = typeof init.body === 'string' ? init.body : init.body?.toString() ?? '';
-      calls.push({ url, body: bodyAsString });
+      // The test deliberately exercises the URLSearchParams .toString() path
+      // that requestDeviceCode produces; the production call site always passes
+      // a string body, so narrowing here is defence-in-depth.
+      if (typeof init.body !== 'string') {
+        throw new TypeError('test fixture expected string body from requestDeviceCode');
+      }
+      calls.push({ url, body: init.body });
       return new Response(
         JSON.stringify({
           user_code: 'ABC-DEF-GH',

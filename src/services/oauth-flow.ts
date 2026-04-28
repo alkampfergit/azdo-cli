@@ -1,5 +1,4 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
-import type { AddressInfo } from 'node:net';
 import { challengeForVerifier, generateVerifier, randomState, CODE_CHALLENGE_METHOD } from '../lib/pkce.js';
 import { buildScopeString, validateRedirectUri } from './oauth-config.js';
 import { openUrl } from './browser-open.js';
@@ -116,81 +115,73 @@ interface ActiveSlot {
   reject: (e: Error) => void;
 }
 
-function makeActiveResolver(
-  rResolve: (r: CallbackResult) => void,
-  clearActive: () => void,
-): (r: CallbackResult) => void {
-  return (r: CallbackResult): void => {
-    clearActive();
+class LoopbackListenerImpl implements LoopbackListener {
+  active: ActiveSlot | null = null;
+
+  constructor(readonly server: Server, readonly port: number) {}
+
+  awaitCallback(session: AuthorizationSession, signal: AbortSignal): Promise<CallbackResult> {
+    return new Promise<CallbackResult>((rResolve, rReject) => {
+      this.active = {
+        session,
+        resolve: (r) => this.finish(rResolve, r),
+        reject: (e) => this.finishError(rReject, e),
+      };
+      signal.addEventListener('abort', () => this.onAbort());
+    });
+  }
+
+  close(): Promise<void> {
+    return new Promise<void>((cResolve) => {
+      this.server.close(() => cResolve());
+    });
+  }
+
+  private finish(rResolve: (r: CallbackResult) => void, r: CallbackResult): void {
+    this.active = null;
     rResolve(r);
-  };
+  }
+
+  private finishError(rReject: (e: Error) => void, e: Error): void {
+    this.active = null;
+    rReject(e);
+  }
+
+  private onAbort(): void {
+    if (!this.active) return;
+    const a = this.active;
+    this.active = null;
+    a.reject(new OAuthFlowError('timeout', 'OAuth flow aborted before callback'));
+  }
 }
 
-function makeActiveRejecter(
-  rReject: (e: Error) => void,
-  clearActive: () => void,
-): (e: Error) => void {
-  return (e: Error): void => {
-    clearActive();
-    rReject(e);
-  };
+function bindLoopbackServer(
+  factory: typeof createServer,
+  resolve: (l: LoopbackListener) => void,
+  reject: (e: Error) => void,
+): void {
+  const ref: { listener: LoopbackListenerImpl | null } = { listener: null };
+  const server: Server = factory((req: IncomingMessage, res: ServerResponse) => {
+    handleCallback(req, res, ref.listener?.active ?? null);
+  });
+  server.once('error', (err: Error) => {
+    reject(new OAuthFlowError('port-conflict', `failed to bind loopback listener: ${err.message}`, err));
+  });
+  server.listen({ host: '127.0.0.1', port: 0 }, () => {
+    const addr = server.address();
+    if (!addr || typeof addr === 'string' || addr.port === 0) {
+      reject(new OAuthFlowError('port-conflict', 'loopback listener did not return a numeric port'));
+      return;
+    }
+    ref.listener = new LoopbackListenerImpl(server, addr.port);
+    resolve(ref.listener);
+  });
 }
 
 export async function openLoopbackListener(deps: AuthCodeFlowDeps = {}): Promise<LoopbackListener> {
   const factory = deps.createServer ?? createServer;
-  let active: ActiveSlot | null = null;
-
   return new Promise<LoopbackListener>((resolve, reject) => {
-    const server: Server = factory((req: IncomingMessage, res: ServerResponse) => {
-      handleCallback(req, res, active);
-    });
-
-    server.once('error', (err: Error) => {
-      reject(new OAuthFlowError('port-conflict', `failed to bind loopback listener: ${err.message}`, err));
-    });
-
-    const buildAwaitCallback =
-      () =>
-      (session: AuthorizationSession, signal: AbortSignal): Promise<CallbackResult> => {
-        return new Promise<CallbackResult>((rResolve, rReject) => {
-          active = {
-            session,
-            resolve: makeActiveResolver(rResolve, () => {
-              active = null;
-            }),
-            reject: makeActiveRejecter(rReject, () => {
-              active = null;
-            }),
-          };
-          signal.addEventListener('abort', () => {
-            if (active) {
-              const a = active;
-              active = null;
-              a.reject(new OAuthFlowError('timeout', 'OAuth flow aborted before callback'));
-            }
-          });
-        });
-      };
-
-    const buildClose =
-      () =>
-      (): Promise<void> =>
-        new Promise<void>((cResolve) => {
-          server.close(() => cResolve());
-        });
-
-    server.listen({ host: '127.0.0.1', port: 0 }, () => {
-      const addr = server.address() as AddressInfo | null;
-      if (!addr || typeof addr === 'string' || addr.port === 0) {
-        reject(new OAuthFlowError('port-conflict', 'loopback listener did not return a numeric port'));
-        return;
-      }
-      resolve({
-        port: addr.port,
-        awaitCallback: buildAwaitCallback(),
-        close: buildClose(),
-      });
-    });
+    bindLoopbackServer(factory, resolve, reject);
   });
 }
 
@@ -216,9 +207,10 @@ function handleCallback(req: IncomingMessage, res: ServerResponse, active: Activ
 
   const error = q.get('error');
   if (error) {
-    const desc = q.get('error_description') ?? '';
+    const rawDesc = q.get('error_description') ?? '';
+    const descSuffix = rawDesc ? `: ${rawDesc}` : '';
     writeError(res, 400, `IdP error: ${error}`);
-    active.reject(new OAuthFlowError('idp-error', `${error}${desc ? `: ${desc}` : ''}`));
+    active.reject(new OAuthFlowError('idp-error', `${error}${descSuffix}`));
     return;
   }
 
