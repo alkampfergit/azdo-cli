@@ -1,7 +1,14 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import type { AuthAuditEvent, AuthAuditEventKind } from '../types/audit.js';
+import type {
+  AuthAuditEvent,
+  AuthAuditEventKind,
+  OAuthClientIdSource,
+  OAuthFlow,
+  OAuthLoginFailedReason,
+  OAuthRefreshFailedReason,
+} from '../types/audit.js';
 import type { CredentialBackend } from '../types/credential.js';
 
 export function getAuditLogPath(): string {
@@ -37,6 +44,31 @@ export interface AppendInput {
   org: string;
   backend: CredentialBackend;
   masked_pat?: string;
+  flow?: OAuthFlow;
+  clientIdSource?: OAuthClientIdSource;
+  accountId?: string;
+  scope?: string;
+  tokenLifetimeSec?: number;
+  reason?: OAuthLoginFailedReason | OAuthRefreshFailedReason | string;
+}
+
+const FORBIDDEN_FIELDS = new Set([
+  'token',
+  'accessToken',
+  'access_token',
+  'refreshToken',
+  'refresh_token',
+  'pat',
+]);
+
+function stripForbidden(input: AppendInput): AppendInput {
+  const out: Record<string, unknown> = { ...(input as unknown as Record<string, unknown>) };
+  for (const key of Object.keys(out)) {
+    if (FORBIDDEN_FIELDS.has(key)) {
+      delete out[key];
+    }
+  }
+  return out as unknown as AppendInput;
 }
 
 export function appendAuthAuditEvent(input: AppendInput): void {
@@ -46,12 +78,20 @@ export function appendAuthAuditEvent(input: AppendInput): void {
   ensureDirWithPerms(dir);
   ensureFileWithPerms(auditLog);
 
+  const safe = stripForbidden(input);
+
   const record: AuthAuditEvent = {
     ts: new Date().toISOString(),
-    event: input.event,
-    org: input.org,
-    backend: input.backend,
-    ...(input.masked_pat !== undefined ? { masked_pat: input.masked_pat } : {}),
+    event: safe.event,
+    org: safe.org,
+    backend: safe.backend,
+    ...(safe.masked_pat !== undefined ? { masked_pat: safe.masked_pat } : {}),
+    ...(safe.flow !== undefined ? { flow: safe.flow } : {}),
+    ...(safe.clientIdSource !== undefined ? { clientIdSource: safe.clientIdSource } : {}),
+    ...(safe.accountId !== undefined ? { accountId: safe.accountId } : {}),
+    ...(safe.scope !== undefined ? { scope: safe.scope } : {}),
+    ...(safe.tokenLifetimeSec !== undefined ? { tokenLifetimeSec: safe.tokenLifetimeSec } : {}),
+    ...(safe.reason !== undefined ? { reason: safe.reason } : {}),
   };
 
   fs.appendFileSync(auditLog, `${JSON.stringify(record)}\n`);

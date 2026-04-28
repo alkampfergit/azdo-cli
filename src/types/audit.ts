@@ -4,7 +4,33 @@ export type AuthAuditEventKind =
   | 'auth.store'
   | 'auth.delete'
   | 'auth.validate.ok'
-  | 'auth.validate.fail';
+  | 'auth.validate.fail'
+  | 'oauth-login-started'
+  | 'oauth-login-success'
+  | 'oauth-login-failed'
+  | 'oauth-refresh-success'
+  | 'oauth-refresh-failed'
+  | 'oauth-logout'
+  | 'unknown-kind';
+
+export type OAuthFlow = 'auth-code' | 'device-code';
+
+export type OAuthClientIdSource = 'default' | 'env' | 'config' | 'flag';
+
+export type OAuthLoginFailedReason =
+  | 'user-cancelled'
+  | 'port-conflict'
+  | 'state-mismatch'
+  | 'redirect-mismatch'
+  | 'idp-error'
+  | 'timeout';
+
+export type OAuthRefreshFailedReason =
+  | 'revoked'
+  | 'window-exceeded'
+  | 'invalid-grant'
+  | 'network'
+  | 'unknown';
 
 export interface AuthAuditEvent {
   ts: string;
@@ -12,4 +38,10 @@ export interface AuthAuditEvent {
   org: string;
   backend: CredentialBackend;
   masked_pat?: string;
+  flow?: OAuthFlow;
+  clientIdSource?: OAuthClientIdSource;
+  accountId?: string;
+  scope?: string;
+  tokenLifetimeSec?: number;
+  reason?: OAuthLoginFailedReason | OAuthRefreshFailedReason | string;
 }
