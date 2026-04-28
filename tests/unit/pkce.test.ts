@@ -14,8 +14,7 @@ describe('lib/pkce — RFC 7636 helpers', () => {
 
   it('challenge equals BASE64URL(SHA-256(verifier))', () => {
     const v = 'fixed-verifier-for-testing-purposes-not-secret';
-    const expected = createHash('sha256').update(v, 'ascii').digest('base64')
-      .replace(/=+$/, '').replace(/\+/g, '-').replace(/\//g, '_');
+    const expected = createHash('sha256').update(v, 'ascii').digest('base64url');
     expect(challengeForVerifier(v)).toBe(expected);
   });
 

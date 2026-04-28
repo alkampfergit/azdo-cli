@@ -1,7 +1,9 @@
 import { createHash, randomBytes } from 'node:crypto';
 
 function base64urlNoPad(buf: Buffer): string {
-  return buf.toString('base64').replace(/=+$/, '').replace(/\+/g, '-').replace(/\//g, '_');
+  // Node 16+ supports the 'base64url' encoding which already produces the
+  // unreserved-character form with no padding required by RFC 4648 §5.
+  return buf.toString('base64url');
 }
 
 /**

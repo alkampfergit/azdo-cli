@@ -102,6 +102,9 @@ describe('oauth-config — validateRedirectUri (loopback only, FR-013a)', () => 
   });
 
   it('rejects 0.0.0.0 and other non-loopback hosts', () => {
+    // NOSONAR — RFC 8252 explicitly mandates plaintext http for loopback
+    // redirect URIs in native OAuth flows; these test fixtures exercise the
+    // CLI's strict-loopback rejection rules and are not real network calls.
     expect(validateRedirectUri('http://0.0.0.0:50231/callback')).toBe(false);
     expect(validateRedirectUri('http://example.com:50231/callback')).toBe(false);
   });
