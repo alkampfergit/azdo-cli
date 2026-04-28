@@ -40,7 +40,7 @@ export function createDownloadAttachmentCommand(): Command {
             process.exit(1);
           }
 
-          const workItem = await getWorkItem(context, id, credential.pat);
+          const workItem = await getWorkItem(context, id, credential);
 
           const attachment = workItem.attachments?.find(
             (a) => a.name === filename,
@@ -53,7 +53,7 @@ export function createDownloadAttachmentCommand(): Command {
             process.exit(1);
           }
 
-          const data = await downloadAttachment(attachment.url, credential.pat);
+          const data = await downloadAttachment(attachment.url, credential);
           const outputPath = join(outputDir, filename);
           await writeFile(outputPath, Buffer.from(data));
 

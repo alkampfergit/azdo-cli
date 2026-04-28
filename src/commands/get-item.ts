@@ -194,7 +194,7 @@ export function createGetItemCommand(): Command {
             ? parseRequestedFields(loadConfig().fields)
             : parseRequestedFields(options.fields);
 
-          const workItem = await getWorkItem(context, id, credential.pat, fieldsList);
+          const workItem = await getWorkItem(context, id, credential, fieldsList);
 
           const markdownEnabled = options.markdown ?? loadConfig().markdown ?? false;
           const output = formatWorkItem(workItem, options.short ?? false, markdownEnabled);

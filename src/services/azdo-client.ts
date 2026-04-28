@@ -164,9 +164,9 @@ function buildExtraFields(
   return Object.keys(result).length > 0 ? result : null;
 }
 
-function writeHeaders(pat: string): Record<string, string> {
+function writeHeaders(cred: AuthCredential): Record<string, string> {
   return {
-    ...authHeaders(pat),
+    ...authHeaders(cred),
     'Content-Type': 'application/json-patch+json',
   };
 }
@@ -238,7 +238,7 @@ async function readWriteResponse(response: Response, errorCode: 'CREATE_REJECTED
 export async function getWorkItemFields(
   context: AzdoContext,
   id: number,
-  pat: string,
+  cred: AuthCredential,
 ): Promise<Record<string, unknown>> {
   const url = new URL(
     `https://dev.azure.com/${encodeURIComponent(context.org)}/${encodeURIComponent(context.project)}/_apis/wit/workitems/${id}`,
@@ -246,7 +246,7 @@ export async function getWorkItemFields(
   url.searchParams.set('api-version', '7.1');
   url.searchParams.set('$expand', 'all');
 
-  const response = await fetchWithErrors(url.toString(), { headers: authHeaders(pat) });
+  const response = await fetchWithErrors(url.toString(), { headers: authHeaders(cred) });
 
   if (response.status === 400) {
     const serverMessage = await readResponseMessage(response);
@@ -301,12 +301,12 @@ function buildWorkItemUrl(
 async function fetchWorkItemResponse(
   context: AzdoContext,
   id: number,
-  pat: string,
+  cred: AuthCredential,
   options: GetWorkItemRequestOptions = {},
 ): Promise<AzdoWorkItemResponse> {
   const response = await fetchWithErrors(
     buildWorkItemUrl(context, id, options).toString(),
-    { headers: authHeaders(pat) },
+    { headers: authHeaders(cred) },
   );
 
   if (response.status === 400) {
@@ -323,15 +323,15 @@ async function fetchWorkItemResponse(
   return (await response.json()) as AzdoWorkItemResponse;
 }
 
-export async function getWorkItem(context: AzdoContext, id: number, pat: string, extraFields?: string[]): Promise<WorkItem> {
+export async function getWorkItem(context: AzdoContext, id: number, cred: AuthCredential, extraFields?: string[]): Promise<WorkItem> {
   const normalizedExtraFields = extraFields ? normalizeFieldList(extraFields) : [];
   const data = normalizedExtraFields.length > 0
-    ? await fetchWorkItemResponse(context, id, pat, {
+    ? await fetchWorkItemResponse(context, id, cred, {
       fields: normalizeFieldList([...DEFAULT_FIELDS, ...normalizedExtraFields]),
     })
-    : await fetchWorkItemResponse(context, id, pat, { includeRelations: true });
+    : await fetchWorkItemResponse(context, id, cred, { includeRelations: true });
   const relationsData = normalizedExtraFields.length > 0
-    ? await fetchWorkItemResponse(context, id, pat, { includeRelations: true })
+    ? await fetchWorkItemResponse(context, id, cred, { includeRelations: true })
     : data;
 
   const descriptionParts: { label: string; value: string }[] = [];
@@ -375,7 +375,7 @@ export async function getWorkItem(context: AzdoContext, id: number, pat: string,
 export async function getWorkItemFieldValue(
   context: AzdoContext,
   id: number,
-  pat: string,
+  cred: AuthCredential,
   fieldName: string,
 ): Promise<string | null> {
   const url = new URL(
@@ -384,7 +384,7 @@ export async function getWorkItemFieldValue(
   url.searchParams.set('api-version', '7.1');
   url.searchParams.set('fields', fieldName);
 
-  const response = await fetchWithErrors(url.toString(), { headers: authHeaders(pat) });
+  const response = await fetchWithErrors(url.toString(), { headers: authHeaders(cred) });
 
   if (response.status === 400) {
     const serverMessage = await readResponseMessage(response);
@@ -410,7 +410,7 @@ export async function getWorkItemFieldValue(
 export async function listWorkItemComments(
   context: AzdoContext,
   id: number,
-  pat: string,
+  cred: AuthCredential,
 ): Promise<WorkItemCommentsResult> {
   const comments: WorkItemComment[] = [];
   let continuationToken: string | null = null;
@@ -418,7 +418,7 @@ export async function listWorkItemComments(
   do {
     const response = await fetchWithErrors(
       buildWorkItemCommentsListUrl(context, id, continuationToken ?? undefined).toString(),
-      { headers: authHeaders(pat) },
+      { headers: authHeaders(cred) },
     );
 
     if (!response.ok) {
@@ -444,7 +444,7 @@ export async function listWorkItemComments(
 export async function addWorkItemComment(
   context: AzdoContext,
   id: number,
-  pat: string,
+  cred: AuthCredential,
   text: string,
   format: 'html' | 'markdown' = 'html',
 ): Promise<AddWorkItemCommentResult> {
@@ -453,7 +453,7 @@ export async function addWorkItemComment(
   const response = await fetchWithErrors(url.toString(), {
     method: 'POST',
     headers: {
-      ...authHeaders(pat),
+      ...authHeaders(cred),
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({ text }),
@@ -483,11 +483,11 @@ export async function addWorkItemComment(
 export async function updateWorkItem(
   context: AzdoContext,
   id: number,
-  pat: string,
+  cred: AuthCredential,
   fieldName: string,
   operations: JsonPatchOperation[],
 ): Promise<UpdateResult> {
-  const result = await applyWorkItemPatch(context, id, pat, operations);
+  const result = await applyWorkItemPatch(context, id, cred, operations);
   const title = result.fields['System.Title'];
   const lastOp = operations.at(-1);
   const fieldValue = lastOp?.value ?? null;
@@ -504,7 +504,7 @@ export async function updateWorkItem(
 export async function createWorkItem(
   context: AzdoContext,
   workItemType: string,
-  pat: string,
+  cred: AuthCredential,
   operations: JsonPatchOperation[],
 ): Promise<WriteResult> {
   const url = new URL(
@@ -514,7 +514,7 @@ export async function createWorkItem(
 
   const response = await fetchWithErrors(url.toString(), {
     method: 'POST',
-    headers: writeHeaders(pat),
+    headers: writeHeaders(cred),
     body: JSON.stringify(operations),
   });
 
@@ -524,7 +524,7 @@ export async function createWorkItem(
 export async function applyWorkItemPatch(
   context: AzdoContext,
   id: number,
-  pat: string,
+  cred: AuthCredential,
   operations: JsonPatchOperation[],
 ): Promise<WriteResult> {
   const url = new URL(
@@ -534,15 +534,15 @@ export async function applyWorkItemPatch(
 
   const response = await fetchWithErrors(url.toString(), {
     method: 'PATCH',
-    headers: writeHeaders(pat),
+    headers: writeHeaders(cred),
     body: JSON.stringify(operations),
   });
 
   return readWriteResponse(response, 'UPDATE_REJECTED');
 }
 
-export async function downloadAttachment(url: string, pat: string): Promise<ArrayBuffer> {
-  const response = await fetchWithErrors(url, { headers: authHeaders(pat) });
+export async function downloadAttachment(url: string, cred: AuthCredential): Promise<ArrayBuffer> {
+  const response = await fetchWithErrors(url, { headers: authHeaders(cred) });
 
   if (!response.ok) {
     throw new Error(`HTTP_${response.status}`);

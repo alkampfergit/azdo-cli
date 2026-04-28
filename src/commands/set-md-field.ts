@@ -115,7 +115,7 @@ export function createSetMdFieldCommand(): Command {
             { op: 'add' as const, path: `/multilineFieldsFormat/${field}`, value: 'Markdown' },
           ];
 
-          const result = await updateWorkItem(context, id, credential.pat, field, operations);
+          const result = await updateWorkItem(context, id, credential, field, operations);
           formatOutput(result, options, field);
         } catch (err: unknown) {
           handleCommandError(err, id, context, 'write');

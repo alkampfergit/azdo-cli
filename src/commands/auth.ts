@@ -379,20 +379,16 @@ Note: stored credentials may coexist as 'pat' or 'oauth' across orgs (FR-007).`,
       await handleAuthRoot(options);
     });
 
-  // `azdo auth login` is the spec-canonical name; alias of the root action.
+  // `azdo auth login` is the spec-canonical name; OAuth is the default per FR-012.
+  // All flags are inherited from the parent root command via optsWithGlobals();
+  // we only re-declare `--org` so it can be passed in either position.
   const loginCmd = command
     .command('login')
-    .description('Authenticate against Azure DevOps (alias of `azdo auth`)')
-    .option('--use-pat', 'use Personal Access Token instead of OAuth', false)
-    .option('--from-stdin', 'read PAT from stdin (implies --use-pat)', false)
-    .option('--no-browser', 'do not open the Azure DevOps PAT page in a browser')
-    .option('--device-code', 'use OAuth device-code flow (headless hosts; OAuth only)', false)
-    .option('--client-id <id>', 'override the default OAuth client id')
-    .option('--tenant-id <id>', 'override the default OAuth tenant id')
-    .option('--scopes <scopes>', 'space-separated OAuth scope override');
-  loginCmd.action(async (options: RootOptions) => {
-    const globals = loginCmd.optsWithGlobals() as GlobalsWithOrg & RootOptions;
-    await handleLoginSubcommand({ ...options, org: globals.org });
+    .description('Authenticate against Azure DevOps (OAuth default; --use-pat for PAT)')
+    .option('--org <name>', 'Azure DevOps organization (defaults: git remote → config)');
+  loginCmd.action(async () => {
+    const merged = loginCmd.optsWithGlobals() as GlobalsWithOrg & RootOptions;
+    await handleLoginSubcommand(merged);
   });
 
   const statusCmd = command

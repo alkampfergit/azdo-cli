@@ -72,7 +72,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   setupProcessSpies();
   vi.mocked(resolveContext).mockReturnValue({ org: 'test-org', project: 'test-project' });
-  vi.mocked(requirePat).mockResolvedValue({ pat: 'test-pat', source: 'env' });
+  vi.mocked(requirePat).mockResolvedValue({ pat: 'test-pat', source: 'env', kind: 'pat' });
   vi.mocked(detectRepoName).mockReturnValue('repo-name');
   vi.mocked(getCurrentBranch).mockReturnValue('feature/test');
   vi.mocked(listPullRequests).mockResolvedValue([referencePr]);
@@ -100,7 +100,7 @@ describe('pr comment-resolve command', () => {
     await runResolve(['17', '--pr-number', '64']);
 
     expect(vi.mocked(patchThreadStatus)).toHaveBeenCalledWith(
-      expect.any(Object), 'repo-name', 'test-pat', 64, 17, 'fixed',
+      expect.any(Object), 'repo-name', expect.objectContaining({ pat: 'test-pat' }), 64, 17, 'fixed',
     );
     expect(getStdout()).toContain('Thread #17 resolved on pull request #64');
     expect(getExitCode()).toBe(0);
@@ -126,7 +126,7 @@ describe('pr comment-resolve command', () => {
       vi.clearAllMocks();
       setupProcessSpies();
       vi.mocked(resolveContext).mockReturnValue({ org: 'test-org', project: 'test-project' });
-      vi.mocked(requirePat).mockResolvedValue({ pat: 'test-pat', source: 'env' });
+      vi.mocked(requirePat).mockResolvedValue({ pat: 'test-pat', source: 'env', kind: 'pat' });
       vi.mocked(detectRepoName).mockReturnValue('repo-name');
       vi.mocked(getCurrentBranch).mockReturnValue('feature/test');
       vi.mocked(getPullRequestById).mockResolvedValue(referencePr);
@@ -172,7 +172,7 @@ describe('pr comment-reopen command', () => {
     await runReopen(['17', '--pr-number', '64']);
 
     expect(vi.mocked(patchThreadStatus)).toHaveBeenCalledWith(
-      expect.any(Object), 'repo-name', 'test-pat', 64, 17, 'active',
+      expect.any(Object), 'repo-name', expect.objectContaining({ pat: 'test-pat' }), 64, 17, 'active',
     );
     expect(getStdout()).toContain('Thread #17 reopened on pull request #64');
     expect(getExitCode()).toBe(0);

@@ -30,7 +30,7 @@ export function createGetMdFieldCommand(): Command {
           context = resolveContext(options);
           const credential = await requirePat(context.org);
 
-          const value = await getWorkItemFieldValue(context, id, credential.pat, field);
+          const value = await getWorkItemFieldValue(context, id, credential, field);
 
           if (value === null) {
             process.stdout.write('\n');

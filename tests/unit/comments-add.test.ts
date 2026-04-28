@@ -30,7 +30,7 @@ const run = createCommandRunner(createCommentsCommand);
 beforeEach(() => {
   setupProcessSpies();
   vi.mocked(resolveContext).mockReturnValue({ org: 'test-org', project: 'test-project' });
-  vi.mocked(requirePat).mockResolvedValue({ pat: 'test-pat', source: 'env' });
+  vi.mocked(requirePat).mockResolvedValue({ pat: 'test-pat', source: 'env', kind: 'pat' });
   vi.mocked(addWorkItemComment).mockResolvedValue({
     workItemId: 42,
     commentId: 77,
@@ -76,7 +76,7 @@ describe('comments add command', () => {
     expect(addWorkItemComment).toHaveBeenCalledWith(
       expect.anything(),
       42,
-      expect.any(String),
+      expect.any(Object),
       '**bold**',
       'markdown',
     );
@@ -87,7 +87,7 @@ describe('comments add command', () => {
     expect(addWorkItemComment).toHaveBeenCalledWith(
       expect.anything(),
       42,
-      expect.any(String),
+      expect.any(Object),
       'plain text',
       'html',
     );

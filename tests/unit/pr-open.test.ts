@@ -29,7 +29,7 @@ const run = createCommandRunner(createPrOpenCommand);
 beforeEach(() => {
   setupProcessSpies();
   vi.mocked(resolveContext).mockReturnValue({ org: 'test-org', project: 'test-project' });
-  vi.mocked(requirePat).mockResolvedValue({ pat: 'test-pat', source: 'env' });
+  vi.mocked(requirePat).mockResolvedValue({ pat: 'test-pat', source: 'env', kind: 'pat' });
   vi.mocked(detectRepoName).mockReturnValue('repo-name');
   vi.mocked(getCurrentBranch).mockReturnValue('feature/test');
   vi.mocked(openPullRequest).mockResolvedValue({

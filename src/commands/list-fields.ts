@@ -66,7 +66,7 @@ export function createListFieldsCommand(): Command {
           context = resolveContext(options);
           const credential = await requirePat(context.org);
 
-          const fields = await getWorkItemFields(context, id, credential.pat);
+          const fields = await getWorkItemFields(context, id, credential);
 
           if (options.json) {
             process.stdout.write(JSON.stringify({ id, fields }, null, 2) + '\n');

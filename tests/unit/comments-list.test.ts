@@ -29,7 +29,7 @@ const run = createCommandRunner(createCommentsCommand);
 beforeEach(() => {
   setupProcessSpies();
   vi.mocked(resolveContext).mockReturnValue({ org: 'test-org', project: 'test-project' });
-  vi.mocked(requirePat).mockResolvedValue({ pat: 'test-pat', source: 'env' });
+  vi.mocked(requirePat).mockResolvedValue({ pat: 'test-pat', source: 'env', kind: 'pat' });
   vi.mocked(listWorkItemComments).mockResolvedValue({
     workItemId: 42,
     count: 0,

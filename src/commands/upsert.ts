@@ -234,12 +234,12 @@ export function createUpsertCommand(): Command {
         const credential = await requirePat(context.org);
         let writeResult: WriteResult;
         if (action === 'created') {
-          writeResult = await createWorkItem(context, createType, credential.pat, operations);
+          writeResult = await createWorkItem(context, createType, credential, operations);
         } else {
           if (id === undefined) {
             fail('Work item ID is required for updates.');
           }
-          writeResult = await applyWorkItemPatch(context, id, credential.pat, operations);
+          writeResult = await applyWorkItemPatch(context, id, credential, operations);
         }
         const result = buildUpsertResult(
           action,

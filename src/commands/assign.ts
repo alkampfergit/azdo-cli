@@ -51,7 +51,7 @@ export function createAssignCommand(): Command {
             { op: 'add' as const, path: '/fields/System.AssignedTo', value },
           ];
 
-          const result = await updateWorkItem(context, id, credential.pat, 'System.AssignedTo', operations);
+          const result = await updateWorkItem(context, id, credential, 'System.AssignedTo', operations);
 
           if (options.json) {
             process.stdout.write(

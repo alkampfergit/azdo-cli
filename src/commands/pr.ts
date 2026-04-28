@@ -7,7 +7,7 @@ import type {
   PullRequestStatusPullRequest,
   PullRequestStatusResult,
 } from '../types/pull-request.js';
-import type { AzdoContext } from '../types/work-item.js';
+import type { AuthCredential, AzdoContext } from '../types/work-item.js';
 import {
   listPullRequests,
   openPullRequest,
@@ -45,7 +45,7 @@ interface ResolvedPrCommandContext {
   context: AzdoContext;
   repo: string;
   branch: string | null;
-  pat: string;
+  pat: AuthCredential;
 }
 
 function formatBranchName(refName: string): string {
@@ -157,7 +157,7 @@ async function resolvePrCommandContext(
     context,
     repo,
     branch,
-    pat: credential.pat,
+    pat: credential,
   };
 }
 
@@ -386,7 +386,7 @@ export function createPrCommentsCommand(): Command {
 interface ResolvedThreadTarget {
   context: AzdoContext;
   repo: string;
-  pat: string;
+  pat: AuthCredential;
   pullRequest: BranchPullRequestMatch;
   threadId: number;
 }

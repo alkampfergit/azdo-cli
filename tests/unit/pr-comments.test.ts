@@ -55,7 +55,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   setupProcessSpies();
   vi.mocked(resolveContext).mockReturnValue({ org: 'test-org', project: 'test-project' });
-  vi.mocked(requirePat).mockResolvedValue({ pat: 'test-pat', source: 'env' });
+  vi.mocked(requirePat).mockResolvedValue({ pat: 'test-pat', source: 'env', kind: 'pat' });
   vi.mocked(detectRepoName).mockReturnValue('repo-name');
   vi.mocked(getCurrentBranch).mockReturnValue('feature/test');
   vi.mocked(listPullRequests).mockResolvedValue([basePullRequest]);
@@ -98,7 +98,7 @@ describe('pr comments command --pr-number', () => {
 
     await run(['--pr-number', '64']);
 
-    expect(vi.mocked(getPullRequestById)).toHaveBeenCalledWith(expect.any(Object), 'repo-name', 'test-pat', 64);
+    expect(vi.mocked(getPullRequestById)).toHaveBeenCalledWith(expect.any(Object), 'repo-name', expect.objectContaining({ pat: 'test-pat' }), 64);
     expect(vi.mocked(listPullRequests)).not.toHaveBeenCalled();
     expect(getStdout()).toContain('Comment threads for pull request #64: Reference PR');
     expect(getStdout()).toContain('Thread #500 [active]');

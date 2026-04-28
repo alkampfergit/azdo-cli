@@ -36,7 +36,7 @@ export function createSetFieldCommand(): Command {
             { op: 'add' as const, path: `/fields/${field}`, value },
           ];
 
-          const result = await updateWorkItem(context, id, credential.pat, field, operations);
+          const result = await updateWorkItem(context, id, credential, field, operations);
 
           if (options.json) {
             process.stdout.write(

@@ -36,7 +36,7 @@ const run = createCommandRunner(createUpsertCommand);
 beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(resolveContext).mockReturnValue({ org: 'testorg', project: 'testproj' });
-  vi.mocked(requirePat).mockResolvedValue({ pat: 'test-pat', source: 'env' });
+  vi.mocked(requirePat).mockResolvedValue({ pat: 'test-pat', source: 'env', kind: 'pat' });
   vi.mocked(createWorkItem).mockResolvedValue({
     id: 101,
     rev: 1,
@@ -69,7 +69,7 @@ describe('upsert command', () => {
     expect(createWorkItem).toHaveBeenCalledWith(
       { org: 'testorg', project: 'testproj' },
       'Task',
-      'test-pat',
+      expect.objectContaining({ pat: 'test-pat' }),
       [{ op: 'add', path: '/fields/System.Title', value: 'Fix login bug' }],
     );
     expect(getStdout()).toContain('Created Task #101');
@@ -81,7 +81,7 @@ describe('upsert command', () => {
     expect(applyWorkItemPatch).toHaveBeenCalledWith(
       { org: 'testorg', project: 'testproj' },
       42,
-      'test-pat',
+      expect.objectContaining({ pat: 'test-pat' }),
       [
         { op: 'add', path: '/fields/System.Title', value: 'Fix login bug' },
         { op: 'add', path: '/fields/System.State', value: 'Active' },
@@ -110,7 +110,7 @@ describe('upsert command', () => {
     expect(applyWorkItemPatch).toHaveBeenCalledWith(
       expect.any(Object),
       42,
-      'test-pat',
+      expect.objectContaining({ pat: 'test-pat' }),
       [
         { op: 'add', path: '/fields/System.Title', value: 'Fix login bug' },
         { op: 'remove', path: '/fields/Microsoft.VSTS.Common.Priority' },
@@ -140,7 +140,7 @@ describe('upsert command', () => {
     expect(createWorkItem).toHaveBeenCalledWith(
       expect.any(Object),
       'Task',
-      'test-pat',
+      expect.objectContaining({ pat: 'test-pat' }),
       [{ op: 'add', path: '/fields/System.Title', value: 'Fix login bug' }],
     );
   });
@@ -160,7 +160,7 @@ describe('upsert command', () => {
     expect(createWorkItem).toHaveBeenCalledWith(
       expect.any(Object),
       'Bug',
-      'test-pat',
+      expect.objectContaining({ pat: 'test-pat' }),
       [{ op: 'add', path: '/fields/System.Title', value: 'Fix login bug' }],
     );
     expect(getStdout()).toContain('Created Bug #101');
@@ -181,7 +181,7 @@ describe('upsert command', () => {
     expect(createWorkItem).toHaveBeenCalledWith(
       expect.any(Object),
       'User Story',
-      'test-pat',
+      expect.objectContaining({ pat: 'test-pat' }),
       [{ op: 'add', path: '/fields/System.Title', value: 'Improve import flow' }],
     );
     expect(getStdout()).toBe(
@@ -207,7 +207,7 @@ describe('upsert command', () => {
     expect(applyWorkItemPatch).toHaveBeenCalledWith(
       expect.any(Object),
       42,
-      'test-pat',
+      expect.objectContaining({ pat: 'test-pat' }),
       [
         { op: 'add', path: '/fields/System.Title', value: 'Fix login bug' },
         { op: 'add', path: '/fields/System.Description', value: 'Body' },
@@ -248,7 +248,7 @@ describe('upsert command', () => {
     expect(applyWorkItemPatch).toHaveBeenCalledWith(
       expect.any(Object),
       42,
-      'test-pat',
+      expect.objectContaining({ pat: 'test-pat' }),
       [{ op: 'remove', path: '/fields/System.Description' }],
     );
   });

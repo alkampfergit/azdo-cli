@@ -34,7 +34,7 @@ export function createSetStateCommand(): Command {
             { op: 'add' as const, path: '/fields/System.State', value: state },
           ];
 
-          const result = await updateWorkItem(context, id, credential.pat, 'System.State', operations);
+          const result = await updateWorkItem(context, id, credential, 'System.State', operations);
 
           if (options.json) {
             process.stdout.write(

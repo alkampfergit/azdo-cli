@@ -1,4 +1,4 @@
-import type { AzdoContext } from '../types/work-item.js';
+import type { AuthCredential, AzdoContext } from '../types/work-item.js';
 import { authHeaders, fetchWithErrors } from './azdo-client.js';
 import type {
   ActiveCommentThread,
@@ -171,7 +171,7 @@ async function readJsonResponse<T>(response: Response): Promise<T> {
 export async function patchThreadStatus(
   context: AzdoContext,
   repo: string,
-  pat: string,
+  cred: AuthCredential,
   prId: number,
   threadId: number,
   status: 'active' | 'fixed',
@@ -184,7 +184,7 @@ export async function patchThreadStatus(
   const response = await fetchWithErrors(url.toString(), {
     method: 'PATCH',
     headers: {
-      ...authHeaders(pat),
+      ...authHeaders(cred),
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({ status }),
@@ -202,7 +202,7 @@ export async function patchThreadStatus(
 export async function getPullRequestById(
   context: AzdoContext,
   repo: string,
-  pat: string,
+  cred: AuthCredential,
   prId: number,
 ): Promise<BranchPullRequestMatch> {
   const url = new URL(
@@ -210,7 +210,7 @@ export async function getPullRequestById(
   );
   url.searchParams.set('api-version', '7.1');
 
-  const response = await fetchWithErrors(url.toString(), { headers: authHeaders(pat) });
+  const response = await fetchWithErrors(url.toString(), { headers: authHeaders(cred) });
   const data = await readJsonResponse<AzdoPullRequest>(response);
   return mapPullRequest(repo, data);
 }
@@ -218,13 +218,13 @@ export async function getPullRequestById(
 export async function listPullRequests(
   context: AzdoContext,
   repo: string,
-  pat: string,
+  cred: AuthCredential,
   sourceBranch: string,
   opts?: { status?: string; targetBranch?: string },
 ): Promise<BranchPullRequestMatch[]> {
   const response = await fetchWithErrors(
     buildPullRequestsUrl(context, repo, sourceBranch, opts).toString(),
-    { headers: authHeaders(pat) },
+    { headers: authHeaders(cred) },
   );
   const data = await readJsonResponse<AzdoPrListResponse>(response);
   return data.value.map((pullRequest) => mapPullRequest(repo, pullRequest));
@@ -233,12 +233,12 @@ export async function listPullRequests(
 export async function getPullRequestChecks(
   context: AzdoContext,
   repo: string,
-  pat: string,
+  cred: AuthCredential,
   prId: number,
 ): Promise<PullRequestCheck[]> {
   const response = await fetchWithErrors(
     buildPullRequestStatusesUrl(context, repo, prId).toString(),
-    { headers: authHeaders(pat) },
+    { headers: authHeaders(cred) },
   );
   const data = await readJsonResponse<AzdoPrStatusListResponse>(response);
 
@@ -250,12 +250,12 @@ export async function getPullRequestChecks(
 export async function openPullRequest(
   context: AzdoContext,
   repo: string,
-  pat: string,
+  cred: AuthCredential,
   sourceBranch: string,
   title: string,
   description: string,
 ): Promise<PullRequestOpenResult> {
-  const existing = await listPullRequests(context, repo, pat, sourceBranch, {
+  const existing = await listPullRequests(context, repo, cred, sourceBranch, {
     status: 'active',
     targetBranch: 'develop',
   });
@@ -288,7 +288,7 @@ export async function openPullRequest(
   const response = await fetchWithErrors(url.toString(), {
     method: 'POST',
     headers: {
-      ...authHeaders(pat),
+      ...authHeaders(cred),
       'Content-Type': 'application/json',
     },
     body: JSON.stringify(payload),
@@ -306,7 +306,7 @@ export async function openPullRequest(
 export async function getPullRequestThreads(
   context: AzdoContext,
   repo: string,
-  pat: string,
+  cred: AuthCredential,
   prId: number,
 ): Promise<ActiveCommentThread[]> {
   const url = new URL(
@@ -314,7 +314,7 @@ export async function getPullRequestThreads(
   );
   url.searchParams.set('api-version', '7.1');
 
-  const response = await fetchWithErrors(url.toString(), { headers: authHeaders(pat) });
+  const response = await fetchWithErrors(url.toString(), { headers: authHeaders(cred) });
   const data = await readJsonResponse<AzdoThreadListResponse>(response);
 
   return data.value

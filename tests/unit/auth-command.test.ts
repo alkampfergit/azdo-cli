@@ -34,17 +34,23 @@ vi.mock('../../src/services/credential-store.js', () => ({
   probeBackend: vi.fn(() => 'linux-libsecret'),
 }));
 
+const loginWithOAuthMock = vi.hoisted(() => vi.fn());
+
 vi.mock('../../src/services/auth.js', async (original) => {
   const actual = await (original() as Promise<Record<string, unknown>>);
   return {
     ...actual,
     promptForPat: vi.fn(async () => 'prompted-pat'),
     validatePatAgainstAzdo: vi.fn(async () => ({ ok: true, status: 200 })),
+    loginWithOAuth: loginWithOAuthMock,
   };
 });
 
+const resolveOrgMock = vi.hoisted(() =>
+  vi.fn(({ org }: { org?: string }) => (org ? { org, source: 'flag' } : null)),
+);
 vi.mock('../../src/services/org-resolver.js', () => ({
-  resolveOrg: vi.fn(({ org }: { org?: string }) => (org ? { org, source: 'flag' } : null)),
+  resolveOrg: resolveOrgMock,
   formatResolutionError: vi.fn(() => 'fake resolution error'),
 }));
 
@@ -130,6 +136,65 @@ describe('azdo auth', () => {
     vi.mocked(openUrl).mockClear();
     await run(['--org', 'myorg', '--no-browser']);
     expect(openUrl).not.toHaveBeenCalled();
+  });
+});
+
+describe('azdo auth login (OAuth subcommand)', () => {
+  beforeEach(() => {
+    loginWithOAuthMock.mockReset().mockResolvedValue({
+      org: 'myorg',
+      kind: 'oauth',
+      accountId: 'oid:abc',
+      expiresAt: 1745783999,
+      scope: 'vso.work offline_access',
+      flowUsed: 'auth-code',
+    });
+  });
+
+  it('routes to OAuth flow by default and uses --org when explicitly passed', async () => {
+    await run(['login', '--org', 'myorg']);
+    expect(loginWithOAuthMock).toHaveBeenCalledWith('myorg', expect.objectContaining({ flow: 'auto' }));
+  });
+
+  it('auto-detects org from git remote when --org is not passed', async () => {
+    // Simulate org-resolver returning a git-detected org
+    resolveOrgMock.mockReturnValueOnce({ org: 'gitorg', source: 'git' });
+    await run(['login']);
+    expect(loginWithOAuthMock).toHaveBeenCalledWith('gitorg', expect.objectContaining({ flow: 'auto' }));
+  });
+
+  it('rejects --use-pat together with --device-code', async () => {
+    await run(['login', '--org', 'myorg', '--use-pat', '--device-code']);
+    expect(process.exitCode).toBe(2);
+    expect(getStderr()).toContain('mutually exclusive');
+  });
+
+  it('rejects --use-pat together with --client-id', async () => {
+    await run(['login', '--org', 'myorg', '--use-pat', '--client-id', 'foo']);
+    expect(process.exitCode).toBe(2);
+  });
+
+  it('falls back to PAT prompt path when --use-pat is passed', async () => {
+    await run(['login', '--org', 'myorg', '--use-pat']);
+    expect(loginWithOAuthMock).not.toHaveBeenCalled();
+    expect(validatePatAgainstAzdo).toHaveBeenCalled();
+  });
+
+  it('forwards --device-code to loginWithOAuth as flow=device-code', async () => {
+    await run(['login', '--org', 'myorg', '--device-code']);
+    expect(loginWithOAuthMock).toHaveBeenCalledWith('myorg', expect.objectContaining({ flow: 'device-code' }));
+  });
+
+  it('forwards --client-id and --tenant-id and --scopes overrides', async () => {
+    await run(['login', '--org', 'myorg', '--client-id', 'cid-x', '--tenant-id', 'tnt-y', '--scopes', 'scope-a scope-b']);
+    expect(loginWithOAuthMock).toHaveBeenCalledWith(
+      'myorg',
+      expect.objectContaining({
+        clientIdOverride: 'cid-x',
+        tenantIdOverride: 'tnt-y',
+        scopesOverride: ['scope-a', 'scope-b'],
+      }),
+    );
   });
 });
 

@@ -54,7 +54,7 @@ export function createCommentsListCommand(): Command {
       try {
         context = resolveContext(options);
         const credential = await requirePat(context.org);
-        const result = await listWorkItemComments(context, id, credential.pat);
+        const result = await listWorkItemComments(context, id, credential);
 
         if (options.json) {
           process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
@@ -100,7 +100,7 @@ export function createCommentsAddCommand(): Command {
         context = resolveContext(options);
         const credential = await requirePat(context.org);
         const format = options.markdown === true ? 'markdown' : 'html';
-        const result = await addWorkItemComment(context, id, credential.pat, text, format);
+        const result = await addWorkItemComment(context, id, credential, text, format);
 
         if (options.json) {
           process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);

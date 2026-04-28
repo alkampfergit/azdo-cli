@@ -30,7 +30,7 @@ const sampleFields: Record<string, unknown> = {
 
 beforeEach(() => {
   vi.mocked(resolveContext).mockReturnValue({ org: 'testorg', project: 'testproj' });
-  vi.mocked(requirePat).mockResolvedValue({ pat: 'test-pat', source: 'env' });
+  vi.mocked(requirePat).mockResolvedValue({ pat: 'test-pat', source: 'env', kind: 'pat' });
   vi.mocked(getWorkItemFields).mockResolvedValue(sampleFields);
   setupProcessSpies();
 });
@@ -104,7 +104,7 @@ describe('list-fields command', () => {
       expect(getWorkItemFields).toHaveBeenCalledWith(
         { org: 'testorg', project: 'testproj' },
         42,
-        'test-pat',
+        expect.objectContaining({ pat: 'test-pat' }),
       );
     });
   });
