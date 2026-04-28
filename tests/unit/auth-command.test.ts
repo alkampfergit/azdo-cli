@@ -14,8 +14,16 @@ const credStoreState = vi.hoisted(() => ({
 
 vi.mock('../../src/services/credential-store.js', () => ({
   getPat: vi.fn(async (org: string) => (credStoreState.stored.has(org) ? credStoreState.stored.get(org)! : null)),
+  getStoredCredential: vi.fn(async (org: string) =>
+    credStoreState.stored.has(org)
+      ? { kind: 'pat' as const, token: credStoreState.stored.get(org)! }
+      : null,
+  ),
   storePat: vi.fn(async (org: string, pat: string) => {
     credStoreState.stored.set(org, pat);
+  }),
+  storeOAuthCredential: vi.fn(async () => {
+    /* no-op for tests */
   }),
   deletePat: vi.fn(async (org: string) => {
     if (!credStoreState.stored.has(org)) return false;
@@ -153,16 +161,16 @@ describe('azdo auth status', () => {
 });
 
 describe('azdo auth logout', () => {
-  it('removes the stored PAT for a given org', async () => {
+  it('removes the stored credential for a given org', async () => {
     credStoreState.stored.set('myorg', 'token');
     await run(['logout', '--org', 'myorg']);
     expect(deletePat).toHaveBeenCalledWith('myorg');
-    expect(getStdout()).toContain('PAT removed for org myorg');
+    expect(getStdout()).toContain('Credential removed for org myorg');
   });
 
-  it('succeeds with a different message when no PAT stored', async () => {
+  it('succeeds with a different message when no credential stored', async () => {
     await run(['logout', '--org', 'myorg']);
-    expect(getStdout()).toContain('No stored PAT found');
+    expect(getStdout()).toContain('No stored credential for org myorg');
     expect(process.exitCode).toBeFalsy();
   });
 
@@ -172,20 +180,20 @@ describe('azdo auth logout', () => {
     expect(getStderr()).toContain('mutually exclusive');
   });
 
-  it('removes all stored PATs with --all', async () => {
+  it('removes all stored credentials with --all', async () => {
     credStoreState.stored.set('orgA', 'tA');
     credStoreState.stored.set('orgB', 'tB');
     credStoreState.listReturns = ['orgA', 'orgB'];
     await run(['logout', '--all']);
     expect(deletePat).toHaveBeenCalledWith('orgA');
     expect(deletePat).toHaveBeenCalledWith('orgB');
-    expect(getStdout()).toContain('PAT removed for org orgA');
-    expect(getStdout()).toContain('PAT removed for org orgB');
+    expect(getStdout()).toContain('Removed pat credential for org orgA');
+    expect(getStdout()).toContain('Removed pat credential for org orgB');
   });
 
   it('reports when --all finds nothing', async () => {
     credStoreState.listReturns = [];
     await run(['logout', '--all']);
-    expect(getStdout()).toContain('No stored PATs to remove');
+    expect(getStdout()).toContain('No stored credentials to remove');
   });
 });

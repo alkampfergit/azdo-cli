@@ -1,5 +1,6 @@
 import type {
   AddWorkItemCommentResult,
+  AuthCredential,
   WorkItem,
   WorkItemAttachment,
   AzdoContext,
@@ -22,8 +23,15 @@ const DEFAULT_FIELDS: readonly string[] = [
   'System.IterationPath',
 ];
 
-export function authHeaders(pat: string): Record<string, string> {
-  const token = Buffer.from(`:${pat}`).toString('base64');
+export function authHeaders(credentialOrPat: AuthCredential | string): Record<string, string> {
+  if (typeof credentialOrPat === 'string') {
+    const token = Buffer.from(`:${credentialOrPat}`).toString('base64');
+    return { Authorization: `Basic ${token}` };
+  }
+  if (credentialOrPat.kind === 'oauth') {
+    return { Authorization: `Bearer ${credentialOrPat.pat}` };
+  }
+  const token = Buffer.from(`:${credentialOrPat.pat}`).toString('base64');
   return { Authorization: `Basic ${token}` };
 }
 

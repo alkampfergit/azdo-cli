@@ -25,8 +25,13 @@ export interface AzdoContext {
 }
 
 export interface AuthCredential {
+  /** For PAT credentials this is the bare token; for OAuth this is the access (bearer) token. */
   pat: string;
   source: 'env' | 'credential-store' | 'prompt';
+  /** Discriminator for the auth scheme. Defaults to 'pat' when omitted (legacy callers). */
+  kind?: 'pat' | 'oauth';
+  /** Account identifier (OAuth only) — Entra `oid` / preferred_username. Used for display + audit. */
+  accountId?: string;
 }
 
 export interface CliConfig {
