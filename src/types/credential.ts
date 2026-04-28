@@ -67,7 +67,10 @@ export class CredentialRefreshError extends Error {
   readonly userMessage: string;
 
   constructor(org: string, reason: CredentialRefreshReason, cause?: unknown) {
-    const userMessage = `Refresh token rejected for org \`${org}\`; run \`azdo login --org ${org}\` to re-authorise.`;
+    const userMessage =
+      reason === 'network'
+        ? `OAuth refresh for org \`${org}\` failed (network error); check connectivity and retry the command. The stored credential is preserved.`
+        : `Refresh token rejected for org \`${org}\`; run \`azdo auth login --org ${org}\` to re-authorise. The stored credential is preserved (FR-014) — inspect it with \`azdo auth status --org ${org}\`.`;
     super(userMessage);
     this.name = 'CredentialRefreshError';
     this.org = org;

@@ -11,6 +11,7 @@ import {
 } from '../services/auth.js';
 import {
   getPat,
+  getStoredCredential,
   storePat,
   deletePat,
   probeBackend,
@@ -47,6 +48,28 @@ async function readStdinToString(): Promise<string> {
 async function confirmOverwrite(org: string): Promise<boolean> {
   if (!process.stdin.isTTY) return true;
   process.stderr.write(`A PAT is already stored for org ${org}. Overwrite? [y/N] `);
+  return await new Promise<boolean>((resolve) => {
+    process.stdin.setEncoding('utf8');
+    let answered = false;
+    const handler = (data: string): void => {
+      if (answered) return;
+      answered = true;
+      process.stdin.removeListener('data', handler);
+      process.stdin.pause();
+      const trimmed = data.trim().toLowerCase();
+      resolve(trimmed === 'y' || trimmed === 'yes');
+    };
+    process.stdin.resume();
+    process.stdin.on('data', handler);
+  });
+}
+
+async function confirmOverwriteCredential(org: string, existingKind: 'pat' | 'oauth'): Promise<boolean> {
+  if (!process.stdin.isTTY) return true;
+  process.stderr.write(
+    `A ${existingKind === 'oauth' ? 'OAuth credential' : 'PAT'} is already stored for org ${org}. ` +
+      `The new login will replace it. Continue? [y/N] `,
+  );
   return await new Promise<boolean>((resolve) => {
     process.stdin.setEncoding('utf8');
     let answered = false;
@@ -148,6 +171,28 @@ async function handleOAuthLogin(options: RootOptions): Promise<void> {
     return;
   }
   const org = resolved.org;
+
+  // Honour the loginWithOAuth contract: confirm before overwriting an existing
+  // stored credential. On a non-TTY (CI / scripted use) we proceed without
+  // prompting — the caller has already opted in by invoking the command.
+  try {
+    const existing = await getStoredCredential(org);
+    if (existing !== null && process.stdin.isTTY) {
+      const ok = await confirmOverwriteCredential(org, existing.kind);
+      if (!ok) {
+        process.stderr.write('Aborted. Existing credential preserved.\n');
+        process.exitCode = 1;
+        return;
+      }
+    }
+  } catch (err) {
+    if (err instanceof CredentialStoreUnavailableError) {
+      process.stderr.write(`${err.message}\n`);
+      process.exitCode = 4;
+      return;
+    }
+    throw err;
+  }
 
   const oauthOpts: OAuthLoginOptions = {
     flow: options.deviceCode ? 'device-code' : 'auto',
@@ -340,7 +385,7 @@ async function handleLogout(options: { all?: boolean }, orgFromGlobal: string | 
 export function createAuthCommand(): Command {
   const command = new Command('auth');
   command.description(
-    'Authenticate against Azure DevOps. Defaults to OAuth (browser); pass --use-pat for PAT.',
+    'Manage Azure DevOps authentication. Use `azdo auth login` for OAuth (default); the bare `azdo auth` form preserves the legacy PAT-prompt path for back-compat.',
   );
 
   command
@@ -357,15 +402,16 @@ export function createAuthCommand(): Command {
     .addHelpText(
       'after',
       `
-Default flow:
-  azdo auth --org <name>
+Default flow (OAuth, browser-based):
+  azdo auth login --org <name>
   → opens the default browser for OAuth (Microsoft Entra v2 + PKCE).
 
 Headless / no-browser:
-  azdo auth --org <name> --device-code
+  azdo auth login --org <name> --device-code
 
-PAT (legacy):
-  azdo auth --org <name> --use-pat
+PAT path (legacy, opt-in):
+  azdo auth login --org <name> --use-pat
+  azdo auth --org <name>            # back-compat alias of the above
 
 OAuth scope set requested by default (FR-016, mirrors PAT scope table):
   ${defaultScopes().join('\n  ')}
@@ -373,7 +419,9 @@ OAuth scope set requested by default (FR-016, mirrors PAT scope table):
 For self-registered OAuth apps (locked-down tenants), see docs/oauth-app-registration.md
 — that same guide is the maintainer reference for the project's shared client id.
 
-Note: stored credentials may coexist as 'pat' or 'oauth' across orgs (FR-007).`,
+Note: stored credentials may coexist as 'pat' or 'oauth' across orgs (FR-007).
+Note: \`azdo auth\` (no subcommand) preserves the legacy PAT-prompt entry point;
+      \`azdo auth login\` is the spec-canonical name and defaults to OAuth.`,
     )
     .action(async (options: RootOptions) => {
       await handleAuthRoot(options);

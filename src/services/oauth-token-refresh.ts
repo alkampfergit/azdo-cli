@@ -1,7 +1,7 @@
 import { closeSync, mkdirSync, openSync, unlinkSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { readTokenResponse } from './oauth-flow.js';
+import { OAuthFlowError, readTokenResponse } from './oauth-flow.js';
 import { buildScopeString, resolveOAuthConfig } from './oauth-config.js';
 import { appendAuthAuditEvent } from './audit-log.js';
 import { storeOAuthCredential, probeBackend } from './credential-store.js';
@@ -11,11 +11,11 @@ import type { OAuthConfig, TokenResponse } from '../types/oauth.js';
 const DEFAULT_LOCK_WAIT_MS = 5_000;
 const inFlight = new Map<string, Promise<StoredOAuthCredential>>();
 
-function locksDir(): string {
+export function locksDir(): string {
   return join(homedir(), '.azdo', '.locks');
 }
 
-function lockPath(org: string): string {
+export function lockPath(org: string): string {
   // sanitise org for filename
   const safe = org.replace(/[^A-Za-z0-9_.-]/g, '_');
   return join(locksDir(), `${safe}.refresh`);
@@ -122,8 +122,16 @@ async function performRefresh(
   try {
     token = await readTokenResponse(response);
   } catch (err) {
-    // OAuthFlowError → translate to CredentialRefreshError
-    const reason = classifyRefreshFailure((err as Error).message ?? 'unknown');
+    // Translate OAuthFlowError → CredentialRefreshError using the structured
+    // IdP error code (e.g. 'invalid_grant', 'AADSTS70008') preserved on the
+    // OAuthFlowError instance. The .message field is a formatted sentence and
+    // is NOT stable for parsing.
+    let reason: CredentialRefreshReason;
+    if (err instanceof OAuthFlowError && err.idpErrorCode) {
+      reason = classifyRefreshFailure({ error: err.idpErrorCode, error_description: err.idpErrorDescription });
+    } else {
+      reason = classifyRefreshFailure({ error: 'unknown' });
+    }
     appendAuthAuditEvent({
       event: 'oauth-refresh-failed',
       org,

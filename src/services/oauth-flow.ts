@@ -15,13 +15,35 @@ export class OAuthFlowError extends Error {
     | 'idp-error'
     | 'timeout';
 
-  constructor(reason: OAuthFlowError['reason'], message: string, cause?: unknown) {
+  /**
+   * Structured IdP error code preserved verbatim from the OAuth error
+   * response (e.g. "invalid_grant", "AADSTS70008", "consent_required").
+   * Populated for `idp-error` reason when the IdP returned a parseable JSON
+   * error body. Undefined for other reasons (state-mismatch, port-conflict,
+   * timeout, etc.) where there is no IdP error code to forward.
+   *
+   * Callers that translate OAuth errors into a finer classification
+   * (e.g. oauth-token-refresh.classifyRefreshFailure) MUST inspect this
+   * field — the formatted .message string is intended for human display
+   * and is NOT a stable parsing surface.
+   */
+  readonly idpErrorCode?: string;
+  readonly idpErrorDescription?: string;
+
+  constructor(
+    reason: OAuthFlowError['reason'],
+    message: string,
+    cause?: unknown,
+    idp?: { error?: string; error_description?: string },
+  ) {
     super(message);
     this.name = 'OAuthFlowError';
     this.reason = reason;
     if (cause instanceof Error) {
       this.cause = cause;
     }
+    if (idp?.error) this.idpErrorCode = idp.error;
+    if (idp?.error_description) this.idpErrorDescription = idp.error_description;
   }
 }
 
@@ -272,6 +294,8 @@ export async function readTokenResponse(response: Response): Promise<TokenRespon
     throw new OAuthFlowError(
       'idp-error',
       `IdP rejected request (${response.status}): ${err.error ?? 'unknown'}${err.error_description ? `: ${err.error_description}` : ''}`,
+      undefined,
+      err,
     );
   }
   const ok = parsed as TokenResponse;

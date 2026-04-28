@@ -4,7 +4,7 @@
 
 `azdo-cli` authenticates against Azure DevOps using either **OAuth** (Microsoft Entra v2.0 + PKCE) or a **Personal Access Token (PAT)**. Credentials are stored per Azure DevOps organisation in the OS-native secret vault and picked up automatically by every `azdo` command.
 
-OAuth is the default since `0.6.0`. PAT remains a first-class option for users on locked-down hosts, scripted automation, or anyone who prefers it. The two coexist — different orgs can use different credential kinds simultaneously.
+OAuth is the default. PAT remains a first-class option for users on locked-down hosts, scripted automation, or anyone who prefers it. The two coexist — different orgs can use different credential kinds simultaneously.
 
 ## Quickstart
 
@@ -42,7 +42,7 @@ OAuth credentials carry an `accessToken` plus a `refreshToken`. When an authenti
 
 - The CLI exchanges the refresh token at the Entra v2 token endpoint and writes the resulting fresh credential back to the vault.
 - Concurrent CLI processes coordinate via a per-org file lock at `~/.azdo/.locks/<org>.refresh` plus a per-process single-flight ledger — at most one network refresh is performed across all in-flight callers.
-- **Refresh failure** (refresh token revoked, refresh window exceeded, organisation access removed, app disabled on the tenant) surfaces a clear error: *"Refresh token rejected for org `<O>`; run `azdo login --org <O>` to re-authorise"* and **leaves the existing stored credential in place** (FR-014). The user runs the explicit re-login and the audit log records the failure.
+- **Refresh failure** (refresh token revoked, refresh window exceeded, organisation access removed, app disabled on the tenant) surfaces a clear error: *"Refresh token rejected for org `<O>`; run `azdo auth login --org <O>` to re-authorise"* and **leaves the existing stored credential in place** (FR-014). The user runs the explicit re-login and the audit log records the failure. Network-class refresh failures use a different message that suggests retrying rather than re-authorising; the stored credential is preserved either way.
 
 ## Organisation resolution order
 

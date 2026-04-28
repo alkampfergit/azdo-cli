@@ -102,7 +102,7 @@ describe('oauth-token-refresh — single-flight + failure handling', () => {
     expect(persistMock).not.toHaveBeenCalled();
   });
 
-  it('throws CredentialRefreshError on invalid_grant from IdP', async () => {
+  it('throws CredentialRefreshError on invalid_grant from IdP, preserving the structured reason', async () => {
     const fetchFn = fakeFetch(() =>
       new Response(JSON.stringify({ error: 'invalid_grant', error_description: 'expired' }), { status: 400 }),
     );
@@ -112,8 +112,37 @@ describe('oauth-token-refresh — single-flight + failure handling', () => {
         acquireLock: async () => ({ release: (): void => undefined }),
         persist: persistMock,
       }),
-    ).rejects.toBeInstanceOf(CredentialRefreshError);
+    ).rejects.toMatchObject({
+      name: 'CredentialRefreshError',
+      reason: 'invalid-grant',
+    });
     expect(persistMock).not.toHaveBeenCalled();
+  });
+
+  it('translates AADSTS70008 (refresh-token-expired) into reason=window-exceeded', async () => {
+    const fetchFn = fakeFetch(() =>
+      new Response(JSON.stringify({ error: 'AADSTS70008', error_description: 'refresh token expired' }), { status: 400 }),
+    );
+    await expect(
+      refreshIfNeeded('orgA', FRESH, {
+        fetch: fetchFn,
+        acquireLock: async () => ({ release: (): void => undefined }),
+        persist: persistMock,
+      }),
+    ).rejects.toMatchObject({ reason: 'window-exceeded' });
+  });
+
+  it('translates access_denied (revoked) into reason=revoked', async () => {
+    const fetchFn = fakeFetch(() =>
+      new Response(JSON.stringify({ error: 'access_denied' }), { status: 400 }),
+    );
+    await expect(
+      refreshIfNeeded('orgA', FRESH, {
+        fetch: fetchFn,
+        acquireLock: async () => ({ release: (): void => undefined }),
+        persist: persistMock,
+      }),
+    ).rejects.toMatchObject({ reason: 'revoked' });
   });
 
   it('classifyRefreshFailure maps known error codes', () => {

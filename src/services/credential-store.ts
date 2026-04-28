@@ -243,12 +243,14 @@ export async function deletePat(org: string): Promise<boolean> {
       masked_pat: maskedDisplay(parsed.token),
     });
   }
-  // Best-effort cleanup of any stale refresh-lock file.
+  // Best-effort cleanup of any stale refresh-lock file. Reuse the same path
+  // helper as oauth-token-refresh so org names with characters outside
+  // [A-Za-z0-9_.-] resolve to the same sanitised file name on both write and
+  // delete sides — otherwise orgs with `/` or `:` would leave lock files behind.
   try {
     const { unlinkSync } = await import('node:fs');
-    const { join } = await import('node:path');
-    const { homedir } = await import('node:os');
-    unlinkSync(join(homedir(), '.azdo', '.locks', `${org}.refresh`));
+    const { lockPath } = await import('./oauth-token-refresh.js');
+    unlinkSync(lockPath(org));
   } catch {
     // no-op — lock file absent is the normal case
   }
