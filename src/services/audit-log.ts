@@ -49,7 +49,7 @@ export interface AppendInput {
   accountId?: string;
   scope?: string;
   tokenLifetimeSec?: number;
-  reason?: OAuthLoginFailedReason | OAuthRefreshFailedReason | string;
+  reason?: OAuthLoginFailedReason | OAuthRefreshFailedReason;
 }
 
 const FORBIDDEN_FIELDS = new Set([
@@ -71,6 +71,10 @@ function stripForbidden(input: AppendInput): AppendInput {
   return out as unknown as AppendInput;
 }
 
+function whenSet<T>(value: T | undefined, key: string): Record<string, T> {
+  return value === undefined ? {} : ({ [key]: value } as Record<string, T>);
+}
+
 export function appendAuthAuditEvent(input: AppendInput): void {
   const auditLog = getAuditLogPath();
   const dir = path.dirname(auditLog);
@@ -85,13 +89,13 @@ export function appendAuthAuditEvent(input: AppendInput): void {
     event: safe.event,
     org: safe.org,
     backend: safe.backend,
-    ...(safe.masked_pat !== undefined ? { masked_pat: safe.masked_pat } : {}),
-    ...(safe.flow !== undefined ? { flow: safe.flow } : {}),
-    ...(safe.clientIdSource !== undefined ? { clientIdSource: safe.clientIdSource } : {}),
-    ...(safe.accountId !== undefined ? { accountId: safe.accountId } : {}),
-    ...(safe.scope !== undefined ? { scope: safe.scope } : {}),
-    ...(safe.tokenLifetimeSec !== undefined ? { tokenLifetimeSec: safe.tokenLifetimeSec } : {}),
-    ...(safe.reason !== undefined ? { reason: safe.reason } : {}),
+    ...whenSet(safe.masked_pat, 'masked_pat'),
+    ...whenSet(safe.flow, 'flow'),
+    ...whenSet(safe.clientIdSource, 'clientIdSource'),
+    ...whenSet(safe.accountId, 'accountId'),
+    ...whenSet(safe.scope, 'scope'),
+    ...whenSet(safe.tokenLifetimeSec, 'tokenLifetimeSec'),
+    ...whenSet(safe.reason, 'reason'),
   };
 
   fs.appendFileSync(auditLog, `${JSON.stringify(record)}\n`);

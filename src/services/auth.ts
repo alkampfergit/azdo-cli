@@ -167,6 +167,27 @@ export async function validatePatAgainstAzdo(pat: string, org: string): Promise<
   throw new Error(`Azure DevOps returned HTTP ${response.status} while validating PAT for org "${org}".`);
 }
 
+const LOGIN_FAILURE_REASONS = new Set<string>([
+  'user-cancelled',
+  'port-conflict',
+  'state-mismatch',
+  'redirect-mismatch',
+  'idp-error',
+  'timeout',
+  'expired_token',
+  'access_denied',
+]);
+
+function extractLoginFailureReason(err: unknown): import('../types/audit.js').OAuthLoginFailedReason {
+  if (typeof err === 'object' && err !== null && 'reason' in err) {
+    const r = (err as { reason: unknown }).reason;
+    if (typeof r === 'string' && LOGIN_FAILURE_REASONS.has(r)) {
+      return r as import('../types/audit.js').OAuthLoginFailedReason;
+    }
+  }
+  return 'unknown';
+}
+
 export interface OAuthLoginOptions {
   flow?: 'auth-code' | 'device-code' | 'auto';
   clientIdOverride?: string;
@@ -228,16 +249,12 @@ export async function loginWithOAuth(org: string, opts: OAuthLoginOptions = {}):
       flowUsed = 'auth-code';
     }
   } catch (err) {
-    const reason =
-      typeof err === 'object' && err !== null && 'reason' in err
-        ? (err as { reason: string }).reason
-        : 'unknown';
     appendAuthAuditEvent({
       event: 'oauth-login-failed',
       org,
       backend: probeBackend(),
       flow: useDeviceCode ? 'device-code' : 'auth-code',
-      reason,
+      reason: extractLoginFailureReason(err),
     });
     throw err;
   }
@@ -354,4 +371,4 @@ export async function resolveCredential(org: string): Promise<UsableCredential> 
 }
 
 // Re-exported types for callers
-export type { UsableCredential };
+export type { UsableCredential } from '../types/credential.js';

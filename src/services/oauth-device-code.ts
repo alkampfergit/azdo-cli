@@ -53,12 +53,48 @@ export async function requestDeviceCode(
   }
   if (!response.ok) {
     const err = parsed as { error?: string; error_description?: string };
+    const code = err.error ?? 'unknown';
+    const desc = err.error_description ? `: ${err.error_description}` : '';
     throw new DeviceCodeFlowError(
       'idp-error',
-      `device-code endpoint rejected request (${response.status}): ${err.error ?? 'unknown'}${err.error_description ? `: ${err.error_description}` : ''}`,
+      `device-code endpoint rejected request (${response.status}): ${code}${desc}`,
     );
   }
   return parsed as DeviceCodeResponse;
+}
+
+interface DeviceTokenPollOutcome {
+  kind: 'success' | 'pending' | 'slow_down';
+  token?: TokenResponse;
+}
+
+async function classifyDeviceTokenResponse(
+  response: Response,
+): Promise<DeviceTokenPollOutcome> {
+  if (response.ok) {
+    return { kind: 'success', token: await readTokenResponse(response) };
+  }
+  const text = await response.text();
+  let parsed: { error?: string; error_description?: string };
+  try {
+    parsed = JSON.parse(text) as { error?: string; error_description?: string };
+  } catch {
+    throw new DeviceCodeFlowError('idp-error', `non-JSON HTTP ${response.status}: ${text.slice(0, 200)}`);
+  }
+  const errCode = parsed.error ?? '';
+  if (errCode === 'authorization_pending') return { kind: 'pending' };
+  if (errCode === 'slow_down') return { kind: 'slow_down' };
+  if (errCode === 'expired_token') {
+    throw new DeviceCodeFlowError('expired_token', 'device code expired before authorisation completed');
+  }
+  if (errCode === 'access_denied') {
+    throw new DeviceCodeFlowError('access_denied', 'authorisation denied by user');
+  }
+  const desc = parsed.error_description ? `: ${parsed.error_description}` : '';
+  throw new DeviceCodeFlowError(
+    'idp-error',
+    `IdP rejected device-token poll (${response.status}): ${errCode}${desc}`,
+  );
 }
 
 export async function pollForDeviceToken(
@@ -90,37 +126,13 @@ export async function pollForDeviceToken(
       headers: { 'content-type': 'application/x-www-form-urlencoded', accept: 'application/json' },
       body: body.toString(),
     });
-    if (response.ok) {
-      return await readTokenResponse(response);
-    }
-    // Pending / slow_down / final error
-    const text = await response.text();
-    let parsed: { error?: string; error_description?: string };
-    try {
-      parsed = JSON.parse(text) as { error?: string; error_description?: string };
-    } catch {
-      throw new DeviceCodeFlowError('idp-error', `non-JSON HTTP ${response.status}: ${text.slice(0, 200)}`);
-    }
-    const errCode = parsed.error ?? '';
-    if (errCode === 'authorization_pending') {
-      // keep polling at the same interval
-      continue;
-    }
-    if (errCode === 'slow_down') {
+    const outcome = await classifyDeviceTokenResponse(response);
+    if (outcome.kind === 'success') return outcome.token!;
+    if (outcome.kind === 'slow_down') {
       // RFC 8628 §3.5 — increment interval by 5s
       intervalSec += 5;
-      continue;
     }
-    if (errCode === 'expired_token') {
-      throw new DeviceCodeFlowError('expired_token', 'device code expired before authorisation completed');
-    }
-    if (errCode === 'access_denied') {
-      throw new DeviceCodeFlowError('access_denied', 'authorisation denied by user');
-    }
-    throw new DeviceCodeFlowError(
-      'idp-error',
-      `IdP rejected device-token poll (${response.status}): ${errCode}${parsed.error_description ? `: ${parsed.error_description}` : ''}`,
-    );
+    // 'pending' falls through and re-polls at the same interval.
   }
 }
 
@@ -141,8 +153,9 @@ export async function runDeviceCodeFlow(
   });
 
   const dc = await requestDeviceCode(oauthConfig, fetchFn);
+  const expiryMin = Math.round(dc.expires_in / 60);
   writePrompt(
-    `\nTo authenticate, open ${dc.verification_uri} in a browser and enter the code:\n\n    ${dc.user_code}\n\nWaiting for authorisation (expires in ${Math.round(dc.expires_in / 60)} min)…\n`,
+    `\nTo authenticate, open ${dc.verification_uri} in a browser and enter the code:\n\n    ${dc.user_code}\n\nWaiting for authorisation (expires in ${expiryMin} min)…\n`,
   );
 
   const expiresAtMs = now() + dc.expires_in * 1000;

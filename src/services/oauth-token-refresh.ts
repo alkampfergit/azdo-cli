@@ -15,9 +15,11 @@ export function locksDir(): string {
   return join(homedir(), '.azdo', '.locks');
 }
 
+const FILENAME_UNSAFE = /[^A-Za-z0-9_.-]/g;
+
 export function lockPath(org: string): string {
-  // sanitise org for filename
-  const safe = org.replace(/[^A-Za-z0-9_.-]/g, '_');
+  // sanitise org for filename — preserve symmetry with deletePat's cleanup path.
+  const safe = org.replaceAll(FILENAME_UNSAFE, '_');
   return join(locksDir(), `${safe}.refresh`);
 }
 

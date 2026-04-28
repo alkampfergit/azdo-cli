@@ -45,9 +45,9 @@ async function readStdinToString(): Promise<string> {
   return Buffer.concat(chunks).toString('utf8');
 }
 
-async function confirmOverwrite(org: string): Promise<boolean> {
+async function promptYesNo(prompt: string): Promise<boolean> {
   if (!process.stdin.isTTY) return true;
-  process.stderr.write(`A PAT is already stored for org ${org}. Overwrite? [y/N] `);
+  process.stderr.write(prompt);
   return await new Promise<boolean>((resolve) => {
     process.stdin.setEncoding('utf8');
     let answered = false;
@@ -64,26 +64,13 @@ async function confirmOverwrite(org: string): Promise<boolean> {
   });
 }
 
+async function confirmOverwrite(org: string): Promise<boolean> {
+  return promptYesNo(`A PAT is already stored for org ${org}. Overwrite? [y/N] `);
+}
+
 async function confirmOverwriteCredential(org: string, existingKind: 'pat' | 'oauth'): Promise<boolean> {
-  if (!process.stdin.isTTY) return true;
-  process.stderr.write(
-    `A ${existingKind === 'oauth' ? 'OAuth credential' : 'PAT'} is already stored for org ${org}. ` +
-      `The new login will replace it. Continue? [y/N] `,
-  );
-  return await new Promise<boolean>((resolve) => {
-    process.stdin.setEncoding('utf8');
-    let answered = false;
-    const handler = (data: string): void => {
-      if (answered) return;
-      answered = true;
-      process.stdin.removeListener('data', handler);
-      process.stdin.pause();
-      const trimmed = data.trim().toLowerCase();
-      resolve(trimmed === 'y' || trimmed === 'yes');
-    };
-    process.stdin.resume();
-    process.stdin.on('data', handler);
-  });
+  const label = existingKind === 'oauth' ? 'OAuth credential' : 'PAT';
+  return promptYesNo(`A ${label} is already stored for org ${org}. The new login will replace it. Continue? [y/N] `);
 }
 
 function rejectMutuallyExclusive(opts: RootOptions): string | null {
@@ -163,6 +150,46 @@ async function handlePatLogin(options: RootOptions): Promise<void> {
   process.stdout.write(`PAT stored for org ${org} in ${probeBackend()}.\n`);
 }
 
+async function ensureOverwriteConfirmed(org: string): Promise<'ok' | 'aborted' | 'unavailable'> {
+  try {
+    const existing = await getStoredCredential(org);
+    if (existing === null || !process.stdin.isTTY) return 'ok';
+    const ok = await confirmOverwriteCredential(org, existing.kind);
+    return ok ? 'ok' : 'aborted';
+  } catch (err) {
+    if (err instanceof CredentialStoreUnavailableError) {
+      process.stderr.write(`${err.message}\n`);
+      return 'unavailable';
+    }
+    throw err;
+  }
+}
+
+function buildOAuthLoginOptions(options: RootOptions): OAuthLoginOptions {
+  return {
+    flow: options.deviceCode ? 'device-code' : 'auto',
+    clientIdOverride: options.clientId,
+    tenantIdOverride: options.tenantId,
+    scopesOverride: options.scopes ? options.scopes.split(/\s+/).filter(Boolean) : undefined,
+  };
+}
+
+function reportOAuthFailure(err: unknown): void {
+  const reason =
+    typeof err === 'object' && err !== null && 'reason' in err
+      ? (err as { reason: string }).reason
+      : null;
+  const msg = (err as Error).message;
+  process.stderr.write(reason ? `OAuth login failed (${reason}): ${msg}\n` : `OAuth login failed: ${msg}\n`);
+  const noDisplay =
+    process.platform === 'linux' && (!process.env.DISPLAY || process.env.DISPLAY.length === 0);
+  if (noDisplay) {
+    process.stderr.write('Tip: this host has no DISPLAY; pass --device-code to use the headless flow.\n');
+  } else if (reason === 'port-conflict') {
+    process.stderr.write('Tip: another process is using the loopback callback port. Try again or pass --device-code.\n');
+  }
+}
+
 async function handleOAuthLogin(options: RootOptions): Promise<void> {
   const resolved = resolveOrg({ org: options.org });
   if (!resolved) {
@@ -175,52 +202,24 @@ async function handleOAuthLogin(options: RootOptions): Promise<void> {
   // Honour the loginWithOAuth contract: confirm before overwriting an existing
   // stored credential. On a non-TTY (CI / scripted use) we proceed without
   // prompting — the caller has already opted in by invoking the command.
-  try {
-    const existing = await getStoredCredential(org);
-    if (existing !== null && process.stdin.isTTY) {
-      const ok = await confirmOverwriteCredential(org, existing.kind);
-      if (!ok) {
-        process.stderr.write('Aborted. Existing credential preserved.\n');
-        process.exitCode = 1;
-        return;
-      }
-    }
-  } catch (err) {
-    if (err instanceof CredentialStoreUnavailableError) {
-      process.stderr.write(`${err.message}\n`);
-      process.exitCode = 4;
-      return;
-    }
-    throw err;
+  const confirm = await ensureOverwriteConfirmed(org);
+  if (confirm === 'aborted') {
+    process.stderr.write('Aborted. Existing credential preserved.\n');
+    process.exitCode = 1;
+    return;
+  }
+  if (confirm === 'unavailable') {
+    process.exitCode = 4;
+    return;
   }
 
-  const oauthOpts: OAuthLoginOptions = {
-    flow: options.deviceCode ? 'device-code' : 'auto',
-    clientIdOverride: options.clientId,
-    tenantIdOverride: options.tenantId,
-    scopesOverride: options.scopes ? options.scopes.split(/\s+/).filter(Boolean) : undefined,
-  };
-
   try {
-    const result = await loginWithOAuth(org, oauthOpts);
+    const result = await loginWithOAuth(org, buildOAuthLoginOptions(options));
     process.stdout.write(
       `Logged in to ${org} via OAuth (${result.flowUsed}). Account: ${result.accountId}; expires ${new Date(result.expiresAt * 1000).toISOString()}.\n`,
     );
   } catch (err) {
-    const reason =
-      typeof err === 'object' && err !== null && 'reason' in err
-        ? (err as { reason: string }).reason
-        : null;
-    if (reason) {
-      process.stderr.write(`OAuth login failed (${reason}): ${(err as Error).message}\n`);
-    } else {
-      process.stderr.write(`OAuth login failed: ${(err as Error).message}\n`);
-    }
-    if (process.platform === 'linux' && (!process.env.DISPLAY || process.env.DISPLAY.length === 0)) {
-      process.stderr.write('Tip: this host has no DISPLAY; pass --device-code to use the headless flow.\n');
-    } else if (reason === 'port-conflict') {
-      process.stderr.write('Tip: another process is using the loopback callback port. Try again or pass --device-code.\n');
-    }
+    reportOAuthFailure(err);
     process.exitCode = 1;
   }
 }
@@ -282,7 +281,7 @@ async function handleStatus(options: { json?: boolean }, org: string): Promise<v
       throw err;
     }
     const storedEvents = readAuditEvents().filter((ev) => ev.org === org && ev.event === 'auth.store');
-    const last = storedEvents[storedEvents.length - 1];
+    const last = storedEvents.at(-1);
     const updatedAt = last?.ts ?? null;
     if (!value) {
       process.stdout.write(
@@ -313,7 +312,7 @@ async function handleStatus(options: { json?: boolean }, org: string): Promise<v
   }
 
   const storedEvents = readAuditEvents().filter((ev) => ev.org === org && ev.event === 'auth.store');
-  const last = storedEvents[storedEvents.length - 1];
+  const last = storedEvents.at(-1);
   const updatedAt = last?.ts ?? null;
 
   if (!value) {

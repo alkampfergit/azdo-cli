@@ -95,7 +95,7 @@ describe('oauth-flow — id_token claims + credential mapping', () => {
 
   it('maps a TokenResponse to a StoredOAuthCredential with the correct lifetime', () => {
     const oauthConfig = resolveOAuthConfig({ clientIdOverride: 'cid', tenantIdOverride: 'mytenant' });
-    const now = 1745780000_000;
+    const now = 1_745_780_000_000;
     const cred = tokenResponseToCredential('orgA', oauthConfig, {
       access_token: 'access',
       token_type: 'Bearer',

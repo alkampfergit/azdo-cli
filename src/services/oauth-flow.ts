@@ -62,27 +62,42 @@ export interface AuthCodeFlowDeps {
 
 const DEFAULT_TIMEOUT_MS = 5 * 60 * 1000;
 
-const SUCCESS_HTML = (org: string): string =>
-  `<!doctype html><html><head><meta charset="utf-8"><title>Login complete</title>` +
-  `<style>body{font-family:system-ui,sans-serif;max-width:480px;margin:8em auto;text-align:center;color:#222}` +
-  `h1{color:#107c10}p{color:#555}</style></head><body><h1>Login complete</h1>` +
-  `<p>You can close this tab and return to the terminal.</p>` +
-  `<p style="font-size:0.9em">Organization: <code>${escapeHtml(org)}</code></p></body></html>`;
+const SHARED_HTML_STYLE =
+  '<style>body{font-family:system-ui,sans-serif;max-width:480px;margin:8em auto;text-align:center;color:#222}p{color:#555}</style>';
 
-const ERROR_HTML = (msg: string): string =>
-  `<!doctype html><html><head><meta charset="utf-8"><title>Login failed</title>` +
-  `<style>body{font-family:system-ui,sans-serif;max-width:480px;margin:8em auto;text-align:center;color:#222}` +
-  `h1{color:#c50f1f}p{color:#555}</style></head><body><h1>Login failed</h1>` +
-  `<p>${escapeHtml(msg)}</p>` +
-  `<p style="font-size:0.9em">Return to the terminal for details.</p></body></html>`;
+function successHtml(org: string): string {
+  const escapedOrg = escapeHtml(org);
+  return (
+    '<!doctype html><html><head><meta charset="utf-8"><title>Login complete</title>' +
+    SHARED_HTML_STYLE +
+    '</head><body><h1 style="color:#107c10">Login complete</h1>' +
+    '<p>You can close this tab and return to the terminal.</p>' +
+    '<p style="font-size:0.9em">Organization: <code>' +
+    escapedOrg +
+    '</code></p></body></html>'
+  );
+}
+
+function errorHtml(msg: string): string {
+  const escapedMsg = escapeHtml(msg);
+  return (
+    '<!doctype html><html><head><meta charset="utf-8"><title>Login failed</title>' +
+    SHARED_HTML_STYLE +
+    '</head><body><h1 style="color:#c50f1f">Login failed</h1>' +
+    '<p>' +
+    escapedMsg +
+    '</p>' +
+    '<p style="font-size:0.9em">Return to the terminal for details.</p></body></html>'
+  );
+}
 
 function escapeHtml(s: string): string {
   return s
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
 }
 
 export interface CallbackResult {
@@ -101,6 +116,26 @@ interface ActiveSlot {
   reject: (e: Error) => void;
 }
 
+function makeActiveResolver(
+  rResolve: (r: CallbackResult) => void,
+  clearActive: () => void,
+): (r: CallbackResult) => void {
+  return (r: CallbackResult): void => {
+    clearActive();
+    rResolve(r);
+  };
+}
+
+function makeActiveRejecter(
+  rReject: (e: Error) => void,
+  clearActive: () => void,
+): (e: Error) => void {
+  return (e: Error): void => {
+    clearActive();
+    rReject(e);
+  };
+}
+
 export async function openLoopbackListener(deps: AuthCodeFlowDeps = {}): Promise<LoopbackListener> {
   const factory = deps.createServer ?? createServer;
   let active: ActiveSlot | null = null;
@@ -114,40 +149,46 @@ export async function openLoopbackListener(deps: AuthCodeFlowDeps = {}): Promise
       reject(new OAuthFlowError('port-conflict', `failed to bind loopback listener: ${err.message}`, err));
     });
 
+    const buildAwaitCallback =
+      () =>
+      (session: AuthorizationSession, signal: AbortSignal): Promise<CallbackResult> => {
+        return new Promise<CallbackResult>((rResolve, rReject) => {
+          active = {
+            session,
+            resolve: makeActiveResolver(rResolve, () => {
+              active = null;
+            }),
+            reject: makeActiveRejecter(rReject, () => {
+              active = null;
+            }),
+          };
+          signal.addEventListener('abort', () => {
+            if (active) {
+              const a = active;
+              active = null;
+              a.reject(new OAuthFlowError('timeout', 'OAuth flow aborted before callback'));
+            }
+          });
+        });
+      };
+
+    const buildClose =
+      () =>
+      (): Promise<void> =>
+        new Promise<void>((cResolve) => {
+          server.close(() => cResolve());
+        });
+
     server.listen({ host: '127.0.0.1', port: 0 }, () => {
       const addr = server.address() as AddressInfo | null;
       if (!addr || typeof addr === 'string' || addr.port === 0) {
         reject(new OAuthFlowError('port-conflict', 'loopback listener did not return a numeric port'));
         return;
       }
-      const port = addr.port;
       resolve({
-        port,
-        awaitCallback: (session, signal) =>
-          new Promise<CallbackResult>((rResolve, rReject) => {
-            active = {
-              session,
-              resolve: (r): void => {
-                active = null;
-                rResolve(r);
-              },
-              reject: (e): void => {
-                active = null;
-                rReject(e);
-              },
-            };
-            signal.addEventListener('abort', () => {
-              if (active) {
-                const a = active;
-                active = null;
-                a.reject(new OAuthFlowError('timeout', 'OAuth flow aborted before callback'));
-              }
-            });
-          }),
-        close: () =>
-          new Promise<void>((cResolve) => {
-            server.close(() => cResolve());
-          }),
+        port: addr.port,
+        awaitCallback: buildAwaitCallback(),
+        close: buildClose(),
       });
     });
   });
@@ -158,7 +199,7 @@ function handleCallback(req: IncomingMessage, res: ServerResponse, active: Activ
     writeError(res, 400, 'missing request URL');
     return;
   }
-  const url = new URL(req.url, `http://127.0.0.1`);
+  const url = new URL(req.url, 'http://127.0.0.1');
   const path = url.pathname;
   const q = url.searchParams;
 
@@ -201,12 +242,12 @@ function handleCallback(req: IncomingMessage, res: ServerResponse, active: Activ
 
 function writeSuccess(res: ServerResponse, org: string): void {
   res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
-  res.end(SUCCESS_HTML(org));
+  res.end(successHtml(org));
 }
 
 function writeError(res: ServerResponse, status: number, msg: string): void {
   res.writeHead(status, { 'content-type': 'text/html; charset=utf-8' });
-  res.end(ERROR_HTML(msg));
+  res.end(errorHtml(msg));
 }
 
 export interface PrepareSessionInput {
@@ -291,9 +332,11 @@ export async function readTokenResponse(response: Response): Promise<TokenRespon
   }
   if (!response.ok) {
     const err = parsed as { error?: string; error_description?: string };
+    const code = err.error ?? 'unknown';
+    const desc = err.error_description ? `: ${err.error_description}` : '';
     throw new OAuthFlowError(
       'idp-error',
-      `IdP rejected request (${response.status}): ${err.error ?? 'unknown'}${err.error_description ? `: ${err.error_description}` : ''}`,
+      `IdP rejected request (${response.status}): ${code}${desc}`,
       undefined,
       err,
     );
@@ -312,7 +355,7 @@ export function decodeIdTokenClaims(idToken: string): DecodedIdTokenClaims {
   const parts = idToken.split('.');
   if (parts.length < 2) return {};
   try {
-    const payload = Buffer.from(parts[1].replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8');
+    const payload = Buffer.from(parts[1], 'base64url').toString('utf8');
     return JSON.parse(payload) as DecodedIdTokenClaims;
   } catch {
     return {};

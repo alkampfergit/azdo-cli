@@ -83,7 +83,7 @@ export function parseStoredValue(raw: string): StoredCredential {
     return { kind: 'pat', token: raw };
   }
 
-  if (!parsed || typeof parsed !== 'object' || !('kind' in (parsed as object))) {
+  if (!parsed || typeof parsed !== 'object' || !('kind' in parsed)) {
     return { kind: 'pat', token: raw };
   }
 
@@ -111,10 +111,8 @@ function serializeCredential(cred: StoredCredential): string {
     if (!cred.accessToken) {
       throw new Error('OAuth credential missing accessToken');
     }
-  } else {
-    if (!cred.token) {
-      throw new Error('PAT credential missing token');
-    }
+  } else if (!cred.token) {
+    throw new Error('PAT credential missing token');
   }
   return JSON.stringify(cred);
 }

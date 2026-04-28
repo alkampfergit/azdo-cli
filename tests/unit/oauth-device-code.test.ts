@@ -30,7 +30,8 @@ describe('oauth-device-code — request /devicecode', () => {
     const oauthConfig = resolveOAuthConfig({ clientIdOverride: 'cid' });
     const calls: { url: string; body: string }[] = [];
     const fetchFn = (async (url: string, init: RequestInit) => {
-      calls.push({ url, body: String(init.body) });
+      const bodyAsString = typeof init.body === 'string' ? init.body : init.body?.toString() ?? '';
+      calls.push({ url, body: bodyAsString });
       return new Response(
         JSON.stringify({
           user_code: 'ABC-DEF-GH',

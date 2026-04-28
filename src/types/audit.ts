@@ -23,7 +23,10 @@ export type OAuthLoginFailedReason =
   | 'state-mismatch'
   | 'redirect-mismatch'
   | 'idp-error'
-  | 'timeout';
+  | 'timeout'
+  | 'expired_token'
+  | 'access_denied'
+  | 'unknown';
 
 export type OAuthRefreshFailedReason =
   | 'revoked'
@@ -43,5 +46,5 @@ export interface AuthAuditEvent {
   accountId?: string;
   scope?: string;
   tokenLifetimeSec?: number;
-  reason?: OAuthLoginFailedReason | OAuthRefreshFailedReason | string;
+  reason?: OAuthLoginFailedReason | OAuthRefreshFailedReason;
 }
