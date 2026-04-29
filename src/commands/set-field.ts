@@ -1,7 +1,7 @@
 import { Command } from 'commander';
 import type { AzdoContext } from '../types/work-item.js';
 import { updateWorkItem } from '../services/azdo-client.js';
-import { requirePat } from '../services/auth.js';
+import { requireAuthCredential } from '../services/auth.js';
 import { resolveContext } from '../services/context.js';
 import { parseWorkItemId, validateOrgProjectPair, handleCommandError } from '../services/command-helpers.js';
 
@@ -30,7 +30,7 @@ export function createSetFieldCommand(): Command {
 
         try {
           context = resolveContext(options);
-          const credential = await requirePat(context.org);
+          const credential = await requireAuthCredential(context.org);
 
           const operations = [
             { op: 'add' as const, path: `/fields/${field}`, value },

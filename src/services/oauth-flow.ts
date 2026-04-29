@@ -391,12 +391,19 @@ export async function runAuthCodeFlow(
   const timeoutMs = deps.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 
   const listener = await openLoopbackListener(deps);
-  // Use `localhost` (not `127.0.0.1`) and no path — matches the redirect-URI
-  // whitelist of Microsoft's first-party Visual Studio public client which the
-  // CLI uses by default. Both forms validate as loopback per RFC 8252; Entra's
-  // wildcard port match works for either when the registered URI is the bare
-  // loopback host.
-  const redirectUri = `http://localhost:${listener.port}`;
+  // The redirect URI depends on which client id is in use. The shipped default
+  // (Microsoft's first-party Visual Studio public client) only accepts the
+  // bare loopback host `http://localhost` — registering a path or `127.0.0.1`
+  // is impossible for a client we do not own. User-supplied client ids
+  // (`--client-id` / AZDO_OAUTH_CLIENT_ID / config) follow the registration
+  // procedure documented in `docs/oauth-app-registration.md`, which prescribes
+  // `http://127.0.0.1/callback`; Entra ignores the port for loopback but
+  // matches the path strictly, so we must send `/callback` for those.
+  // Both forms validate as loopback per RFC 8252.
+  const redirectUri =
+    oauthConfig.clientIdSource === 'default'
+      ? `http://localhost:${listener.port}`
+      : `http://127.0.0.1:${listener.port}/callback`;
   const session = prepareAuthCodeSession({ org, oauthConfig, redirectUri, now: now(), timeoutMs });
 
   const ac = new AbortController();

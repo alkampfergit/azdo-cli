@@ -17,7 +17,7 @@ import {
   isThreadResolved,
   patchThreadStatus,
 } from '../services/pr-client.js';
-import { requirePat } from '../services/auth.js';
+import { requireAuthCredential } from '../services/auth.js';
 import { resolveContext } from '../services/context.js';
 import { validateOrgProjectPair } from '../services/command-helpers.js';
 import { detectRepoName, getCurrentBranch } from '../services/git-remote.js';
@@ -151,7 +151,7 @@ async function resolvePrCommandContext(
   // branch lookup entirely — it's unnecessary and would fail loudly on
   // detached HEAD or a branch that can't be resolved.
   const branch: string | null = requireBranch ? getCurrentBranch() : null;
-  const credential = await requirePat(context.org);
+  const credential = await requireAuthCredential(context.org);
 
   return {
     context,

@@ -13,7 +13,7 @@ vi.mock('../../src/services/azdo-client.js', () => ({
 }));
 
 vi.mock('../../src/services/auth.js', () => ({
-  requirePat: vi.fn(),
+  requireAuthCredential: vi.fn(),
 }));
 
 vi.mock('../../src/services/context.js', () => ({
@@ -27,7 +27,7 @@ vi.mock('node:fs', () => ({
 }));
 
 import { applyWorkItemPatch, createWorkItem } from '../../src/services/azdo-client.js';
-import { requirePat } from '../../src/services/auth.js';
+import { requireAuthCredential } from '../../src/services/auth.js';
 import { resolveContext } from '../../src/services/context.js';
 import { existsSync, readFileSync, unlinkSync } from 'node:fs';
 
@@ -36,7 +36,7 @@ const run = createCommandRunner(createUpsertCommand);
 beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(resolveContext).mockReturnValue({ org: 'testorg', project: 'testproj' });
-  vi.mocked(requirePat).mockResolvedValue({ pat: 'test-pat', source: 'env', kind: 'pat' });
+  vi.mocked(requireAuthCredential).mockResolvedValue({ pat: 'test-pat', source: 'env', kind: 'pat' });
   vi.mocked(createWorkItem).mockResolvedValue({
     id: 101,
     rev: 1,

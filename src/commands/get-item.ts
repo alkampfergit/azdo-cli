@@ -1,7 +1,7 @@
 import { Command } from 'commander';
 import type { AzdoContext, WorkItem, WorkItemAttachment } from '../types/work-item.js';
 import { getWorkItem } from '../services/azdo-client.js';
-import { requirePat } from '../services/auth.js';
+import { requireAuthCredential } from '../services/auth.js';
 import { resolveContext } from '../services/context.js';
 import { loadConfig } from '../services/config-store.js';
 import { toMarkdown } from '../services/md-convert.js';
@@ -192,7 +192,7 @@ export function createGetItemCommand(): Command {
 
         try {
           context = resolveContext(options);
-          const credential = await requirePat(context.org);
+          const credential = await requireAuthCredential(context.org);
 
           const fieldsList = options.fields === undefined
             ? parseRequestedFields(loadConfig().fields)

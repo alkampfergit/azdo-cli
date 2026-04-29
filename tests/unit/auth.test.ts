@@ -52,7 +52,7 @@ vi.mock('node:fs', () => ({
 const existsSyncMock = vi.mocked(existsSync);
 const readFileSyncMock = vi.mocked(readFileSync);
 
-describe('resolvePat(org)', () => {
+describe('resolveAuthCredential(org)', () => {
   beforeEach(() => {
     vi.resetModules();
     vi.clearAllMocks();
@@ -69,7 +69,7 @@ describe('resolvePat(org)', () => {
     getStoredCredentialMock.mockResolvedValue({ kind: 'pat', token: 'stored-token' });
 
     const auth = await import('../../src/services/auth.js');
-    const result = await auth.resolvePat('orgA');
+    const result = await auth.resolveAuthCredential('orgA');
 
     expect(result).toEqual({ pat: 'env-token', source: 'env', kind: 'pat' });
     expect(getStoredCredentialMock).not.toHaveBeenCalled();
@@ -79,7 +79,7 @@ describe('resolvePat(org)', () => {
     getStoredCredentialMock.mockResolvedValue({ kind: 'pat', token: 'stored-token' });
 
     const auth = await import('../../src/services/auth.js');
-    const result = await auth.resolvePat('orgA');
+    const result = await auth.resolveAuthCredential('orgA');
 
     expect(result).toEqual({ pat: 'stored-token', source: 'credential-store', kind: 'pat' });
     expect(getStoredCredentialMock).toHaveBeenCalledWith('orgA');
@@ -91,7 +91,7 @@ describe('resolvePat(org)', () => {
     readFileSyncMock.mockReturnValue('AZDO_PAT=dotenv-token\n');
 
     const auth = await import('../../src/services/auth.js');
-    const result = await auth.resolvePat('orgA');
+    const result = await auth.resolveAuthCredential('orgA');
 
     expect(result).toEqual({ pat: 'dotenv-token', source: 'env', kind: 'pat' });
   });
@@ -100,7 +100,7 @@ describe('resolvePat(org)', () => {
     getStoredCredentialMock.mockResolvedValue(null);
 
     const auth = await import('../../src/services/auth.js');
-    const result = await auth.resolvePat('orgA');
+    const result = await auth.resolveAuthCredential('orgA');
 
     expect(result).toBeNull();
   });
@@ -110,7 +110,7 @@ describe('resolvePat(org)', () => {
     getStoredCredentialMock.mockResolvedValue({ kind: 'pat', token: 'stored-token' });
 
     const auth = await import('../../src/services/auth.js');
-    const result = await auth.resolvePat('orgA');
+    const result = await auth.resolveAuthCredential('orgA');
 
     expect(result).toEqual({ pat: 'stored-token', source: 'credential-store', kind: 'pat' });
   });
@@ -129,7 +129,7 @@ describe('resolvePat(org)', () => {
     getStoredCredentialMock.mockResolvedValue(stored);
 
     const auth = await import('../../src/services/auth.js');
-    const result = await auth.resolvePat('orgA');
+    const result = await auth.resolveAuthCredential('orgA');
 
     expect(result).toEqual({
       pat: 'access-1',
@@ -140,7 +140,7 @@ describe('resolvePat(org)', () => {
   });
 });
 
-describe('requirePat(org)', () => {
+describe('requireAuthCredential(org)', () => {
   beforeEach(() => {
     vi.resetModules();
     vi.clearAllMocks();
@@ -148,17 +148,17 @@ describe('requirePat(org)', () => {
     existsSyncMock.mockReturnValue(false);
   });
 
-  it('returns the credential when resolvePat finds one', async () => {
+  it('returns the credential when resolveAuthCredential finds one', async () => {
     process.env.AZDO_PAT = 'env-token';
     const auth = await import('../../src/services/auth.js');
-    const result = await auth.requirePat('orgA');
+    const result = await auth.requireAuthCredential('orgA');
     expect(result.pat).toBe('env-token');
   });
 
   it('throws a helpful message when no credential is available', async () => {
     getStoredCredentialMock.mockResolvedValue(null);
     const auth = await import('../../src/services/auth.js');
-    await expect(auth.requirePat('orgA')).rejects.toThrow(/azdo auth login --org orgA/);
+    await expect(auth.requireAuthCredential('orgA')).rejects.toThrow(/azdo auth login --org orgA/);
   });
 });
 

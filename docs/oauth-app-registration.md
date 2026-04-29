@@ -1,10 +1,12 @@
 # Registering the OAuth application for `azdo-cli`
 
-`azdo-cli` authenticates against Azure DevOps using OAuth (Microsoft Entra v2.0 + PKCE) by default. Out of the box the CLI uses a **project-owned shared OAuth application** whose `client_id` ships with the released binary as a non-secret literal — security comes from PKCE, loopback-only redirect URI validation, the OAuth `state` binding, and least-privilege scopes (per [FR-013a](../specs/018-oauth-login/spec.md)).
+`azdo-cli` authenticates against Azure DevOps using OAuth (Microsoft Entra v2.0 + PKCE) by default. Out of the box the CLI uses **Microsoft's well-known Visual Studio public client id** (`872cd9fa-d31f-45e0-9eab-6e460a02d1f1`) — the same id baked into `Microsoft.VisualStudio.Services.Client`, Git Credential Manager, and VS Code. It is pre-authorised in the Azure DevOps service principal, multi-tenant, and ships as a non-secret literal — security comes from PKCE, loopback-only redirect URI validation, the OAuth `state` binding, and least-privilege scopes (per [FR-013a](../specs/018-oauth-login/spec.md)).
+
+The shipped default is good for most users. **You only need this guide if** you are on a locked-down Entra tenant that mandates self-registered OAuth apps, or you want to own the OAuth audit trail yourself, or you (as a maintainer) want to replace the shipped default with a project-owned client id.
 
 This guide covers two audiences:
 
-1. **§1 — Maintainer setup**: the `azdo-cli` project maintainer registering the **shared** OAuth application whose `client_id` is shipped with every release.
+1. **§1 — Maintainer setup**: the `azdo-cli` project maintainer optionally registering a **project-owned shared** OAuth application to replace the shipped Visual Studio default. Skip this section unless that is what you actually want — the default works for most users and tenants.
 2. **§2 — End-user setup**: a user on a locked-down Azure tenant who needs to register their **own** OAuth application and point the CLI at it via the `AZDO_OAUTH_CLIENT_ID` environment variable or the `oauth.clientId` config key (the [FR-013](../specs/018-oauth-login/spec.md) override path).
 
 Both audiences register the same kind of application — a public-client desktop application with PKCE, no client secret. The only difference is which `client_id` ends up in the user's `azdo-cli` installation.
@@ -13,9 +15,11 @@ Both audiences register the same kind of application — a public-client desktop
 
 ---
 
-## §1 — Maintainer: registering the shared OAuth app
+## §1 — Maintainer: registering a project-owned OAuth app (optional)
 
-This procedure is done **once** by the project maintainer (or whoever cuts releases). The output is a single GUID — the `client_id` — that gets pasted into [`src/services/oauth-config.ts`](../src/services/oauth-config.ts) replacing the `__SHIPPED_CLIENT_ID__` placeholder before the next release.
+This is **optional** — `azdo-cli` ships with Microsoft's Visual Studio public client id and that is what the released binary uses by default. Follow this section only if a maintainer has decided to replace that default with a project-owned shared registration (e.g. to own the OAuth audit trail, run a different consent dialog, or change branding).
+
+The output is a single GUID — the `client_id` — that gets pasted into [`src/services/oauth-config.ts`](../src/services/oauth-config.ts) as the new value of `DEFAULT_OAUTH_CLIENT_ID` before the next release. The current value of that constant is the canonical source of truth for what the CLI ships with.
 
 ### Prerequisites
 
@@ -37,7 +41,7 @@ This procedure is done **once** by the project maintainer (or whoever cuts relea
    | **Name** | `azdo-cli` (or any human-readable name — this is shown to end users on the consent dialog) |
    | **Supported account types** | **Accounts in any organisational directory (Any Microsoft Entra ID tenant — Multitenant)**. Required so users on any tenant can authenticate against their own AzDO organisations. |
    | **Redirect URI — Platform** | `Public client/native (mobile & desktop)` |
-   | **Redirect URI — value** | `http://127.0.0.1/callback` *(loopback host, fixed `/callback` path — Entra accepts any port for loopback per RFC 8252, but the path must match what the CLI sends)* |
+   | **Redirect URI — value** | `http://127.0.0.1/callback` *(loopback host, fixed `/callback` path — Entra accepts any port for loopback per RFC 8252, but the path must match what the CLI sends. The CLI sends `http://127.0.0.1:<random-port>/callback` whenever a non-default client id is in use, so this exact registration matches.)* |
 
    Click **Register**.
 
@@ -47,7 +51,7 @@ This procedure is done **once** by the project maintainer (or whoever cuts relea
 5. **Configure authentication options.**
    In the left-hand nav, open **Manage → Authentication**.
 
-   - Under **Redirect URIs**, confirm the entry `http://127.0.0.1/callback` is present under **Mobile and desktop applications**. (If the registration form created the entry without the `/callback` path, edit it or add it manually here — Entra ignores the port for loopback but matches the path strictly.)
+   - Under **Redirect URIs**, confirm the entry `http://127.0.0.1/callback` is present under **Mobile and desktop applications**. (If the registration form created the entry without the `/callback` path, edit it or add it manually here — Entra ignores the port for loopback but matches the path strictly. The CLI sends `http://127.0.0.1:<random-port>/callback` for any non-default client id; the registered URI must include `/callback`.)
    - Under **Advanced settings → Allow public client flows**, set the toggle to **Yes**. *(This is what enables the device-code flow for headless hosts and the loopback-redirect flow for desktop logins. Without it, Entra rejects requests from the public client with `AADSTS7000218`.)*
    - Click **Save**.
 
@@ -77,19 +81,13 @@ This procedure is done **once** by the project maintainer (or whoever cuts relea
    These don't affect functionality. Skip unless you have time to polish.
 
 8. **Update the CLI source.**
-   Open [`src/services/oauth-config.ts`](../src/services/oauth-config.ts) and replace the placeholder:
-
-   ```ts
-   export const DEFAULT_OAUTH_CLIENT_ID = '__SHIPPED_CLIENT_ID__';
-   ```
-
-   with the GUID from step 4:
+   Open [`src/services/oauth-config.ts`](../src/services/oauth-config.ts) and replace the current `DEFAULT_OAUTH_CLIENT_ID` constant with the GUID from step 4:
 
    ```ts
    export const DEFAULT_OAUTH_CLIENT_ID = '8a1b2c3d-4e5f-6789-0abc-def123456789';
    ```
 
-   Commit, raise a release PR (per the project's gitflow), and ship.
+   Update the JSDoc above the constant to describe the new project-owned app (and remove the reference to the Visual Studio default it is replacing). Commit, raise a release PR (per the project's gitflow), and ship.
 
 That's it for the maintainer.
 
@@ -195,9 +193,9 @@ These are the failure modes most often hit on locked-down tenants. Read these be
 | `AADSTS50105` "The signed in user is not assigned to a role for the application" | The tenant requires explicit assignment under **Enterprise applications → Users and groups**. | Ask the Entra admin to assign your user (or the appropriate group) to the application. |
 | `AADSTS65001` "The user or administrator has not consented to use the application" | First-time use on a tenant that requires admin consent. | An Entra admin must visit the consent prompt for the application once (e.g. by signing in themselves first, or via the *Grant admin consent* button on the API permissions page). |
 | `AADSTS7000218` "The request body must contain the following parameter: 'client_assertion' or 'client_secret'" | **Allow public client flows** is set to **No** on the registration. | §1 / §2 step 4 — toggle it to **Yes**. |
-| `AADSTS500113` "No reply address is registered" / `AADSTS50011` "redirect URI does not match" | The redirect URI on the registration does not match what the CLI sends. | Add `http://127.0.0.1/callback` exactly under **Authentication → Mobile and desktop applications**. Entra ignores the port for loopback but matches the path strictly — the registered URI must include `/callback`. |
+| `AADSTS500113` "No reply address is registered" / `AADSTS50011` "redirect URI does not match" | The redirect URI on the registration does not match what the CLI sends. | For any non-default client id the CLI sends `http://127.0.0.1:<random-port>/callback` — register `http://127.0.0.1/callback` exactly under **Authentication → Mobile and desktop applications**. Entra ignores the port for loopback but matches the path strictly, so the registered URI must include `/callback`. (The shipped default — Microsoft's Visual Studio public client id — sends `http://localhost:<random-port>` instead; you cannot register that one because the app is not yours, but the bare loopback host is already on its registered redirect-URI list.) |
 | `AADSTS90094` "The grant requires admin permission" | Conditional access requires admin consent on every refresh. | Either grant admin consent once for the app, or fall back to `--use-pat`. |
-| Browser opens, user signs in, but the CLI stays on "waiting for callback" | The consent flow redirected to a different host (e.g. `localhost` instead of `127.0.0.1`), or a firewall is blocking the loopback. | Confirm the redirect URI on the registration is exactly `http://127.0.0.1/callback` (loopback host, no port, fixed `/callback` path). The CLI strictly validates loopback (FR-013a). |
+| Browser opens, user signs in, but the CLI stays on "waiting for callback" | The consent flow redirected to a different host (e.g. `localhost` instead of `127.0.0.1`), or a firewall is blocking the loopback. | For non-default client ids, confirm the redirect URI on the registration is exactly `http://127.0.0.1/callback` (loopback host, no port, fixed `/callback` path). The CLI strictly validates loopback (FR-013a). |
 
 ---
 

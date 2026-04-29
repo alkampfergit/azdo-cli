@@ -203,7 +203,14 @@ export async function refreshIfNeeded(
   const op = (async (): Promise<StoredOAuthCredential> => {
     const lock = await acquire(org);
     try {
-      // Re-read happens at the AuthService layer; here we just refresh under the lock.
+      // Concurrency model: the in-process single-flight (`inFlight`) above
+      // collapses concurrent callers in the same process to one refresh.
+      // The lock file collapses concurrent callers across processes. We do
+      // NOT re-read the stored credential after acquiring the lock — the
+      // worst case is that two processes race past the expiry check and
+      // each obtain a fresh access token using the same refresh token,
+      // which is benign (Entra accepts both, the second `persist` simply
+      // overwrites with the newer token).
       return await performRefresh(org, current, oauthConfig, fetchFn, now, persist);
     } finally {
       lock?.release();

@@ -107,7 +107,7 @@ export function findDotEnvPat(startDir: string = process.cwd()): string | null {
  *   2. Stored credential (kind-aware: PAT or OAuth + silent refresh)
  *   3. .env file walking up → PAT credential
  */
-export async function resolvePat(org: string): Promise<AuthCredential | null> {
+export async function resolveAuthCredential(org: string): Promise<AuthCredential | null> {
   const envPat = process.env.AZDO_PAT;
   if (envPat && envPat.length > 0) {
     return { pat: envPat, source: 'env', kind: 'pat' };
@@ -136,8 +136,8 @@ export async function resolvePat(org: string): Promise<AuthCredential | null> {
   return null;
 }
 
-export async function requirePat(org: string): Promise<AuthCredential> {
-  const cred = await resolvePat(org);
+export async function requireAuthCredential(org: string): Promise<AuthCredential> {
+  const cred = await resolveAuthCredential(org);
   if (cred !== null) {
     return cred;
   }
@@ -259,8 +259,18 @@ export async function loginWithOAuth(org: string, opts: OAuthLoginOptions = {}):
     throw err;
   }
 
-  // storeOAuthCredential emits its own oauth-login-success audit event.
   await storeOAuthCredential(org, credential);
+
+  appendAuthAuditEvent({
+    event: 'oauth-login-success',
+    org,
+    backend: probeBackend(),
+    flow: flowUsed,
+    clientIdSource: oauthConfig.clientIdSource,
+    accountId: credential.accountId,
+    scope: credential.scope,
+    tokenLifetimeSec: credential.expiresAt - credential.issuedAt,
+  });
 
   return {
     org,

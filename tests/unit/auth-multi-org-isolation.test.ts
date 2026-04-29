@@ -46,7 +46,7 @@ vi.mock('../../src/services/oauth-token-refresh.js', () => ({
 }));
 
 // Block .env discovery — the repo / parent dirs may have a real AZDO_PAT
-// in a .env file that would leak into resolvePat() and break isolation tests.
+// in a .env file that would leak into resolveAuthCredential() and break isolation tests.
 vi.mock('node:fs', async () => {
   const actual = await vi.importActual<typeof import('node:fs')>('node:fs');
   return {
@@ -96,10 +96,10 @@ describe('FR-009 — per-org credential isolation', () => {
       }),
     );
 
-    const { resolvePat } = await import('../../src/services/auth.js');
-    const credA = await resolvePat('orgA');
-    const credB = await resolvePat('orgB');
-    const credC = await resolvePat('orgC');
+    const { resolveAuthCredential } = await import('../../src/services/auth.js');
+    const credA = await resolveAuthCredential('orgA');
+    const credB = await resolveAuthCredential('orgB');
+    const credC = await resolveAuthCredential('orgC');
 
     expect(credA).toEqual({ pat: 'pat-A', source: 'credential-store', kind: 'pat' });
     expect(credB?.kind).toBe('oauth');
@@ -107,12 +107,12 @@ describe('FR-009 — per-org credential isolation', () => {
     expect(credC).toBeNull();
   });
 
-  it('requirePat throws CredentialMissingError for an unknown org rather than returning a sibling org credential', async () => {
+  it('requireAuthCredential throws CredentialMissingError for an unknown org rather than returning a sibling org credential', async () => {
     state.entries.set('azdo-cli::pat:orgA', JSON.stringify({ kind: 'pat', token: 'pat-A' }));
 
-    const { requirePat } = await import('../../src/services/auth.js');
+    const { requireAuthCredential } = await import('../../src/services/auth.js');
     const { CredentialMissingError } = await import('../../src/types/credential.js');
-    await expect(requirePat('unknownOrg')).rejects.toBeInstanceOf(CredentialMissingError);
+    await expect(requireAuthCredential('unknownOrg')).rejects.toBeInstanceOf(CredentialMissingError);
   });
 
   it('logout for orgA does not affect orgB', async () => {
@@ -142,9 +142,9 @@ describe('FR-009 — per-org credential isolation', () => {
       }),
     );
 
-    const { resolvePat } = await import('../../src/services/auth.js');
-    const a = await resolvePat('patOrg');
-    const b = await resolvePat('oauthOrg');
+    const { resolveAuthCredential } = await import('../../src/services/auth.js');
+    const a = await resolveAuthCredential('patOrg');
+    const b = await resolveAuthCredential('oauthOrg');
     expect(a?.kind).toBe('pat');
     expect(b?.kind).toBe('oauth');
   });

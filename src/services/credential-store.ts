@@ -200,17 +200,20 @@ export async function storePat(org: string, pat: string): Promise<void> {
   });
 }
 
+/**
+ * Pure persistence helper: write the OAuth credential to the OS keyring.
+ *
+ * Does NOT emit `oauth-login-success`. That event records *interactive
+ * login* outcomes and needs the call-site context (which flow ran, where
+ * the client id came from) that this helper does not have. The login
+ * call site (`loginWithOAuth` in `services/auth.ts`) emits the event
+ * itself after persisting. The refresh path also calls this helper but
+ * deliberately emits `oauth-refresh-success` instead — refreshes are
+ * not logins.
+ */
 export async function storeOAuthCredential(org: string, cred: StoredOAuthCredential): Promise<void> {
   const entry = new Entry(SERVICE, accountFor(org));
   wrapUnavailable(() => entry.setPassword(serializeCredential(cred)));
-  appendAuthAuditEvent({
-    event: 'oauth-login-success',
-    org,
-    backend: probeBackend(),
-    accountId: cred.accountId,
-    scope: cred.scope,
-    tokenLifetimeSec: cred.expiresAt - cred.issuedAt,
-  });
 }
 
 export async function deletePat(org: string): Promise<boolean> {

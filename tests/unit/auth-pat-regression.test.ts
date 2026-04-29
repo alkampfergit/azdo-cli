@@ -55,8 +55,8 @@ describe('US3 — PAT regression: existing PAT users see no behaviour change', (
     // Simulate a pre-feature install: a raw-PAT string in the per-org slot
     state.entries.set('azdo-cli::pat:legacyOrg', 'pre-feature-pat-value');
 
-    const { resolvePat } = await import('../../src/services/auth.js');
-    const cred = await resolvePat('legacyOrg');
+    const { resolveAuthCredential } = await import('../../src/services/auth.js');
+    const cred = await resolveAuthCredential('legacyOrg');
 
     expect(cred).toEqual({
       pat: 'pre-feature-pat-value',
@@ -72,8 +72,8 @@ describe('US3 — PAT regression: existing PAT users see no behaviour change', (
     state.entries.set('azdo-cli::pat:orgA', 'stored-pat');
     process.env.AZDO_PAT = 'env-pat';
 
-    const { resolvePat } = await import('../../src/services/auth.js');
-    const cred = await resolvePat('orgA');
+    const { resolveAuthCredential } = await import('../../src/services/auth.js');
+    const cred = await resolveAuthCredential('orgA');
 
     expect(cred).toEqual({ pat: 'env-pat', source: 'env', kind: 'pat' });
   });
@@ -86,8 +86,8 @@ describe('US3 — PAT regression: existing PAT users see no behaviour change', (
 
   it('reading a wrapped PAT envelope produces a credential identical to the legacy bare-string path', async () => {
     state.entries.set('azdo-cli::pat:orgB', JSON.stringify({ kind: 'pat', token: 'wrapped-pat' }));
-    const { resolvePat } = await import('../../src/services/auth.js');
-    const cred = await resolvePat('orgB');
+    const { resolveAuthCredential } = await import('../../src/services/auth.js');
+    const cred = await resolveAuthCredential('orgB');
     expect(cred).toEqual({ pat: 'wrapped-pat', source: 'credential-store', kind: 'pat' });
   });
 });
