@@ -34,7 +34,7 @@ describe('oauth-flow — session preparation', () => {
       prepareAuthCodeSession({
         org: 'orgA',
         oauthConfig,
-        redirectUri: 'http://localhost:8080/callback',
+        redirectUri: 'http://example.com:8080/callback',
         now: Date.now(),
         timeoutMs: 60_000,
       }),

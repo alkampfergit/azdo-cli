@@ -2,18 +2,28 @@ import { loadConfig } from './config-store.js';
 import type { OAuthConfig } from '../types/oauth.js';
 
 /**
- * Default project-owned OAuth client id. Shipped publicly with the released
- * binary as a non-secret literal (FR-013a, R11). The placeholder is replaced
- * by the actual GUID once the maintainer registers the shared Entra public
- * OAuth app per `docs/oauth-app-registration.md` (FR-015 / T046–T048).
+ * Default OAuth client id. We use Microsoft's well-known "Visual Studio" public
+ * client id, which is pre-authorized in the Azure DevOps service principal and
+ * therefore can acquire AzDO tokens for both work/school and personal Microsoft
+ * accounts without a self-registered application. This is the same client id
+ * baked into `Microsoft.VisualStudio.Services.Client` (the official C# SDK)
+ * and used by Git Credential Manager, VS Code, and other Microsoft-adjacent
+ * tooling. No client secret is required (public client + PKCE).
  *
- * If left as the placeholder, OAuth flows targeting the default app will fail
- * at the IdP — users on locked-down tenants can still use the override path
- * (AZDO_OAUTH_CLIENT_ID / oauth.clientId) without depending on this value.
+ * Users on tenants that mandate self-registered OAuth apps can override via
+ * AZDO_OAUTH_CLIENT_ID / oauth.clientId / --client-id and supply their own
+ * registered client id (FR-013).
  */
-export const DEFAULT_OAUTH_CLIENT_ID = '__SHIPPED_CLIENT_ID__';
+export const DEFAULT_OAUTH_CLIENT_ID = '872cd9fa-d31f-45e0-9eab-6e460a02d1f1';
 
-export const DEFAULT_OAUTH_TENANT_ID = 'organizations';
+/**
+ * Default tenant segment for the Entra v2.0 endpoints. `common` lets any
+ * work/school or personal Microsoft account sign in; the issuing tenant is
+ * resolved from the user's credentials. Override per-invocation with
+ * `--tenant-id` / AZDO_OAUTH_TENANT_ID / oauth.tenantId when targeting a
+ * specific (e.g. locked-down) tenant.
+ */
+export const DEFAULT_OAUTH_TENANT_ID = 'common';
 
 /**
  * Azure DevOps resource id (the well-known AzDO app id) used to scope OAuth
@@ -33,9 +43,7 @@ export const AZDO_RESOURCE_ID = '499b84ac-1321-427f-aa17-267ca6975798';
  */
 export function defaultScopes(): readonly string[] {
   return [
-    `${AZDO_RESOURCE_ID}/vso.work`,
-    `${AZDO_RESOURCE_ID}/vso.work_write`,
-    `${AZDO_RESOURCE_ID}/vso.code`,
+    `${AZDO_RESOURCE_ID}/.default`,
     'offline_access',
     'openid',
   ];
@@ -106,13 +114,16 @@ export function resolveOAuthConfig(opts: ResolveOAuthConfigOptions = {}): OAuthC
   };
 }
 
-const REDIRECT_URI_PATTERN = /^http:\/\/127\.0\.0\.1:\d+\/callback$/;
+const REDIRECT_URI_PATTERN = /^http:\/\/(?:127\.0\.0\.1|localhost):\d+(?:\/callback)?$/;
 
 /**
- * RFC 8252 + Entra: only loopback `127.0.0.1` (NOT `localhost`) on a numeric
- * port with the exact path `/callback` is acceptable. Validates the URI sent
- * on /authorize matches this pattern AND the value passed on the token
- * exchange request — exact-match is required for FR-013a.
+ * RFC 8252 + Entra: only loopback (`127.0.0.1` or `localhost`) on a numeric
+ * port is acceptable. The path is optional — `/callback` is used when the
+ * registered Entra app whitelists that path; the bare loopback host (no path)
+ * is used when targeting Microsoft first-party clients (e.g. the well-known
+ * Visual Studio public-client id) whose redirect-URI whitelist is `http://localhost`.
+ * Exact-match is enforced on both /authorize and the token-exchange request
+ * (FR-013a).
  */
 export function validateRedirectUri(uri: string): boolean {
   return REDIRECT_URI_PATTERN.test(uri);

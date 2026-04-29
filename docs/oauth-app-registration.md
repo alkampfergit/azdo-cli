@@ -37,7 +37,7 @@ This procedure is done **once** by the project maintainer (or whoever cuts relea
    | **Name** | `azdo-cli` (or any human-readable name — this is shown to end users on the consent dialog) |
    | **Supported account types** | **Accounts in any organisational directory (Any Microsoft Entra ID tenant — Multitenant)**. Required so users on any tenant can authenticate against their own AzDO organisations. |
    | **Redirect URI — Platform** | `Public client/native (mobile & desktop)` |
-   | **Redirect URI — value** | `http://127.0.0.1` *(no port, no path — Entra accepts this as a loopback redirect family per RFC 8252)* |
+   | **Redirect URI — value** | `http://127.0.0.1/callback` *(loopback host, fixed `/callback` path — Entra accepts any port for loopback per RFC 8252, but the path must match what the CLI sends)* |
 
    Click **Register**.
 
@@ -47,7 +47,7 @@ This procedure is done **once** by the project maintainer (or whoever cuts relea
 5. **Configure authentication options.**
    In the left-hand nav, open **Manage → Authentication**.
 
-   - Under **Redirect URIs**, confirm the entry `http://127.0.0.1` is present under **Mobile and desktop applications**. (If the registration form created the entry incorrectly, delete it and add it manually here.)
+   - Under **Redirect URIs**, confirm the entry `http://127.0.0.1/callback` is present under **Mobile and desktop applications**. (If the registration form created the entry without the `/callback` path, edit it or add it manually here — Entra ignores the port for loopback but matches the path strictly.)
    - Under **Advanced settings → Allow public client flows**, set the toggle to **Yes**. *(This is what enables the device-code flow for headless hosts and the loopback-redirect flow for desktop logins. Without it, Entra rejects requests from the public client with `AADSTS7000218`.)*
    - Click **Save**.
 
@@ -128,7 +128,7 @@ The procedure is the same as §1 but ends with you setting an environment variab
    | Name | `azdo-cli (personal)` or any human-readable name |
    | Supported account types | **Accounts in this organisational directory only (Single tenant)** — this scopes the app to your tenant. |
    | Redirect URI — Platform | `Public client/native (mobile & desktop)` |
-   | Redirect URI — value | `http://127.0.0.1` |
+   | Redirect URI — value | `http://127.0.0.1/callback` |
 
    Click **Register**.
 
@@ -195,9 +195,9 @@ These are the failure modes most often hit on locked-down tenants. Read these be
 | `AADSTS50105` "The signed in user is not assigned to a role for the application" | The tenant requires explicit assignment under **Enterprise applications → Users and groups**. | Ask the Entra admin to assign your user (or the appropriate group) to the application. |
 | `AADSTS65001` "The user or administrator has not consented to use the application" | First-time use on a tenant that requires admin consent. | An Entra admin must visit the consent prompt for the application once (e.g. by signing in themselves first, or via the *Grant admin consent* button on the API permissions page). |
 | `AADSTS7000218` "The request body must contain the following parameter: 'client_assertion' or 'client_secret'" | **Allow public client flows** is set to **No** on the registration. | §1 / §2 step 4 — toggle it to **Yes**. |
-| `AADSTS500113` "No reply address is registered" | The redirect URI on the registration does not match what the CLI sends. | Add `http://127.0.0.1` exactly under **Authentication → Mobile and desktop applications**. The CLI binds an OS-assigned port and Entra accepts any port under that loopback host. |
+| `AADSTS500113` "No reply address is registered" / `AADSTS50011` "redirect URI does not match" | The redirect URI on the registration does not match what the CLI sends. | Add `http://127.0.0.1/callback` exactly under **Authentication → Mobile and desktop applications**. Entra ignores the port for loopback but matches the path strictly — the registered URI must include `/callback`. |
 | `AADSTS90094` "The grant requires admin permission" | Conditional access requires admin consent on every refresh. | Either grant admin consent once for the app, or fall back to `--use-pat`. |
-| Browser opens, user signs in, but the CLI stays on "waiting for callback" | The consent flow redirected to a different host (e.g. `localhost` instead of `127.0.0.1`), or a firewall is blocking the loopback. | Confirm the redirect URI on the registration is exactly `http://127.0.0.1` (no port, no path). The CLI strictly validates loopback (FR-013a). |
+| Browser opens, user signs in, but the CLI stays on "waiting for callback" | The consent flow redirected to a different host (e.g. `localhost` instead of `127.0.0.1`), or a firewall is blocking the loopback. | Confirm the redirect URI on the registration is exactly `http://127.0.0.1/callback` (loopback host, no port, fixed `/callback` path). The CLI strictly validates loopback (FR-013a). |
 
 ---
 

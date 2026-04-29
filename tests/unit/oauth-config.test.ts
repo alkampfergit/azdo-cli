@@ -30,7 +30,7 @@ describe('oauth-config — resolution precedence (FR-013, FR-016)', () => {
     const cfg = resolveOAuthConfig();
     expect(cfg.clientId).toBe(DEFAULT_OAUTH_CLIENT_ID);
     expect(cfg.clientIdSource).toBe('default');
-    expect(cfg.tenantId).toBe('organizations');
+    expect(cfg.tenantId).toBe('common');
   });
 
   it('env AZDO_OAUTH_CLIENT_ID overrides the default', () => {
@@ -68,11 +68,9 @@ describe('oauth-config — resolution precedence (FR-013, FR-016)', () => {
     expect(cfg2.tenantId).toBe('flag-tenant');
   });
 
-  it('default scopes mirror the FR-016 baseline (no vso.full_access)', () => {
+  it('default scopes use the AzDO resource .default scope (first-party-client preauth path)', () => {
     const cfg = resolveOAuthConfig();
-    expect(cfg.scopes).toContain(`${AZDO_RESOURCE_ID}/vso.work`);
-    expect(cfg.scopes).toContain(`${AZDO_RESOURCE_ID}/vso.work_write`);
-    expect(cfg.scopes).toContain(`${AZDO_RESOURCE_ID}/vso.code`);
+    expect(cfg.scopes).toContain(`${AZDO_RESOURCE_ID}/.default`);
     expect(cfg.scopes).toContain('offline_access');
     expect(cfg.scopes).toContain('openid');
     expect(cfg.scopes).not.toContain(`${AZDO_RESOURCE_ID}/vso.full_access`);
@@ -97,8 +95,10 @@ describe('oauth-config — validateRedirectUri (loopback only, FR-013a)', () => 
     expect(validateRedirectUri('http://127.0.0.1:65535/callback')).toBe(true);
   });
 
-  it('rejects localhost (must be 127.0.0.1 per RFC 8252)', () => {
-    expect(validateRedirectUri('http://localhost:50231/callback')).toBe(false);
+  it('accepts http://localhost:<port> (used with Microsoft first-party clients)', () => {
+    expect(validateRedirectUri('http://localhost:50231')).toBe(true);
+    expect(validateRedirectUri('http://localhost:50231/callback')).toBe(true);
+    expect(validateRedirectUri('http://127.0.0.1:50231')).toBe(true);
   });
 
   it('rejects 0.0.0.0 and other non-loopback hosts', () => {

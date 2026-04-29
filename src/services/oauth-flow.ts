@@ -194,7 +194,7 @@ function handleCallback(req: IncomingMessage, res: ServerResponse, active: Activ
   const path = url.pathname;
   const q = url.searchParams;
 
-  if (path !== '/callback') {
+  if (path !== '/callback' && path !== '/') {
     writeError(res, 404, `unexpected path ${path}`);
     if (active) active.reject(new OAuthFlowError('redirect-mismatch', `unexpected callback path "${path}"`));
     return;
@@ -391,7 +391,12 @@ export async function runAuthCodeFlow(
   const timeoutMs = deps.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 
   const listener = await openLoopbackListener(deps);
-  const redirectUri = `http://127.0.0.1:${listener.port}/callback`;
+  // Use `localhost` (not `127.0.0.1`) and no path — matches the redirect-URI
+  // whitelist of Microsoft's first-party Visual Studio public client which the
+  // CLI uses by default. Both forms validate as loopback per RFC 8252; Entra's
+  // wildcard port match works for either when the registered URI is the bare
+  // loopback host.
+  const redirectUri = `http://localhost:${listener.port}`;
   const session = prepareAuthCodeSession({ org, oauthConfig, redirectUri, now: now(), timeoutMs });
 
   const ac = new AbortController();

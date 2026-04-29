@@ -394,7 +394,7 @@ export function createAuthCommand(): Command {
     .option('--use-pat', 'use Personal Access Token instead of OAuth (legacy path)', false)
     .option('--device-code', 'use OAuth device-code flow (headless hosts; OAuth only)', false)
     .option('--client-id <id>', 'override the default OAuth client id (FR-013 override path)')
-    .option('--tenant-id <id>', 'override the default OAuth tenant id (default: organizations)')
+    .option('--tenant-id <id>', 'override the default OAuth tenant id (default: common)')
     .option('--scopes <scopes>', 'space-separated OAuth scope override (advanced; default mirrors PAT scope table)');
 
   command
