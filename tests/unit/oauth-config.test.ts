@@ -68,9 +68,11 @@ describe('oauth-config — resolution precedence (FR-013, FR-016)', () => {
     expect(cfg2.tenantId).toBe('flag-tenant');
   });
 
-  it('default scopes use the AzDO resource .default scope (first-party-client preauth path)', () => {
+  it('default scopes request the FR-016 baseline AzDO vso.* triplet plus OIDC basics', () => {
     const cfg = resolveOAuthConfig();
-    expect(cfg.scopes).toContain(`${AZDO_RESOURCE_ID}/.default`);
+    expect(cfg.scopes).toContain(`${AZDO_RESOURCE_ID}/vso.work`);
+    expect(cfg.scopes).toContain(`${AZDO_RESOURCE_ID}/vso.work_write`);
+    expect(cfg.scopes).toContain(`${AZDO_RESOURCE_ID}/vso.code`);
     expect(cfg.scopes).toContain('offline_access');
     expect(cfg.scopes).toContain('openid');
     expect(cfg.scopes).not.toContain(`${AZDO_RESOURCE_ID}/vso.full_access`);

@@ -43,7 +43,9 @@ export const AZDO_RESOURCE_ID = '499b84ac-1321-427f-aa17-267ca6975798';
  */
 export function defaultScopes(): readonly string[] {
   return [
-    `${AZDO_RESOURCE_ID}/.default`,
+    `${AZDO_RESOURCE_ID}/vso.work`,
+    `${AZDO_RESOURCE_ID}/vso.work_write`,
+    `${AZDO_RESOURCE_ID}/vso.code`,
     'offline_access',
     'openid',
   ];
