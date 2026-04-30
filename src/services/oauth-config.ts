@@ -32,7 +32,9 @@ export const DEFAULT_OAUTH_TENANT_ID = 'common';
 export const AZDO_RESOURCE_ID = '499b84ac-1321-427f-aa17-267ca6975798';
 
 /**
- * FR-016 baseline OAuth scope set. Mirrors the published PAT scope table:
+ * FR-016 baseline OAuth scope set for **self-registered** OAuth apps
+ * (FR-013 / FR-015 override path: AZDO_OAUTH_CLIENT_ID, oauth.clientId,
+ * --client-id). Mirrors the published PAT scope table:
  * - vso.work: Work Items read
  * - vso.work_write: Work Items write
  * - vso.code: Code read (sufficient for PR read per FR-008)
@@ -40,6 +42,15 @@ export const AZDO_RESOURCE_ID = '499b84ac-1321-427f-aa17-267ca6975798';
  * - openid: required by Entra v2.0 when requesting any v2 resource scope
  *
  * NEVER includes vso.full_access by default (FR-016 hard rule).
+ *
+ * For the **shipped** first-party client id (Microsoft's Visual Studio public
+ * client), the request must use `<azdo-resource>/.default` instead — see
+ * `firstPartyShippedScopes()`. Per-scope consent is unavailable against a
+ * client we do not own, so requesting the explicit `vso.*` triplet against
+ * the VS client routes through Entra's consent / account-type gate and
+ * rejects personal Microsoft accounts with "You can't sign in here with a
+ * personal account". `.default` grants whatever is pre-authorized for the
+ * VS client on the AzDO resource and avoids that gate.
  */
 export function defaultScopes(): readonly string[] {
   return [
@@ -49,6 +60,18 @@ export function defaultScopes(): readonly string[] {
     'offline_access',
     'openid',
   ];
+}
+
+/**
+ * Scope set used when the shipped first-party client id is in effect (no
+ * override via flag/env/config). Per-scope consent is not available against
+ * a client we do not own, so the only working shape on Entra v2 is
+ * `<resource>/.default` — request a token covering the VS client's
+ * pre-authorized AzDO permissions, without going through the per-scope
+ * consent gate that rejects personal Microsoft accounts.
+ */
+export function firstPartyShippedScopes(): readonly string[] {
+  return [`${AZDO_RESOURCE_ID}/.default`, 'offline_access', 'openid'];
 }
 
 export interface ResolveOAuthConfigOptions {
@@ -103,7 +126,11 @@ export function resolveOAuthConfig(opts: ResolveOAuthConfigOptions = {}): OAuthC
     (fileTenantId && fileTenantId.length > 0 ? fileTenantId : null) ??
     DEFAULT_OAUTH_TENANT_ID;
 
-  const scopes = opts.scopesOverride && opts.scopesOverride.length > 0 ? [...opts.scopesOverride] : [...defaultScopes()];
+  const scopes = (() => {
+    if (opts.scopesOverride && opts.scopesOverride.length > 0) return [...opts.scopesOverride];
+    if (clientIdSource === 'default') return [...firstPartyShippedScopes()];
+    return [...defaultScopes()];
+  })();
 
   return {
     clientId,

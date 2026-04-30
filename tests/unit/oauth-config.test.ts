@@ -68,13 +68,27 @@ describe('oauth-config — resolution precedence (FR-013, FR-016)', () => {
     expect(cfg2.tenantId).toBe('flag-tenant');
   });
 
-  it('default scopes request the FR-016 baseline AzDO vso.* triplet plus OIDC basics', () => {
+  it('shipped first-party client id requests <resource>/.default + OIDC basics (per-scope consent is unavailable against a client we do not own)', () => {
     const cfg = resolveOAuthConfig();
+    expect(cfg.clientIdSource).toBe('default');
+    expect(cfg.scopes).toContain(`${AZDO_RESOURCE_ID}/.default`);
+    expect(cfg.scopes).toContain('offline_access');
+    expect(cfg.scopes).toContain('openid');
+    expect(cfg.scopes).not.toContain(`${AZDO_RESOURCE_ID}/vso.full_access`);
+    // The explicit vso.* triplet is the FR-016 path for self-registered apps
+    // (see the next test) and must NOT leak into the shipped-client request.
+    expect(cfg.scopes).not.toContain(`${AZDO_RESOURCE_ID}/vso.work`);
+  });
+
+  it('self-registered client id (override path) requests the FR-016 vso.* triplet + OIDC basics', () => {
+    const cfg = resolveOAuthConfig({ clientIdOverride: 'self-registered-id' });
+    expect(cfg.clientIdSource).toBe('flag');
     expect(cfg.scopes).toContain(`${AZDO_RESOURCE_ID}/vso.work`);
     expect(cfg.scopes).toContain(`${AZDO_RESOURCE_ID}/vso.work_write`);
     expect(cfg.scopes).toContain(`${AZDO_RESOURCE_ID}/vso.code`);
     expect(cfg.scopes).toContain('offline_access');
     expect(cfg.scopes).toContain('openid');
+    expect(cfg.scopes).not.toContain(`${AZDO_RESOURCE_ID}/.default`);
     expect(cfg.scopes).not.toContain(`${AZDO_RESOURCE_ID}/vso.full_access`);
   });
 

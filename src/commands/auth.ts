@@ -20,7 +20,7 @@ import { CredentialStoreUnavailableError } from '../types/credential.js';
 import { resolveOrg, formatResolutionError } from '../services/org-resolver.js';
 import { openUrl } from '../services/browser-open.js';
 import { appendAuthAuditEvent, readAuditEvents } from '../services/audit-log.js';
-import { defaultScopes } from '../services/oauth-config.js';
+import { AZDO_RESOURCE_ID, defaultScopes, firstPartyShippedScopes } from '../services/oauth-config.js';
 
 type RootOptions = {
   org?: string;
@@ -412,8 +412,15 @@ PAT path (legacy, opt-in):
   azdo auth login --org <name> --use-pat
   azdo auth --org <name>            # back-compat alias of the above
 
-OAuth scope set requested by default (FR-016, mirrors PAT scope table):
+OAuth scope set — shipped first-party client (default install):
+  ${firstPartyShippedScopes().join('\n  ')}
+  (uses ${AZDO_RESOURCE_ID}/.default — per-scope consent is unavailable
+  against a client we do not own; .default grants the VS client's
+  pre-authorized AzDO permissions in one step.)
+
+OAuth scope set — self-registered apps (--client-id / AZDO_OAUTH_CLIENT_ID):
   ${defaultScopes().join('\n  ')}
+  (FR-016, mirrors the PAT scope table — see docs/oauth-app-registration.md)
 
 For self-registered OAuth apps (locked-down tenants), see docs/oauth-app-registration.md
 — that same guide is the maintainer reference for the project's shared client id.
