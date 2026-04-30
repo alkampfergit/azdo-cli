@@ -54,6 +54,15 @@ export async function fetchWithErrors(url: string, init: RequestInit): Promise<R
     throw new Error(`NOT_FOUND${detail}`);
   }
 
+  // AzDO REST APIs always reply with JSON; an HTML body means the unauth'd
+  // request was redirected to the AAD sign-in page (status 200 + text/html
+  // on some egress paths instead of a 401). Map to AUTH_FAILED so callers
+  // surface a real auth message instead of a JSON-parse error downstream.
+  const contentType = response.headers?.get('content-type') ?? '';
+  if (contentType.toLowerCase().startsWith('text/html')) {
+    throw new Error('AUTH_FAILED');
+  }
+
   return response;
 }
 
