@@ -33,6 +33,14 @@ function wrapUnavailable<T>(fn: () => T): T {
   }
 }
 
+// Construction itself can throw on platforms where the keyring backend is
+// missing (e.g. headless Linux without a Secret Service). Wrap so the
+// resulting error is the friendly CredentialStoreUnavailableError instead
+// of a raw napi-rs stack.
+function entryFor(account: string): Entry {
+  return wrapUnavailable(() => new Entry(SERVICE, account));
+}
+
 let legacyUnsetNoticeEmitted = false;
 
 function emitLegacyUnsetNoticeOnce(): void {
@@ -134,12 +142,12 @@ async function maybeMigrateLegacy(targetOrg: string): Promise<string | null> {
     }
     return null;
   }
-  const newEntry = new Entry(SERVICE, accountFor(targetOrg));
+  const newEntry = entryFor(accountFor(targetOrg));
   const existingNew = wrapUnavailable(() => newEntry.getPassword());
   if (existingNew !== null) {
     return null;
   }
-  const legacyEntry = new Entry(SERVICE, LEGACY_ACCOUNT);
+  const legacyEntry = entryFor(LEGACY_ACCOUNT);
   const legacy = wrapUnavailable(() => legacyEntry.getPassword());
   if (legacy === null) {
     return null;
@@ -172,7 +180,7 @@ export async function getPat(org: string): Promise<string | null> {
 }
 
 export async function getStoredCredential(org: string): Promise<StoredCredential | null> {
-  const entry = new Entry(SERVICE, accountFor(org));
+  const entry = entryFor(accountFor(org));
   const value = wrapUnavailable(() => entry.getPassword());
   if (value === null) {
     const migrated = await maybeMigrateLegacy(org);
@@ -190,7 +198,7 @@ export async function getStoredCredential(org: string): Promise<StoredCredential
  */
 export async function storePat(org: string, pat: string): Promise<void> {
   const cred: StoredPatCredential = { kind: 'pat', token: pat };
-  const entry = new Entry(SERVICE, accountFor(org));
+  const entry = entryFor(accountFor(org));
   wrapUnavailable(() => entry.setPassword(serializeCredential(cred)));
   appendAuthAuditEvent({
     event: 'auth.store',
@@ -212,12 +220,12 @@ export async function storePat(org: string, pat: string): Promise<void> {
  * not logins.
  */
 export async function storeOAuthCredential(org: string, cred: StoredOAuthCredential): Promise<void> {
-  const entry = new Entry(SERVICE, accountFor(org));
+  const entry = entryFor(accountFor(org));
   wrapUnavailable(() => entry.setPassword(serializeCredential(cred)));
 }
 
 export async function deletePat(org: string): Promise<boolean> {
-  const entry = new Entry(SERVICE, accountFor(org));
+  const entry = entryFor(accountFor(org));
   const existing = wrapUnavailable(() => entry.getPassword());
   if (existing === null) {
     return false;
@@ -269,7 +277,7 @@ export async function listOrgsWithStoredPat(): Promise<string[]> {
   }
   const present: string[] = [];
   for (const org of seen) {
-    const entry = new Entry(SERVICE, accountFor(org));
+    const entry = entryFor(accountFor(org));
     const value = wrapUnavailable(() => entry.getPassword());
     if (value !== null) {
       present.push(org);
