@@ -11,15 +11,21 @@ import {
 describe('audit-log', () => {
   let tmpDir: string;
   let originalHome: string | undefined;
+  let originalUserProfile: string | undefined;
 
   beforeEach(() => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'azdo-audit-test-'));
     originalHome = process.env.HOME;
+    originalUserProfile = process.env.USERPROFILE;
     process.env.HOME = tmpDir;
+    // os.homedir() reads USERPROFILE on Windows, not HOME — set both so the
+    // test's fake home is honoured regardless of platform.
+    process.env.USERPROFILE = tmpDir;
   });
 
   afterEach(() => {
     process.env.HOME = originalHome;
+    process.env.USERPROFILE = originalUserProfile;
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
@@ -63,17 +69,24 @@ describe('audit-log', () => {
     expect(readAuditEvents()).toEqual([]);
   });
 
-  it('creates ~/.azdo/ with 0700 if missing and the log file with 0600', () => {
-    appendAuthAuditEvent({ event: 'auth.store', org: 'orgA', backend: 'linux-libsecret' });
+  // POSIX-only: Windows NTFS does not honour mode bits passed to mkdirSync /
+  // writeFileSync — confidentiality there comes from ACLs on the user profile
+  // dir, not from 0700/0600. The bits round-trip back as 0o666 from statSync,
+  // so this assertion is meaningless and noisy on win32.
+  it.skipIf(process.platform === 'win32')(
+    'creates ~/.azdo/ with 0700 if missing and the log file with 0600',
+    () => {
+      appendAuthAuditEvent({ event: 'auth.store', org: 'orgA', backend: 'linux-libsecret' });
 
-    const dirStat = fs.statSync(path.join(tmpDir, '.azdo'));
-    const fileStat = fs.statSync(getAuditLogPath());
+      const dirStat = fs.statSync(path.join(tmpDir, '.azdo'));
+      const fileStat = fs.statSync(getAuditLogPath());
 
-    // eslint-disable-next-line no-bitwise
-    expect(dirStat.mode & 0o777).toBe(0o700);
-    // eslint-disable-next-line no-bitwise
-    expect(fileStat.mode & 0o777).toBe(0o600);
-  });
+      // eslint-disable-next-line no-bitwise
+      expect(dirStat.mode & 0o777).toBe(0o700);
+      // eslint-disable-next-line no-bitwise
+      expect(fileStat.mode & 0o777).toBe(0o600);
+    },
+  );
 
   it('never writes a full unmasked PAT by any API path', () => {
     // The helper does not accept a raw pat; the caller must mask first. This test guards the contract.

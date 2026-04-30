@@ -11,15 +11,21 @@ import {
 describe('audit-log — OAuth event vocabulary (R10)', () => {
   let tmpDir: string;
   let originalHome: string | undefined;
+  let originalUserProfile: string | undefined;
 
   beforeEach(() => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'azdo-audit-oauth-'));
     originalHome = process.env.HOME;
+    originalUserProfile = process.env.USERPROFILE;
     process.env.HOME = tmpDir;
+    // os.homedir() reads USERPROFILE on Windows, not HOME — set both so the
+    // test's fake home is honoured regardless of platform.
+    process.env.USERPROFILE = tmpDir;
   });
 
   afterEach(() => {
     process.env.HOME = originalHome;
+    process.env.USERPROFILE = originalUserProfile;
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
