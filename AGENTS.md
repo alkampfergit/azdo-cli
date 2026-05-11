@@ -116,6 +116,8 @@ bd close <id>         # Complete work
 - TypeScript 5.x (strict mode), Node.js LTS + Node.js built-in `readline`, `process.stdin` raw mode (015-fix-pat-visibility)
 - TypeScript 5.x strict on Node.js LTS (≥18) — no change + `commander.js` (CLI), `@napi-rs/keyring` (credential store, already a dependency) (016-pat-secure-storage)
 - OS secret vault for PATs (Windows Credential Manager / macOS Keychain / Linux libsecret via `@napi-rs/keyring`); `~/.azdo/config.json` for non-secret prefs; `~/.azdo/audit.log` (new, JSON-lines) for credential-event audit trail (016-pat-secure-storage)
+- TypeScript 5.x (strict mode) on Node.js LTS (≥18, native `fetch`) + `commander` (CLI, existing), `@napi-rs/keyring` (credential store, existing), `node:http` (loopback callback, built-in), `node:crypto` (PKCE + state, built-in), native `fetch` (token exchange, built-in) (018-oauth-login)
+- per-org records in OS credential store via `@napi-rs/keyring` (existing `services/credential-store.ts`); the stored value is JSON `{ kind: 'pat' | 'oauth', token, refreshToken?, expiresAt?, accountId?, scope?, issuedAt }`. Existing PAT entries (`pat:<org>` account) MUST be readable as `kind: 'pat'` for backwards compatibility — see Migration below. (018-oauth-login)
 
 ## Recent Changes
 - 015-fix-pat-visibility: Updated PAT prompt behavior to use `readline` with `output: null` and raw stdin handling so the token is never echoed during entry

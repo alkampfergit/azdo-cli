@@ -8,7 +8,7 @@ import type {
   WriteResult,
 } from '../types/work-item.js';
 import { applyWorkItemPatch, createWorkItem } from '../services/azdo-client.js';
-import { requirePat } from '../services/auth.js';
+import { requireAuthCredential } from '../services/auth.js';
 import { resolveContext } from '../services/context.js';
 import {
   formatCreateError,
@@ -231,15 +231,15 @@ export function createUpsertCommand(): Command {
         }
 
         const operations = toPatchOperations(document.fields, action);
-        const credential = await requirePat(context.org);
+        const credential = await requireAuthCredential(context.org);
         let writeResult: WriteResult;
         if (action === 'created') {
-          writeResult = await createWorkItem(context, createType, credential.pat, operations);
+          writeResult = await createWorkItem(context, createType, credential, operations);
         } else {
           if (id === undefined) {
             fail('Work item ID is required for updates.');
           }
-          writeResult = await applyWorkItemPatch(context, id, credential.pat, operations);
+          writeResult = await applyWorkItemPatch(context, id, credential, operations);
         }
         const result = buildUpsertResult(
           action,

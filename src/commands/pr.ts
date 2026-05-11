@@ -7,7 +7,7 @@ import type {
   PullRequestStatusPullRequest,
   PullRequestStatusResult,
 } from '../types/pull-request.js';
-import type { AzdoContext } from '../types/work-item.js';
+import type { AuthCredential, AzdoContext } from '../types/work-item.js';
 import {
   listPullRequests,
   openPullRequest,
@@ -17,7 +17,7 @@ import {
   isThreadResolved,
   patchThreadStatus,
 } from '../services/pr-client.js';
-import { requirePat } from '../services/auth.js';
+import { requireAuthCredential } from '../services/auth.js';
 import { resolveContext } from '../services/context.js';
 import { validateOrgProjectPair } from '../services/command-helpers.js';
 import { detectRepoName, getCurrentBranch } from '../services/git-remote.js';
@@ -45,7 +45,7 @@ interface ResolvedPrCommandContext {
   context: AzdoContext;
   repo: string;
   branch: string | null;
-  pat: string;
+  pat: AuthCredential;
 }
 
 function formatBranchName(refName: string): string {
@@ -151,13 +151,13 @@ async function resolvePrCommandContext(
   // branch lookup entirely — it's unnecessary and would fail loudly on
   // detached HEAD or a branch that can't be resolved.
   const branch: string | null = requireBranch ? getCurrentBranch() : null;
-  const credential = await requirePat(context.org);
+  const credential = await requireAuthCredential(context.org);
 
   return {
     context,
     repo,
     branch,
-    pat: credential.pat,
+    pat: credential,
   };
 }
 
@@ -386,7 +386,7 @@ export function createPrCommentsCommand(): Command {
 interface ResolvedThreadTarget {
   context: AzdoContext;
   repo: string;
-  pat: string;
+  pat: AuthCredential;
   pullRequest: BranchPullRequestMatch;
   threadId: number;
 }

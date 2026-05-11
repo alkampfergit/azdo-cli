@@ -14,8 +14,16 @@ const credStoreState = vi.hoisted(() => ({
 
 vi.mock('../../src/services/credential-store.js', () => ({
   getPat: vi.fn(async (org: string) => (credStoreState.stored.has(org) ? credStoreState.stored.get(org)! : null)),
+  getStoredCredential: vi.fn(async (org: string) =>
+    credStoreState.stored.has(org)
+      ? { kind: 'pat' as const, token: credStoreState.stored.get(org)! }
+      : null,
+  ),
   storePat: vi.fn(async (org: string, pat: string) => {
     credStoreState.stored.set(org, pat);
+  }),
+  storeOAuthCredential: vi.fn(async () => {
+    /* no-op for tests */
   }),
   deletePat: vi.fn(async (org: string) => {
     if (!credStoreState.stored.has(org)) return false;
@@ -26,17 +34,23 @@ vi.mock('../../src/services/credential-store.js', () => ({
   probeBackend: vi.fn(() => 'linux-libsecret'),
 }));
 
+const loginWithOAuthMock = vi.hoisted(() => vi.fn());
+
 vi.mock('../../src/services/auth.js', async (original) => {
   const actual = await (original() as Promise<Record<string, unknown>>);
   return {
     ...actual,
     promptForPat: vi.fn(async () => 'prompted-pat'),
     validatePatAgainstAzdo: vi.fn(async () => ({ ok: true, status: 200 })),
+    loginWithOAuth: loginWithOAuthMock,
   };
 });
 
+const resolveOrgMock = vi.hoisted(() =>
+  vi.fn(({ org }: { org?: string }) => (org ? { org, source: 'flag' } : null)),
+);
 vi.mock('../../src/services/org-resolver.js', () => ({
-  resolveOrg: vi.fn(({ org }: { org?: string }) => (org ? { org, source: 'flag' } : null)),
+  resolveOrg: resolveOrgMock,
   formatResolutionError: vi.fn(() => 'fake resolution error'),
 }));
 
@@ -125,6 +139,65 @@ describe('azdo auth', () => {
   });
 });
 
+describe('azdo auth login (OAuth subcommand)', () => {
+  beforeEach(() => {
+    loginWithOAuthMock.mockReset().mockResolvedValue({
+      org: 'myorg',
+      kind: 'oauth',
+      accountId: 'oid:abc',
+      expiresAt: 1745783999,
+      scope: 'vso.work offline_access',
+      flowUsed: 'auth-code',
+    });
+  });
+
+  it('routes to OAuth flow by default and uses --org when explicitly passed', async () => {
+    await run(['login', '--org', 'myorg']);
+    expect(loginWithOAuthMock).toHaveBeenCalledWith('myorg', expect.objectContaining({ flow: 'auto' }));
+  });
+
+  it('auto-detects org from git remote when --org is not passed', async () => {
+    // Simulate org-resolver returning a git-detected org
+    resolveOrgMock.mockReturnValueOnce({ org: 'gitorg', source: 'git' });
+    await run(['login']);
+    expect(loginWithOAuthMock).toHaveBeenCalledWith('gitorg', expect.objectContaining({ flow: 'auto' }));
+  });
+
+  it('rejects --use-pat together with --device-code', async () => {
+    await run(['login', '--org', 'myorg', '--use-pat', '--device-code']);
+    expect(process.exitCode).toBe(2);
+    expect(getStderr()).toContain('mutually exclusive');
+  });
+
+  it('rejects --use-pat together with --client-id', async () => {
+    await run(['login', '--org', 'myorg', '--use-pat', '--client-id', 'foo']);
+    expect(process.exitCode).toBe(2);
+  });
+
+  it('falls back to PAT prompt path when --use-pat is passed', async () => {
+    await run(['login', '--org', 'myorg', '--use-pat']);
+    expect(loginWithOAuthMock).not.toHaveBeenCalled();
+    expect(validatePatAgainstAzdo).toHaveBeenCalled();
+  });
+
+  it('forwards --device-code to loginWithOAuth as flow=device-code', async () => {
+    await run(['login', '--org', 'myorg', '--device-code']);
+    expect(loginWithOAuthMock).toHaveBeenCalledWith('myorg', expect.objectContaining({ flow: 'device-code' }));
+  });
+
+  it('forwards --client-id and --tenant-id and --scopes overrides', async () => {
+    await run(['login', '--org', 'myorg', '--client-id', 'cid-x', '--tenant-id', 'tnt-y', '--scopes', 'scope-a scope-b']);
+    expect(loginWithOAuthMock).toHaveBeenCalledWith(
+      'myorg',
+      expect.objectContaining({
+        clientIdOverride: 'cid-x',
+        tenantIdOverride: 'tnt-y',
+        scopesOverride: ['scope-a', 'scope-b'],
+      }),
+    );
+  });
+});
+
 describe('azdo auth status', () => {
   it('reports stored=true with masked identifier', async () => {
     credStoreState.stored.set('myorg', 'abcdefghijklmnopqrstuvwxyz');
@@ -153,16 +226,16 @@ describe('azdo auth status', () => {
 });
 
 describe('azdo auth logout', () => {
-  it('removes the stored PAT for a given org', async () => {
+  it('removes the stored credential for a given org', async () => {
     credStoreState.stored.set('myorg', 'token');
     await run(['logout', '--org', 'myorg']);
     expect(deletePat).toHaveBeenCalledWith('myorg');
-    expect(getStdout()).toContain('PAT removed for org myorg');
+    expect(getStdout()).toContain('Credential removed for org myorg');
   });
 
-  it('succeeds with a different message when no PAT stored', async () => {
+  it('succeeds with a different message when no credential stored', async () => {
     await run(['logout', '--org', 'myorg']);
-    expect(getStdout()).toContain('No stored PAT found');
+    expect(getStdout()).toContain('No stored credential for org myorg');
     expect(process.exitCode).toBeFalsy();
   });
 
@@ -172,20 +245,20 @@ describe('azdo auth logout', () => {
     expect(getStderr()).toContain('mutually exclusive');
   });
 
-  it('removes all stored PATs with --all', async () => {
+  it('removes all stored credentials with --all', async () => {
     credStoreState.stored.set('orgA', 'tA');
     credStoreState.stored.set('orgB', 'tB');
     credStoreState.listReturns = ['orgA', 'orgB'];
     await run(['logout', '--all']);
     expect(deletePat).toHaveBeenCalledWith('orgA');
     expect(deletePat).toHaveBeenCalledWith('orgB');
-    expect(getStdout()).toContain('PAT removed for org orgA');
-    expect(getStdout()).toContain('PAT removed for org orgB');
+    expect(getStdout()).toContain('Removed pat credential for org orgA');
+    expect(getStdout()).toContain('Removed pat credential for org orgB');
   });
 
   it('reports when --all finds nothing', async () => {
     credStoreState.listReturns = [];
     await run(['logout', '--all']);
-    expect(getStdout()).toContain('No stored PATs to remove');
+    expect(getStdout()).toContain('No stored credentials to remove');
   });
 });

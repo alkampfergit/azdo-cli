@@ -3,12 +3,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const state = vi.hoisted(() => ({
   entries: new Map<string, string>(),
   backendAvailable: true,
+  constructorThrows: false,
 }));
 
 vi.mock('@napi-rs/keyring', () => {
   class MockEntry {
     private readonly key: string;
     constructor(service: string, account: string) {
+      if (state.constructorThrows) {
+        throw new Error('Platform secure storage failure: Unknown(1)');
+      }
       this.key = `${service}::${account}`;
     }
     getPassword(): string | null {
@@ -56,6 +60,7 @@ describe('credential-store (multi-org)', () => {
   beforeEach(() => {
     state.entries.clear();
     state.backendAvailable = true;
+    state.constructorThrows = false;
     appendAuthAuditEventMock.mockReset();
     readAuditEventsMock.mockReset().mockReturnValue([]);
     loadConfigMock.mockReset().mockReturnValue({});
@@ -123,6 +128,30 @@ describe('credential-store (multi-org)', () => {
     const { CredentialStoreUnavailableError } = await import('../../src/types/credential.js');
 
     await expect(getPat('orgA')).rejects.toBeInstanceOf(CredentialStoreUnavailableError);
+  });
+
+  it('throws CredentialStoreUnavailableError when keyring Entry constructor itself fails', async () => {
+    state.constructorThrows = true;
+    const { getStoredCredential, storePat, storeOAuthCredential, deletePat } = await import(
+      '../../src/services/credential-store.js'
+    );
+    const { CredentialStoreUnavailableError } = await import('../../src/types/credential.js');
+
+    await expect(getStoredCredential('orgA')).rejects.toBeInstanceOf(CredentialStoreUnavailableError);
+    await expect(storePat('orgA', 'tok')).rejects.toBeInstanceOf(CredentialStoreUnavailableError);
+    await expect(deletePat('orgA')).rejects.toBeInstanceOf(CredentialStoreUnavailableError);
+    await expect(
+      storeOAuthCredential('orgA', {
+        kind: 'oauth',
+        accessToken: 'a',
+        refreshToken: 'r',
+        expiresAt: 1,
+        issuedAt: 0,
+        accountId: 'id',
+        scope: 's',
+        tenantId: 't',
+      }),
+    ).rejects.toBeInstanceOf(CredentialStoreUnavailableError);
   });
 
   it('migrates legacy single-slot PAT to pat:<config.org> on first getPat when config.org is set', async () => {

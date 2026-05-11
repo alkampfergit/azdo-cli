@@ -51,6 +51,15 @@ describe('stripHtml', () => {
     expect(stripHtml('word&nbsp;word')).toBe('word word');
   });
 
+  it('preserves &amp;-escaped sequences without double-decoding (CodeQL js/double-escaping)', () => {
+    // `&amp;lt;` is the literal text `&lt;`, NOT an HTML-encoded `<`.
+    // A naive decoder that decodes `&amp;` first would collapse this to `<`.
+    // The correct order decodes `&amp;` last so the literal sequence is preserved.
+    expect(stripHtml('&amp;lt;')).toBe('&lt;');
+    expect(stripHtml('A &amp;amp; B')).toBe('A &amp; B');
+    expect(stripHtml('&amp;quot;raw&amp;quot;')).toBe('&quot;raw&quot;');
+  });
+
   it('removes unknown tags', () => {
     expect(stripHtml('<span class="x">text</span>')).toBe('text');
   });

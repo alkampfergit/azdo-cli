@@ -1,7 +1,7 @@
 import { Command } from 'commander';
 import type { AzdoContext, WorkItem, WorkItemAttachment } from '../types/work-item.js';
 import { getWorkItem } from '../services/azdo-client.js';
-import { requirePat } from '../services/auth.js';
+import { requireAuthCredential } from '../services/auth.js';
 import { resolveContext } from '../services/context.js';
 import { loadConfig } from '../services/config-store.js';
 import { toMarkdown } from '../services/md-convert.js';
@@ -35,13 +35,17 @@ export function stripHtml(html: string): string {
   // Strip any remaining tags with a linear scan to avoid regex backtracking hotspots.
   text = removeHtmlTags(text);
 
-  // Decode common HTML entities
-  text = text.replaceAll('&amp;', '&');
+  // Decode common HTML entities. Order matters: `&amp;` MUST be decoded LAST,
+  // otherwise input like `&amp;lt;` (the literal text "&lt;") would first
+  // collapse to `&lt;` and then to `<`, producing a double-decode (CodeQL
+  // js/double-escaping). Decoding `&amp;` last preserves any escaped
+  // ampersand sequences in the original text.
   text = text.replaceAll('&lt;', '<');
   text = text.replaceAll('&gt;', '>');
   text = text.replaceAll('&quot;', '"');
   text = text.replaceAll('&#39;', "'");
   text = text.replaceAll('&nbsp;', ' ');
+  text = text.replaceAll('&amp;', '&');
 
   // Collapse multiple consecutive newlines into double newline
   text = text.replaceAll(/\n{3,}/g, '\n\n');
@@ -188,13 +192,13 @@ export function createGetItemCommand(): Command {
 
         try {
           context = resolveContext(options);
-          const credential = await requirePat(context.org);
+          const credential = await requireAuthCredential(context.org);
 
           const fieldsList = options.fields === undefined
             ? parseRequestedFields(loadConfig().fields)
             : parseRequestedFields(options.fields);
 
-          const workItem = await getWorkItem(context, id, credential.pat, fieldsList);
+          const workItem = await getWorkItem(context, id, credential, fieldsList);
 
           const markdownEnabled = options.markdown ?? loadConfig().markdown ?? false;
           const output = formatWorkItem(workItem, options.short ?? false, markdownEnabled);
