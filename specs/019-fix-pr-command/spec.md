@@ -5,6 +5,12 @@
 **Status**: Draft
 **Input**: User description: "Issue #40 — `azdo pr status` aborts with *Git remote \"origin\" is not an Azure DevOps URL* even though the configured remote is a valid Azure DevOps HTTPS URL of the form `https://<user>@dev.azure.com/<org>/<project>/_git/<repo>`. Also clarify and document how the active pull request is selected when `--pr-number` is not supplied."
 
+## Clarifications
+
+### Session 2026-05-21
+
+- Q: When the current branch matches more than one open PR, what should the CLI do? → A: List the matching PR numbers on stderr and exit non-zero (option A — non-interactive, no TTY prompt, no auto-pick).
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 — `azdo pr` recognises a valid Azure DevOps remote that includes a user component in the URL (Priority: P1)
@@ -36,7 +42,7 @@ When the user runs an `azdo pr` subcommand (e.g. `status`, `comments`, `comment-
 
 1. **Given** any `azdo pr <sub>` command that accepts `--pr-number`, **When** the user runs `azdo pr <sub> --help`, **Then** the help output contains a short, plain-language description of how the active PR is chosen when `--pr-number` is omitted, including the inputs (current branch, current `origin` URL) and the match criterion.
 2. **Given** the current branch has no matching open pull request in Azure DevOps, **When** the user runs `azdo pr status`, **Then** the error message names the branch it searched for AND the auto-detection rule, so the user can either supply `--pr-number` or push the branch and open a PR.
-3. **Given** the current branch matches more than one open pull request, **When** the user runs `azdo pr status`, **Then** the CLI surfaces the ambiguity (lists the candidate PR numbers) and tells the user to disambiguate with `--pr-number`, instead of silently picking one.
+3. **Given** the current branch matches more than one open pull request, **When** the user runs `azdo pr status`, **Then** the CLI writes a single line to stderr naming the searched branch and listing the matching PR numbers (e.g. `Multiple PRs match branch <name>: #12, #34. Re-run with --pr-number to choose.`) and exits with a non-zero status. No interactive prompt is shown under any condition; no PR is auto-picked.
 
 ---
 
@@ -58,7 +64,7 @@ When the user runs an `azdo pr` subcommand (e.g. `status`, `comments`, `comment-
 - **FR-003**: The CLI MUST NOT broaden recognition to hosts other than the Azure DevOps hosts it already accepts. A URL whose host is not `dev.azure.com`, `<org>.visualstudio.com`, `ssh.dev.azure.com`, or `vs-ssh.visualstudio.com` MUST continue to be rejected.
 - **FR-004**: Any error message, log line, or verbose output produced by the URL parser or its callers MUST NOT contain the embedded password/token portion of a `user:token@` userinfo component. The presence of userinfo MUST NOT be reflected in user-visible output beyond what is strictly necessary to identify the URL form.
 - **FR-005**: The `--help` text for every `azdo pr <sub>` command that supports `--pr-number` MUST describe, in plain language, how the active pull request is selected when `--pr-number` is omitted — including the inputs the CLI reads (current branch, current `origin` URL), the match criterion, and the precedence rule when `--pr-number` is supplied.
-- **FR-006**: When auto-detection finds zero matching pull requests, the error message MUST name the branch that was searched and refer to the documented auto-detection rule. When auto-detection finds more than one matching pull request, the CLI MUST list the candidate PR numbers and instruct the user to disambiguate with `--pr-number`, rather than silently picking one.
+- **FR-006**: When auto-detection finds zero matching pull requests, the error message MUST name the branch that was searched and refer to the documented auto-detection rule. When auto-detection finds more than one matching pull request, the CLI MUST write a single line to **stderr** that names the searched branch and lists every candidate PR number, instruct the user to disambiguate with `--pr-number`, and exit with a **non-zero** status. The CLI MUST NOT prompt the user interactively under any condition (regardless of whether stdin/stdout is a TTY) and MUST NOT silently pick one.
 - **FR-007**: All existing `azdo pr` behaviour for remotes WITHOUT userinfo MUST remain byte-identical (same stdout, same stderr, same exit code, same API requests) after the fix ships.
 
 ### Key Entities
