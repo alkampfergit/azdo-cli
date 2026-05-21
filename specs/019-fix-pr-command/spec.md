@@ -10,6 +10,7 @@
 ### Session 2026-05-21
 
 - Q: When the current branch matches more than one open PR, what should the CLI do? → A: List the matching PR numbers on stderr and exit non-zero (option A — non-interactive, no TTY prompt, no auto-pick).
+- Q: How should the CLI handle a remote URL that embeds a credential (`https://user:token@dev.azure.com/…`)? → A: Accept and parse normally; never echo any part of the userinfo in stdout/stderr/error messages/verbose output; emit a one-time per-session warning on stderr the first time such a remote is parsed, suggesting the user remove the embedded credential from `origin` (option B).
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -48,7 +49,7 @@ When the user runs an `azdo pr` subcommand (e.g. `status`, `comments`, `comment-
 
 ### Edge Cases
 
-- `origin` URL contains userinfo with credentials embedded as `https://user:token@dev.azure.com/...` (Git supports this form). The fix MUST accept it for parsing purposes; it MUST NOT log, echo or persist the embedded token anywhere, including error messages and verbose output.
+- `origin` URL contains userinfo with credentials embedded as `https://user:token@dev.azure.com/...` (Git supports this form). The fix MUST accept it for parsing purposes; it MUST NOT log, echo or persist the embedded token anywhere, including error messages and verbose output. The CLI MUST emit a one-time per-session stderr warning recommending the user remove the embedded credential (see FR-004a) — the warning text MUST NOT contain any part of the userinfo and MUST NOT change the exit code.
 - `origin` URL uses an upper-case scheme or host casing (`HTTPS://Dev.Azure.com/...`). Today's parser is case-sensitive on the host; the fix MUST not regress this behaviour but does not need to broaden it (Git canonicalises to lowercase on clone).
 - `origin` URL ends in `.git` (`https://prxm@dev.azure.com/prxm/Jarvis/_git/jarvis-claude-plugin.git`). The current parser rejects this; the fix MUST accept it.
 - Multiple remotes exist (`origin` plus a fork). The CLI continues to read only `origin`; no behavioural change in this release.
@@ -62,7 +63,8 @@ When the user runs an `azdo pr` subcommand (e.g. `status`, `comments`, `comment-
 - **FR-001**: The CLI MUST recognise an Azure DevOps remote URL whose authority component contains userinfo (`<user>@` or `<user>:<token>@`) before the host, for every URL form the CLI already accepts without userinfo (current HTTPS `dev.azure.com/<org>/<project>/_git/<repo>`, legacy `visualstudio.com` with or without `DefaultCollection`).
 - **FR-002**: The CLI MUST recognise the same Azure DevOps remote URL forms with a trailing `.git` suffix.
 - **FR-003**: The CLI MUST NOT broaden recognition to hosts other than the Azure DevOps hosts it already accepts. A URL whose host is not `dev.azure.com`, `<org>.visualstudio.com`, `ssh.dev.azure.com`, or `vs-ssh.visualstudio.com` MUST continue to be rejected.
-- **FR-004**: Any error message, log line, or verbose output produced by the URL parser or its callers MUST NOT contain the embedded password/token portion of a `user:token@` userinfo component. The presence of userinfo MUST NOT be reflected in user-visible output beyond what is strictly necessary to identify the URL form.
+- **FR-004**: Any error message, log line, or verbose output produced by the URL parser or its callers MUST NOT contain the embedded password/token portion of a `user:token@` userinfo component. No part of the user or password segment MAY appear in stdout, stderr, exception messages, or persisted state.
+- **FR-004a**: When the parser successfully parses a remote URL that contains userinfo (`<user>@…` or `<user>:<token>@…`), the CLI MUST emit a **one-time per-session** warning on stderr informing the user that an embedded credential was detected on `origin` and recommending they remove it (e.g. `azdo: warning: origin includes embedded credentials; consider removing them with 'git remote set-url origin <clean-url>'`). The warning MUST be emitted at most once per CLI process, MUST NOT include any part of the userinfo, and MUST NOT alter the exit code or the command's stdout.
 - **FR-005**: The `--help` text for every `azdo pr <sub>` command that supports `--pr-number` MUST describe, in plain language, how the active pull request is selected when `--pr-number` is omitted — including the inputs the CLI reads (current branch, current `origin` URL), the match criterion, and the precedence rule when `--pr-number` is supplied.
 - **FR-006**: When auto-detection finds zero matching pull requests, the error message MUST name the branch that was searched and refer to the documented auto-detection rule. When auto-detection finds more than one matching pull request, the CLI MUST write a single line to **stderr** that names the searched branch and lists every candidate PR number, instruct the user to disambiguate with `--pr-number`, and exit with a **non-zero** status. The CLI MUST NOT prompt the user interactively under any condition (regardless of whether stdin/stdout is a TTY) and MUST NOT silently pick one.
 - **FR-007**: All existing `azdo pr` behaviour for remotes WITHOUT userinfo MUST remain byte-identical (same stdout, same stderr, same exit code, same API requests) after the fix ships.
