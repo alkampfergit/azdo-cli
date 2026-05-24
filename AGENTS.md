@@ -58,7 +58,6 @@ TypeScript 5.x (strict mode) on Node.js LTS: Follow standard conventions.
 - Keep repository memory here rather than in `CLAUDE.md`.
 - For work item writes, the transport layer already accepts an arbitrary JSON Patch operation array via `updateWorkItem()`. Command-level limits are narrower than client-level limits.
 - `set-md-field` currently exposes exactly one `<field>` argument and emits two operations for that field: `/fields/<field>` and `/multilineFieldsFormat/<field>` with `Markdown`.
-- Skills are available under `.agents/skills`.
 
 Working defaults:
 - Run `npm test && npm run lint` before wrapping up when the change warrants it.
@@ -118,6 +117,7 @@ bd close <id>         # Complete work
 - OS secret vault for PATs (Windows Credential Manager / macOS Keychain / Linux libsecret via `@napi-rs/keyring`); `~/.azdo/config.json` for non-secret prefs; `~/.azdo/audit.log` (new, JSON-lines) for credential-event audit trail (016-pat-secure-storage)
 - TypeScript 5.x (strict mode) on Node.js LTS (≥18, native `fetch`) + `commander` (CLI, existing), `@napi-rs/keyring` (credential store, existing), `node:http` (loopback callback, built-in), `node:crypto` (PKCE + state, built-in), native `fetch` (token exchange, built-in) (018-oauth-login)
 - per-org records in OS credential store via `@napi-rs/keyring` (existing `services/credential-store.ts`); the stored value is JSON `{ kind: 'pat' | 'oauth', token, refreshToken?, expiresAt?, accountId?, scope?, issuedAt }`. Existing PAT entries (`pat:<org>` account) MUST be readable as `kind: 'pat'` for backwards compatibility — see Migration below. (018-oauth-login)
+- TypeScript 5.x (strict mode) + commander.js (existing), native `fetch` (existing), `node:child_process` `execSync` for `git remote get-url origin` and `git rev-parse --abbrev-ref HEAD` (existing). No new runtime deps. (019-fix-pr-command)
 
 ## Recent Changes
 - 015-fix-pat-visibility: Updated PAT prompt behavior to use `readline` with `output: null` and raw stdin handling so the token is never echoed during entry
