@@ -1,12 +1,12 @@
 # Linux Credential Store Setup
 
-`azdo-cli` uses [`@napi-rs/keyring`](https://github.com/napi-rs/keyring) to persist your PAT securely in the OS credential store. On Linux this library delegates to the **Secret Service API** (DBus), which is implemented by GNOME Keyring or KWallet.
+`azdo-cli` uses [`@napi-rs/keyring`](https://github.com/napi-rs/keyring) to persist your credentials (PAT or OAuth tokens) securely in the OS credential store. On Linux this library delegates to the **Secret Service API** (DBus), which is implemented by GNOME Keyring or KWallet.
 
-Without a working Secret Service backend the PAT cannot be stored and you will be prompted on every run (or you can use the `AZDO_PAT` environment variable instead).
+Without a working Secret Service backend credentials cannot be stored and you will be prompted on every run (or you can use the `AZDO_PAT` environment variable instead).
 
 ## Desktop environments (GNOME, KDE, XFCE, etc.)
 
-Most modern Linux desktops already ship with GNOME Keyring or KWallet and start them automatically as part of the session. If `azdo store-pat` works without error you are done — no further setup needed.
+Most modern Linux desktops already ship with GNOME Keyring or KWallet and start them automatically as part of the session. If `azdo auth status` works without error you are done — no further setup needed.
 
 ## Headless / server / CI environments
 

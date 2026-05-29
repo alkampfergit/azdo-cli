@@ -15,9 +15,10 @@
 | `azdo list-fields <id>` | List all fields of a work item | `--json`, `--org`, `--project` |
 | `azdo pr <subcommand>` | Manage pull requests (current branch or by `--pr-number`) | `status`, `open`, `comments`, `comment-resolve`, `comment-reopen`, `--pr-number`, `--hide-resolved`, `--json`, `--org`, `--project` |
 | `azdo config <subcommand>` | Manage saved settings | `set`, `get`, `list`, `unset`, `wizard`, `--json` |
-| `azdo auth` | Store a PAT for an Azure DevOps organization in the OS secret vault | `--org`, `--from-stdin`, `--no-browser` |
-| `azdo auth status` | Report whether a PAT is stored for the resolved org (masked only) | `--org`, `--json` |
-| `azdo auth logout` | Remove the stored PAT for an org, or every org with `--all` | `--org`, `--all` |
+| `azdo auth login` | Authenticate against an org — OAuth (Microsoft Entra) by default, or a PAT with `--use-pat` | `--org`, `--use-pat`, `--device-code`, `--client-id`, `--tenant-id`, `--scopes`, `--from-stdin`, `--no-browser` |
+| `azdo auth` | Legacy PAT-prompt entry point (back-compat alias of `azdo auth login --use-pat`) | `--org`, `--from-stdin`, `--no-browser` |
+| `azdo auth status` | Report stored credentials (kind `pat`/`oauth`, org, account/expiry, backend) — never the token | `--org`, `--json` |
+| `azdo auth logout` | Remove the stored credential (PAT or OAuth) for an org, or every org with `--all` | `--org`, `--all` |
 | `azdo clear-pat` | **Deprecated** alias for `azdo auth logout` | `--org` |
 
 ---
@@ -65,7 +66,7 @@ cat description.md | azdo set-md-field 12345 System.Description
 ## Pull request commands
 
 The `pr` group uses the current git branch and the Azure DevOps `origin` remote automatically.
-Requires a PAT with **Code (Read)** scope for reads and **Code (Read & Write)** for creation.
+Requires a credential (OAuth or PAT) with **Code (Read)** scope for reads and **Code (Read & Write)** for creation.
 
 ```bash
 azdo pr status                             # list PRs for current branch + checks
