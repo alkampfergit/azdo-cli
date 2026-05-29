@@ -30,7 +30,7 @@ This is the canonical reference the documentation MUST match (FR-004). It is der
 - **Options**: `--org <name>`, `--all` (remove every stored credential).
 
 ### `azdo clear-pat` (deprecated)
-- **Description**: Deprecated alias of `azdo auth logout`. Prints a one-line deprecation notice and removes a stored PAT.
+- **Description**: Deprecated alias of `azdo auth logout`. Prints a one-line deprecation notice and removes the stored credential for the org — the per-org keyring slot is shared, so it clears whatever is stored (PAT or OAuth envelope), not only a PAT. (The command's own `--help` text still says "PAT" for historical reasons.)
 - **Options**: `--org <name>`.
 
 ## Environment variables (documented, behaviour unchanged)

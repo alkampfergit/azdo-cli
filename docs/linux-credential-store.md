@@ -6,7 +6,7 @@ Without a working Secret Service backend credentials cannot be stored and you wi
 
 ## Desktop environments (GNOME, KDE, XFCE, etc.)
 
-Most modern Linux desktops already ship with GNOME Keyring or KWallet and start them automatically as part of the session. If `azdo store-pat` works without error you are done — no further setup needed.
+Most modern Linux desktops already ship with GNOME Keyring or KWallet and start them automatically as part of the session. If `azdo auth status` works without error you are done — no further setup needed.
 
 ## Headless / server / CI environments
 
