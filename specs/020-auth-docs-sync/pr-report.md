@@ -10,15 +10,16 @@ The authentication documentation had drifted from the CLI: the entry-point docs 
 
 ## What's New
 
-<!-- finalised in step 11 -->
-
-- [Filled in once /speckit-implement completes]
+- **README authentication summary**: now presents `azdo auth login` (OAuth via Microsoft Entra, default) with PAT as the `--use-pat` alternative, instead of the old PAT-only `azdo auth` description. Added a sign-in line to Quick Start and relabelled the docs table row to "Authentication (OAuth & PAT)".
+- **Command reference (`docs/commands.md`)**: added the missing `azdo auth login` row (with its full option set), reframed bare `azdo auth` as the legacy PAT-prompt alias, and updated `auth status` / `auth logout` descriptions to cover both OAuth and PAT (not PAT-only). `clear-pat` remains marked deprecated. The PR-command scope note now says "credential (OAuth or PAT)" rather than "PAT".
+- **Linux credential store doc**: generalised "PAT" wording to "credentials (PAT or OAuth tokens)" for consistency.
+- **Verified (no change needed)**: `docs/authentication.md` and `docs/oauth-app-registration.md` already matched the implemented surface; all internal cross-links across the touched docs resolve.
+- **Encoded gotcha**: docs show the full `azdo auth login` usage (OAuth flags are inherited from the parent `auth` via `optsWithGlobals()`, so `auth login --help` looks bare but the flags work).
 
 ## Testing
 
-<!-- finalised in step 11 -->
-
-- **Manual**: [Filled in once /speckit-implement completes — quickstart verification: build CLI, diff docs against `--help`, link check]
+- **Manual / quickstart verification**: built the CLI and diffed documented commands/flags against `auth --help`, `auth login/status/logout --help`, and `clear-pat --help`; confirmed the entry-point docs now show `auth login`; ran a repo-wide grep finding no remaining PAT-only stale phrasing; verified all internal cross-links resolve.
+- **Repo checks (must-not-regress)**: `npm run lint` ✓, `npm run build` ✓, unit tests **546 passed**, integration tests **90 passed / 7 skipped** (pre-existing env-gated skips). No source files changed, so behaviour is unaffected.
 
 ## Notes
 

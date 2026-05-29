@@ -74,9 +74,9 @@ description: "Task list for 020-auth-docs-sync"
 
 **Purpose**: Final validation and guardrails.
 
-- [ ] T009 Run the `quickstart.md` verification end-to-end (steps 1–6) and confirm each expectation holds.
-- [ ] T010 Confirm the change is documentation-only: `git diff --name-only develop...` shows only `README.md`, `docs/**`, and `specs/**` (SC-005); no source/CLI files changed.
-- [ ] T011 Confirm repo checks still pass: `npm run lint && npm test && npm run build` (must not regress).
+- [X] T009 Run the `quickstart.md` verification end-to-end (steps 1–6) and confirm each expectation holds.
+- [X] T010 Confirm the change is documentation-only: `git diff --name-only develop...` shows only `README.md`, `docs/**`, and `specs/**` (SC-005); no source/CLI files changed.
+- [X] T011 Confirm repo checks still pass: `npm run lint && npm test && npm run build` (must not regress).
 
 ---
 
