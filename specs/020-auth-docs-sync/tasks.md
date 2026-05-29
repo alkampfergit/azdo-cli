@@ -22,7 +22,7 @@ description: "Task list for 020-auth-docs-sync"
 
 **Purpose**: Establish the ground-truth auth surface the docs must match.
 
-- [ ] T001 Build the current CLI and capture authoritative help: run `npm run build` then `node dist/index.js auth --help`, `node dist/index.js auth login --help`, `auth status --help`, `auth logout --help`, `clear-pat --help`; keep the output as the reference.
+- [X] T001 Build the current CLI and capture authoritative help: run `npm run build` then `node dist/index.js auth --help`, `node dist/index.js auth login --help`, `auth status --help`, `auth logout --help`, `clear-pat --help`; keep the output as the reference.
 
 ---
 
@@ -32,7 +32,7 @@ description: "Task list for 020-auth-docs-sync"
 
 **⚠️ CRITICAL**: No doc edits begin until the contract is confirmed accurate.
 
-- [ ] T002 Verify `specs/020-auth-docs-sync/contracts/auth-command-surface.md` against the T001 output and `src/commands/auth.ts`; correct the contract if any command/flag/deprecation differs (this contract is the reference for all later tasks).
+- [X] T002 Verify `specs/020-auth-docs-sync/contracts/auth-command-surface.md` against the T001 output and `src/commands/auth.ts`; correct the contract if any command/flag/deprecation differs (this contract is the reference for all later tasks).
 
 **Checkpoint**: Authoritative surface confirmed — doc edits can begin.
 
@@ -46,8 +46,8 @@ description: "Task list for 020-auth-docs-sync"
 
 ### Implementation for User Story 1
 
-- [ ] T003 [P] [US1] Update the authentication summary in `README.md` (~line 19 and the "Authentication & PAT storage" reference at ~line 59): present `azdo auth login` as the default (OAuth) sign-in, PAT as the supported alternative, keep/repair the link to `docs/authentication.md`. Match the contract; do not over-describe (summary, not full guide).
-- [ ] T004 [P] [US1] Update the auth rows in `docs/commands.md` (~lines 18–21): add an `azdo auth login` row (OAuth default; key options `--use-pat`, `--device-code`, `--org`); revise the `azdo auth`, `azdo auth status`, `azdo auth logout` descriptions to reflect OAuth + PAT (not PAT-only); keep `azdo clear-pat` marked **Deprecated** with `azdo auth logout` as the replacement. Flags/descriptions must match `contracts/auth-command-surface.md`.
+- [X] T003 [P] [US1] Update the authentication summary in `README.md` (~line 19 and the "Authentication & PAT storage" reference at ~line 59): present `azdo auth login` as the default (OAuth) sign-in, PAT as the supported alternative, keep/repair the link to `docs/authentication.md`. Match the contract; do not over-describe (summary, not full guide).
+- [X] T004 [P] [US1] Update the auth rows in `docs/commands.md` (~lines 18–21): add an `azdo auth login` row (OAuth default; key options `--use-pat`, `--device-code`, `--org`); revise the `azdo auth`, `azdo auth status`, `azdo auth logout` descriptions to reflect OAuth + PAT (not PAT-only); keep `azdo clear-pat` marked **Deprecated** with `azdo auth logout` as the replacement. Flags/descriptions must match `contracts/auth-command-surface.md`.
 
 **Checkpoint**: Entry-point docs no longer make `azdo auth login` look unsupported (SC-001). MVP complete.
 
@@ -61,10 +61,10 @@ description: "Task list for 020-auth-docs-sync"
 
 ### Implementation for User Story 2
 
-- [ ] T005 [P] [US2] Verify `docs/authentication.md` against `contracts/auth-command-surface.md`; it is expected to be accurate — edit only where a genuine drift from the CLI is found. Confirm the full `azdo auth login` usage (with OAuth flags) is shown (per the `optsWithGlobals()` gotcha in research.md).
-- [ ] T006 [P] [US2] Verify `docs/oauth-app-registration.md`: command names match the contract, the custom-Entra-app flow is described coherently, and all internal cross-links resolve.
-- [ ] T007 [US2] Repo-wide sweep for stale auth references: `grep -rniE 'azdo auth|clear-pat|AZDO_PAT|personal access token' README.md docs/`. For every hit in a doc, confirm it matches the contract and is consistent with the other docs; fix any stale/contradictory statement. (Code/comment hits are out of scope — docs only.)
-- [ ] T008 [US2] Verify all internal cross-links in the touched docs resolve to an existing file/anchor (`README.md`, `docs/commands.md`, `docs/authentication.md`, `docs/oauth-app-registration.md`, `docs/linux-credential-store.md`) — zero broken links (SC-004).
+- [X] T005 [P] [US2] Verify `docs/authentication.md` against `contracts/auth-command-surface.md`; it is expected to be accurate — edit only where a genuine drift from the CLI is found. Confirm the full `azdo auth login` usage (with OAuth flags) is shown (per the `optsWithGlobals()` gotcha in research.md).
+- [X] T006 [P] [US2] Verify `docs/oauth-app-registration.md`: command names match the contract, the custom-Entra-app flow is described coherently, and all internal cross-links resolve.
+- [X] T007 [US2] Repo-wide sweep for stale auth references: `grep -rniE 'azdo auth|clear-pat|AZDO_PAT|personal access token' README.md docs/`. For every hit in a doc, confirm it matches the contract and is consistent with the other docs; fix any stale/contradictory statement. (Code/comment hits are out of scope — docs only.)
+- [X] T008 [US2] Verify all internal cross-links in the touched docs resolve to an existing file/anchor (`README.md`, `docs/commands.md`, `docs/authentication.md`, `docs/oauth-app-registration.md`, `docs/linux-credential-store.md`) — zero broken links (SC-004).
 
 **Checkpoint**: All auth docs accurate and mutually consistent (SC-002, SC-003).
 

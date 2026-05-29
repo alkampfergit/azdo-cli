@@ -66,7 +66,7 @@ cat description.md | azdo set-md-field 12345 System.Description
 ## Pull request commands
 
 The `pr` group uses the current git branch and the Azure DevOps `origin` remote automatically.
-Requires a PAT with **Code (Read)** scope for reads and **Code (Read & Write)** for creation.
+Requires a credential (OAuth or PAT) with **Code (Read)** scope for reads and **Code (Read & Write)** for creation.
 
 ```bash
 azdo pr status                             # list PRs for current branch + checks
