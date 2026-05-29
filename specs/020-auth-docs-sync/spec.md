@@ -84,6 +84,12 @@ A user who follows any authentication-related document finds the commands, flags
 - **SC-004**: All internal cross-links within the touched authentication docs resolve to an existing file/anchor (zero broken links introduced).
 - **SC-005**: No source files (CLI commands, flags, behaviour) are modified — the diff is limited to documentation.
 
+## Clarifications
+
+### Session 2026-05-29
+
+- Q: `azdo auth login` is implemented on `develop` (added by #37, commit `ff80f2c`) but is **not yet in any released tag** (latest release `0.10.1` predates it; the released binary's `azdo auth` has only `status`/`logout`). How should the docs treat this unreleased command? → A: **Option A** — sync the docs to the current `develop` auth surface as-is (document `azdo auth login`/OAuth as current), with **no per-release version caveat**. Login reaches users when the next release is cut; cutting that release is out of scope for this docs issue. [owner: alkampfergit, 2026-05-29]
+
 ## Assumptions
 
 - "The document" in the issue refers to the authentication documentation set as a whole, not a single file; the entry-point docs (README, command reference) are the primary stale artefacts, with `docs/authentication.md` already largely accurate.
