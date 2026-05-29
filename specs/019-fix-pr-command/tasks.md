@@ -33,7 +33,7 @@ validation gate `npm test && npm run lint` (vitest + eslint).
 
 **Purpose**: Confirm the working surface before any edit.
 
-- [ ] T001 Audit dependencies and branch state: confirm `019-fix-pr-command` is checked out and clean, and that no new runtime dependency is required (plan §"Libraries / dependencies" — zero additions). Confirm `vitest` picks up new files under `tests/unit/` (no config change expected; record if it does).
+- [X] T001 Audit dependencies and branch state: confirm `019-fix-pr-command` is checked out and clean, and that no new runtime dependency is required (plan §"Libraries / dependencies" — zero additions). Confirm `vitest` picks up new files under `tests/unit/` (no config change expected; record if it does).
 
 ---
 
@@ -44,7 +44,7 @@ FR-007 byte-identical guarantee (C-7) has an immutable baseline.
 
 **⚠️ CRITICAL**: T002 must complete before the parser is touched in Phase 3 (T006).
 
-- [ ] T002 Create the frozen regression-snapshot fixture `tests/unit/fixtures/git-remote.cases.ts` capturing the **current** `parseAzdoRemote(url)` and `parseRepoName(url)` outputs for the 5 non-userinfo, non-`.git` URL forms in `contracts/cli-surface.md` C-5 (forms 1–5). Treat the captured values as a frozen snapshot per C-7.
+- [X] T002 Create the frozen regression-snapshot fixture `tests/unit/fixtures/git-remote.cases.ts` capturing the **current** `parseAzdoRemote(url)` and `parseRepoName(url)` outputs for the 5 non-userinfo, non-`.git` URL forms in `contracts/cli-surface.md` C-5 (forms 1–5). Treat the captured values as a frozen snapshot per C-7.
 
 **Checkpoint**: Baseline frozen — user-story implementation can begin.
 
@@ -66,13 +66,13 @@ test matrix.
 
 ### Tests for User Story 1 (write first, must FAIL before implementation) ⚠️
 
-- [ ] T003 [P] [US1] Extend `tests/unit/git-remote.test.ts` with: the 16 positive cases from C-5 (4 HTTPS forms × with/without userinfo × with/without `.git`), the 5 negative cases from C-6 (N1–N5, incl. the `dev.azure.com.evil.example` host-suffix rejections and the `ftp://` scheme), and a regression block asserting `parseAzdoRemote`/`parseRepoName` still equal the frozen fixture from T002 (C-7).
-- [ ] T004 [P] [US1] Create `tests/unit/remote-warning.test.ts` asserting the C-4 contract: parsing a credential-bearing URL twice in one process emits exactly one warning line on stderr; the emitted line for a `user:token@` URL contains neither the user nor the token segment; a non-userinfo URL emits zero warnings. Use `__resetForTests()` between cases.
+- [X] T003 [P] [US1] Extend `tests/unit/git-remote.test.ts` with: the 16 positive cases from C-5 (4 HTTPS forms × with/without userinfo × with/without `.git`), the 5 negative cases from C-6 (N1–N5, incl. the `dev.azure.com.evil.example` host-suffix rejections and the `ftp://` scheme), and a regression block asserting `parseAzdoRemote`/`parseRepoName` still equal the frozen fixture from T002 (C-7).
+- [X] T004 [P] [US1] Create `tests/unit/remote-warning.test.ts` asserting the C-4 contract: parsing a credential-bearing URL twice in one process emits exactly one warning line on stderr; the emitted line for a `user:token@` URL contains neither the user nor the token segment; a non-userinfo URL emits zero warnings. Use `__resetForTests()` between cases.
 
 ### Implementation for User Story 1
 
-- [ ] T005 [US1] Create `src/services/remote-warning.ts` per data-model S-1: module-scope `warned` boolean (initial `false`), `noticeCredentialBearingRemote(): void` (writes the exact C-4 string to `process.stderr` once, never throws, never templated against the URL), and a test-only `__resetForTests(): void` with an inline test-only comment. (makes T004 pass)
-- [ ] T006 [US1] Extend the regex set in `src/services/git-remote.ts` to absorb an optional `(?:[^@/]+@)?` userinfo prefix and an optional `(?:\.git)?` tail for every HTTPS form, keeping the literal host allow-list unchanged with `\b`/anchor boundaries so `dev.azure.com.evil.example` is still rejected (FR-001/002/003). On a successful parse where userinfo was present, call `noticeCredentialBearingRemote()` (FR-004a) and ensure no error/log/verbose path ever interpolates the userinfo (FR-004). (makes T003 pass; preserves T002 baseline)
+- [X] T005 [US1] Create `src/services/remote-warning.ts` per data-model S-1: module-scope `warned` boolean (initial `false`), `noticeCredentialBearingRemote(): void` (writes the exact C-4 string to `process.stderr` once, never throws, never templated against the URL), and a test-only `__resetForTests(): void` with an inline test-only comment. (makes T004 pass)
+- [X] T006 [US1] Extend the regex set in `src/services/git-remote.ts` to absorb an optional `(?:[^@/]+@)?` userinfo prefix and an optional `(?:\.git)?` tail for every HTTPS form, keeping the literal host allow-list unchanged with `\b`/anchor boundaries so `dev.azure.com.evil.example` is still rejected (FR-001/002/003). On a successful parse where userinfo was present, call `noticeCredentialBearingRemote()` (FR-004a) and ensure no error/log/verbose path ever interpolates the userinfo (FR-004). (makes T003 pass; preserves T002 baseline)
 
 **Checkpoint**: `npm run test:unit` green for `git-remote` + `remote-warning`; US1 is independently shippable (the reported bug is fixed).
 
