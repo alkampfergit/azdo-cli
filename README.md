@@ -16,7 +16,7 @@ Azure DevOps CLI focused on work item read/write workflows.
 - Check branch pull request status, open PRs to `develop`, list PR comment threads for any PR (`--pr-number`), and resolve/reopen threads from the CLI (`pr`)
 - Persist org/project/default fields in local config (`config`)
 - List all fields of a work item (`list-fields`)
-- Store a PAT per Azure DevOps organization in the OS credential store via `azdo auth` (or use `AZDO_PAT`). Inspect with `azdo auth status`, remove with `azdo auth logout`. See [docs/authentication.md](docs/authentication.md).
+- Authenticate per Azure DevOps organization with `azdo auth login` — OAuth (Microsoft Entra) by default, or a Personal Access Token via `--use-pat` (or the `AZDO_PAT` env var). Credentials are stored in the OS credential store. Inspect with `azdo auth status`, remove with `azdo auth logout`. See [docs/authentication.md](docs/authentication.md).
 
 ## Installation
 
@@ -27,6 +27,9 @@ npm install -g azdo-cli
 ## Quick Start
 
 ```bash
+# Sign in to an organization (OAuth by default; add --use-pat for a PAT)
+azdo auth login --org myorg
+
 # Configure defaults once
 azdo config set org myorg
 azdo config set project myproject
@@ -56,7 +59,7 @@ azdo pr comment-reopen 17  --pr-number 64
 
 | Topic | File |
 |-------|------|
-| Authentication & PAT storage | [docs/authentication.md](docs/authentication.md) |
+| Authentication (OAuth & PAT) | [docs/authentication.md](docs/authentication.md) |
 | Linux credential store setup | [docs/linux-credential-store.md](docs/linux-credential-store.md) |
 | Full command reference | [docs/commands.md](docs/commands.md) |
 | Development setup | [docs/development.md](docs/development.md) |
