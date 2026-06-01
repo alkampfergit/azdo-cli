@@ -13,7 +13,7 @@
 
 ## Requirement Completeness
 
-- [ ] No [NEEDS CLARIFICATION] markers remain
+- [x] No [NEEDS CLARIFICATION] markers remain
 - [x] Requirements are testable and unambiguous
 - [x] Success criteria are measurable
 - [x] Success criteria are technology-agnostic (no implementation details)
@@ -31,5 +31,5 @@
 
 ## Notes
 
-- Four `[NEEDS CLARIFICATION]` markers remain by design — they are genuine, scope/UX-impacting decisions deferred to `/speckit-clarify` (per the speckit-gh flow): failed-check throttle behaviour, CI/non-interactive suppression, notice frequency within a window, and the opt-out mechanism.
-- All other quality items pass.
+- All four `[NEEDS CLARIFICATION]` markers were resolved by the owner (alkampfergit) on 2026-06-01 and encoded in the spec's Clarifications section: failed checks do not reset the throttle; the notice is suppressed in non-interactive contexts; the notice is single-line and shown once per 10-min window; opt-out via `--no-update-check`.
+- All quality items pass.

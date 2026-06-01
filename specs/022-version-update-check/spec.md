@@ -5,6 +5,15 @@
 **Status**: Draft  
 **Input**: User description: "Check for a new stable version on startup. When the user executes commands, azdo should check npm for a newer published stable version of the tool. Persist the last-check timestamp in a temp file so that no more than one check is performed every 10 minutes. The check must be the quickest possible and must not block or slow down normal command execution. If a newer stable version is available, inform the user. Source issue: alkampfergit/azdo-cli#47."
 
+## Clarifications
+
+### Session 2026-06-01
+
+- Q: Should a *failed* check reset the 10-minute throttle, or be retried sooner? → A: A failed check MUST NOT reset the throttle — only a successful check updates the last-check timestamp, so the next invocation may retry. [owner: alkampfergit, 2026-06-01]
+- Q: Should the upgrade notice be suppressed in non-interactive / CI contexts? → A: Yes — suppress the notice when output is non-interactive. [owner: alkampfergit, 2026-06-01]
+- Q: Within a 10-minute window where a newer version is known, show the notice on every command or only once? → A: Only once — a single line in the output naming the new version and how to update. After the 10-minute window elapses, the check runs again and the user is notified again. [owner: alkampfergit, 2026-06-01]
+- Q: What is the opt-out mechanism? → A: A `--no-update-check` flag. [owner: alkampfergit, 2026-06-01]
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Notified when a newer stable version exists (Priority: P1)
@@ -56,13 +65,13 @@ A user in a constrained environment (offline, air-gapped, CI pipeline, or simply
 
 ### Edge Cases
 
-- **Registry unreachable / timeout / offline**: the check fails silently; the command is unaffected and no error is shown. The failed attempt still updates the throttle timestamp so the tool does not retry on every subsequent command. [NEEDS CLARIFICATION: should a *failed* check reset the 10-minute throttle the same as a successful one, or should it be retried sooner?]
+- **Registry unreachable / timeout / offline**: the check fails silently; the command is unaffected and no error is shown. A failed attempt does NOT update the last-check timestamp, so a subsequent invocation may retry the check.
 - **Corrupt or partially written cache file**: treated as no recent check; overwritten on the next successful check.
 - **Concurrent invocations**: two commands started at nearly the same time must not corrupt the cache or produce duplicate prolonged checks; worst case is two lookups, never a crash.
 - **Pre-release / tagged versions**: only the latest *stable* release counts; pre-releases are ignored.
 - **Development / local builds** (running an unpublished or `0.0.0`-style version): no misleading "downgrade" notice should be shown.
-- **Non-interactive / CI execution**: [NEEDS CLARIFICATION: should the upgrade notice be automatically suppressed when output is not a terminal or when a CI environment is detected, to avoid polluting scripted/CI output?]
-- **Notice frequency**: because checks are throttled to once per 10 minutes, the notice is shown at most once per 10-minute window. [NEEDS CLARIFICATION: within a window where a newer version is known, should the notice appear on every command or only once until dismissed/upgraded?]
+- **Non-interactive / CI execution**: the upgrade notice is suppressed when output is non-interactive, so scripted/CI output is not polluted.
+- **Notice frequency**: the notice is shown only once per 10-minute window (a single line). After the window elapses, the check runs again and the notice may be shown again.
 
 ## Requirements *(mandatory)*
 
@@ -70,14 +79,15 @@ A user in a constrained environment (offline, air-gapped, CI pipeline, or simply
 
 - **FR-001**: The tool MUST, as part of normal command execution, determine whether a newer stable published version of itself is available.
 - **FR-002**: The tool MUST perform at most one registry lookup per 10-minute window, using a persisted record of the last check to enforce this.
-- **FR-003**: The tool MUST persist the last-check information in a temporary/cache location so the throttle survives across separate command invocations.
+- **FR-003**: The tool MUST persist the last-check information in a temporary/cache location so the throttle survives across separate command invocations. Only a **successful** check updates the last-check timestamp; a failed check MUST leave the previous timestamp unchanged so a later invocation may retry.
 - **FR-004**: The version check MUST NOT block, delay, or otherwise slow down the command the user actually invoked; the user's command and its output take priority.
-- **FR-005**: When a newer stable version is detected, the tool MUST inform the user with a short notice that names the available version and indicates how to upgrade.
+- **FR-005**: When a newer stable version is detected, the tool MUST inform the user with a single-line notice that names the available version and indicates how to upgrade. The notice MUST be shown at most once per 10-minute window (not repeated on every command within the window); after the window elapses the notice may be shown again.
 - **FR-006**: The tool MUST only consider stable releases when deciding whether to notify; pre-release/beta versions MUST NOT trigger a notice.
 - **FR-007**: The tool MUST NOT surface any error, stack trace, or warning to the user when the check fails for any reason (network, registry, parsing, file access).
 - **FR-008**: The tool MUST behave correctly and without crashing when the cache record is missing, unreadable, or corrupt.
-- **FR-009**: The tool MUST provide a way for the user to disable the version-check behaviour entirely. [NEEDS CLARIFICATION: opt-out mechanism — dedicated flag, config setting, environment variable, or a combination?]
+- **FR-009**: The tool MUST provide a `--no-update-check` flag that disables the version-check behaviour (no registry lookup, no notice) for that invocation.
 - **FR-010**: The tool MUST NOT show a misleading notice when the running version is equal to, or newer than, the latest published stable version (including local/development builds).
+- **FR-011**: The tool MUST suppress the upgrade notice when output is non-interactive, so scripted/CI output is not polluted.
 
 ### Key Entities *(include if feature involves data)*
 
