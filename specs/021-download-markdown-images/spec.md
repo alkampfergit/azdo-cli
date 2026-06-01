@@ -65,13 +65,15 @@ is a PNG.
 - **An image reference cannot be fetched** (deleted attachment, permission denied, network error): the command saves the images it can, reports each failure clearly (which image, why), and does not abort the whole retrieval.
 - **Duplicate or repeated image references** in the same field: each distinct image is saved once; the command does not overwrite a previously saved file from the same run with a different image.
 - **Non-image references** in the rich-text field (links to documents, other work items): these are ignored; only images are downloaded.
-- **A field references an image hosted outside Azure DevOps** (absolute external URL): [NEEDS CLARIFICATION: are externally-hosted images in scope, or only attachments hosted by Azure DevOps?].
+- **A field references an image hosted outside Azure DevOps** (absolute external URL): out of scope — only images hosted as Azure DevOps attachments are downloaded. External image URLs are ignored.
 
 ## Clarifications
 
 ### Session 2026-06-01
 
 - Q: If `--resize-images` is supplied without `--download-images`, is it an error or does it imply download? → A: `--resize-images` implicitly enables download. [owner: alkampfergit, 2026-06-01]
+- Q: Where are downloaded images written, and how is the destination overridden? → A: Default to the system temporary directory; provide an optional `--images-path` flag to override. [owner: alkampfergit, 2026-06-01]
+- Q: Which images are in scope — Azure DevOps attachments only, or also external URLs? → A: Download only images hosted as Azure DevOps attachments. [owner: alkampfergit, 2026-06-01]
 
 ## Requirements *(mandatory)*
 
@@ -89,7 +91,9 @@ is a PNG.
 - **FR-010**: When a work item has no embedded images, the command with `--download-images` MUST complete successfully and inform the user that no images were found.
 - **FR-011**: Enabling image download MUST NOT change the command's existing text/markdown output behaviour; downloading is an additive side effect.
 - **FR-013**: Supplying `--resize-images <N>` MUST implicitly enable image download even when `--download-images` is not given; it MUST NOT be treated as a validation error.
-- **FR-012**: Downloaded images MUST be saved to [NEEDS CLARIFICATION: output location and file-naming scheme not specified — e.g. current directory, a per-work-item subfolder, or a path supplied via a flag? what naming avoids collisions across images and across runs?].
+- **FR-012**: By default, downloaded images MUST be saved to the operating system's temporary directory. File names MUST be unique enough to avoid collisions between images of the same work item (see Assumptions for the naming scheme).
+- **FR-013b**: The command MUST accept an optional `--images-path <path>` flag that overrides the default temp-directory destination; when supplied, images are written under that path instead.
+- **FR-014**: The command MUST download only images hosted as Azure DevOps attachments. Image references pointing at external (non-Azure-DevOps) URLs MUST be ignored.
 
 ### Key Entities *(include if data involved)*
 
@@ -113,3 +117,4 @@ is a PNG.
 - "Max horizontal size" refers to image width in pixels; aspect ratio is always preserved and images are never upscaled.
 - Resizing always produces PNG output; non-resized downloads keep their original format.
 - The work item's rich-text fields already retrieved/displayed by the command are the scope for image scanning (no new fields are fetched solely to find images).
+- Saved image file names follow a collision-free scheme that incorporates the work item id and a per-image discriminator (e.g. `wi-<id>-<n>.<ext>`); the exact format is an implementation detail to be settled in planning, but it MUST NOT overwrite a different image saved in the same run.

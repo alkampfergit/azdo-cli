@@ -13,7 +13,7 @@
 
 ## Requirement Completeness
 
-- [ ] No [NEEDS CLARIFICATION] markers remain
+- [x] No [NEEDS CLARIFICATION] markers remain
 - [x] Requirements are testable and unambiguous
 - [x] Success criteria are measurable
 - [x] Success criteria are technology-agnostic (no implementation details)
@@ -31,8 +31,7 @@
 
 ## Notes
 
-- Items marked incomplete require spec updates before `/speckit.clarify` or `/speckit.plan`
-- Two `[NEEDS CLARIFICATION]` markers remain by design, to be resolved in `/speckit.clarify`:
-  1. Output location / file-naming scheme for downloaded images (FR-012).
-  2. Whether `--resize-images` without `--download-images` is an error or implicitly enables download.
-  3. Whether externally-hosted (non-Azure-DevOps) images are in scope.
+- All `[NEEDS CLARIFICATION]` markers resolved in the 2026-06-01 clarify session (owner: alkampfergit):
+  1. `--resize-images` without `--download-images` → implicitly enables download (FR-013).
+  2. Output location → system temp dir by default, `--images-path` override (FR-012, FR-013b).
+  3. External (non-ADO) images → out of scope; ADO attachments only (FR-014).
