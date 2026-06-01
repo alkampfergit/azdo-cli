@@ -1,4 +1,5 @@
 import { Jimp } from 'jimp';
+import type { Command } from 'commander';
 import { writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -118,6 +119,27 @@ export function extractImageReferences(content: string, sourceField: string): Em
   }
 
   return references;
+}
+
+/** Register the shared image-download options on a command (used by get-item and get-md-field). */
+export function addImageDownloadOptions(command: Command): Command {
+  return command
+    .option('--download-images', 'download images embedded in rich-text fields to local files')
+    .option('--resize-images <pixels>', 'max image width in px; downloads and resizes embedded images to PNG (implies --download-images)')
+    .option('--images-path <dir>', 'destination directory for downloaded images (default: system temp dir)');
+}
+
+/**
+ * Resolve the image-download flags, or print the validation error to stderr and exit(1).
+ * Keeps the command actions free of duplicated try/catch boilerplate.
+ */
+export function resolveImageDownloadOptionsOrExit(flags: ImageDownloadFlags): ImageDownloadOptions {
+  try {
+    return resolveImageDownloadOptions(flags);
+  } catch (err: unknown) {
+    process.stderr.write(`Error: ${err instanceof Error ? err.message : String(err)}\n`);
+    process.exit(1);
+  }
 }
 
 /**

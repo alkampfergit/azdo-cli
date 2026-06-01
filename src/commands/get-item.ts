@@ -7,7 +7,8 @@ import { loadConfig } from '../services/config-store.js';
 import { toMarkdown } from '../services/md-convert.js';
 import { parseWorkItemId, validateOrgProjectPair, handleCommandError } from '../services/command-helpers.js';
 import {
-  resolveImageDownloadOptions,
+  addImageDownloadOptions,
+  resolveImageDownloadOptionsOrExit,
   runImageDownload,
   type FieldContent,
 } from '../services/image-download.js';
@@ -184,10 +185,9 @@ export function createGetItemCommand(): Command {
     .option('--project <project>', 'Azure DevOps project')
     .option('--short', 'show abbreviated output')
     .option('--fields <fields>', 'comma-separated additional field reference names')
-    .option('--markdown', 'convert rich text fields to markdown')
-    .option('--download-images', 'download images embedded in rich-text fields to local files')
-    .option('--resize-images <pixels>', 'max image width in px; downloads and resizes embedded images to PNG (implies --download-images)')
-    .option('--images-path <dir>', 'destination directory for downloaded images (default: system temp dir)')
+    .option('--markdown', 'convert rich text fields to markdown');
+  addImageDownloadOptions(command);
+  command
     .action(
       async (
         idStr: string,
@@ -207,17 +207,7 @@ export function createGetItemCommand(): Command {
 
         // Resolve image options first so an invalid --resize-images / --images-path
         // fails fast before any network call and downloads nothing.
-        let imageOptions;
-        try {
-          imageOptions = resolveImageDownloadOptions({
-            downloadImages: options.downloadImages,
-            resizeImages: options.resizeImages,
-            imagesPath: options.imagesPath,
-          });
-        } catch (err: unknown) {
-          process.stderr.write(`Error: ${err instanceof Error ? err.message : String(err)}\n`);
-          process.exit(1);
-        }
+        const imageOptions = resolveImageDownloadOptionsOrExit(options);
 
         let context: AzdoContext | undefined;
 

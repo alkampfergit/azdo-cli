@@ -6,7 +6,8 @@ import { resolveContext } from '../services/context.js';
 import { toMarkdown } from '../services/md-convert.js';
 import { parseWorkItemId, validateOrgProjectPair, handleCommandError } from '../services/command-helpers.js';
 import {
-  resolveImageDownloadOptions,
+  addImageDownloadOptions,
+  resolveImageDownloadOptionsOrExit,
   runImageDownload,
 } from '../services/image-download.js';
 
@@ -18,10 +19,9 @@ export function createGetMdFieldCommand(): Command {
     .argument('<id>', 'work item ID')
     .argument('<field>', 'field reference name (e.g., System.Description)')
     .option('--org <org>', 'Azure DevOps organization')
-    .option('--project <project>', 'Azure DevOps project')
-    .option('--download-images', 'download images embedded in the field to local files')
-    .option('--resize-images <pixels>', 'max image width in px; downloads and resizes embedded images to PNG (implies --download-images)')
-    .option('--images-path <dir>', 'destination directory for downloaded images (default: system temp dir)')
+    .option('--project <project>', 'Azure DevOps project');
+  addImageDownloadOptions(command);
+  command
     .action(
       async (
         idStr: string,
@@ -38,17 +38,7 @@ export function createGetMdFieldCommand(): Command {
         validateOrgProjectPair(options);
 
         // Resolve image options first so invalid input fails fast before any network call.
-        let imageOptions;
-        try {
-          imageOptions = resolveImageDownloadOptions({
-            downloadImages: options.downloadImages,
-            resizeImages: options.resizeImages,
-            imagesPath: options.imagesPath,
-          });
-        } catch (err: unknown) {
-          process.stderr.write(`Error: ${err instanceof Error ? err.message : String(err)}\n`);
-          process.exit(1);
-        }
+        const imageOptions = resolveImageDownloadOptionsOrExit(options);
 
         let context: AzdoContext | undefined;
 
