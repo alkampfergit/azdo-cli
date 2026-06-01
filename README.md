@@ -13,6 +13,7 @@ Azure DevOps CLI focused on work item read/write workflows.
 - Create or update work items from markdown documents (`upsert`)
 - Read and post work item comments (`comments`)
 - Read/write rich-text fields as markdown (`get-md-field`, `set-md-field`)
+- Download images embedded in rich-text fields, optionally resized for LLM use (`get-item`/`get-md-field` `--download-images`, `--resize-images`)
 - Check branch pull request status, open PRs to `develop`, list PR comment threads for any PR (`--pr-number`), and resolve/reopen threads from the CLI (`pr`)
 - Persist org/project/default fields in local config (`config`)
 - List all fields of a work item (`list-fields`)
@@ -36,6 +37,11 @@ azdo config set project myproject
 
 # Read a work item
 azdo get-item 12345
+
+# Download images embedded in a work item's rich-text fields (opt-in)
+azdo get-item 12345 --download-images                       # saved to the system temp dir
+azdo get-item 12345 --resize-images 1024 --images-path ./img # cap width at 1024px, save as PNG
+azdo get-md-field 12345 System.Description --download-images # same flags on get-md-field
 
 # Update state
 azdo set-state 12345 "Active"

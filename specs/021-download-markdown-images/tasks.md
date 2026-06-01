@@ -22,7 +22,7 @@ description: "Task list for Download images from markdown field (issue #44)"
 
 **Purpose**: Bring in the one new dependency and the type surface.
 
-- [ ] T001 Add `jimp` as a runtime dependency in `package.json` (`npm install jimp`), then run `npm run build` to confirm it bundles cleanly with tsup (no native binary errors).
+- [X] T001 Add `jimp` as a runtime dependency in `package.json` (`npm install jimp`), then run `npm run build` to confirm it bundles cleanly with tsup (no native binary errors).
 - [X] T002 [P] Define `EmbeddedImageReference`, `ImageDownloadOptions`, and `SavedImageResult` interfaces (per data-model.md) at the top of the new file `src/services/image-download.ts`.
 
 ---
@@ -88,11 +88,11 @@ description: "Task list for Download images from markdown field (issue #44)"
 
 ## Phase 5: Polish & Cross-Cutting Concerns
 
-- [ ] T019 [P] Update `README.md` to document `--download-images`, `--resize-images <N>`, `--images-path <dir>` on `get-item` and `get-md-field` (Constitution Development Workflow — MUST be done before merge).
-- [ ] T020 [P] Update `docs/commands.md` with the new flags and examples (both commands; HTML + markdown field note).
-- [ ] T021 File a follow-up GitHub issue: authoritative HTML-vs-Markdown field-format detection via `multilineFieldsFormat`, plus the `isHtml()` mixed-content misclassification fix (deferred from #44 per owner decision). Do NOT mention any GitHub bot.
-- [ ] T022 Run `npm test && npm run lint && npm run build`; fix any failures.
-- [ ] T023 Execute `specs/021-download-markdown-images/quickstart.md` steps against work item 41748 to validate end-to-end (SC-002, SC-003).
+- [X] T019 [P] Update `README.md` to document `--download-images`, `--resize-images <N>`, `--images-path <dir>` on `get-item` and `get-md-field` (Constitution Development Workflow — MUST be done before merge).
+- [X] T020 [P] Update `docs/commands.md` with the new flags and examples (both commands; HTML + markdown field note).
+- [X] T021 File a follow-up GitHub issue: authoritative HTML-vs-Markdown field-format detection via `multilineFieldsFormat`, plus the `isHtml()` mixed-content misclassification fix (deferred from #44 per owner decision). Do NOT mention any GitHub bot.
+- [X] T022 Run `npm test && npm run lint && npm run build`; fix any failures.
+- [ ] T023 Execute `specs/021-download-markdown-images/quickstart.md` steps against work item 41748 to validate end-to-end (SC-002, SC-003). — MANUAL: requires real Azure DevOps access to WI 41748 (owner to run; cannot execute in CI/sandbox).
 
 ---
 

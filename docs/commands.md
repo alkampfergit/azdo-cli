@@ -4,13 +4,13 @@
 
 | Command | Purpose | Common Flags |
 | --- | --- | --- |
-| `azdo get-item <id>` | Read a work item | `--short`, `--fields`, `--markdown`, `--org`, `--project` |
+| `azdo get-item <id>` | Read a work item | `--short`, `--fields`, `--markdown`, `--download-images`, `--resize-images <px>`, `--images-path <dir>`, `--org`, `--project` |
 | `azdo set-state <id> <state>` | Change work item state | `--json`, `--org`, `--project` |
 | `azdo assign <id> [name]` | Assign or unassign owner | `--unassign`, `--json`, `--org`, `--project` |
 | `azdo set-field <id> <field> <value>` | Update any field | `--json`, `--org`, `--project` |
 | `azdo upsert [id]` | Create or update from markdown | `--content`, `--file`, `--type`, `--json`, `--org`, `--project` |
 | `azdo comments <subcommand>` | Read or add work item comments | `list`, `add`, `--json`, `--org`, `--project` |
-| `azdo get-md-field <id> <field>` | Get rich-text field as markdown | `--org`, `--project` |
+| `azdo get-md-field <id> <field>` | Get rich-text field as markdown | `--download-images`, `--resize-images <px>`, `--images-path <dir>`, `--org`, `--project` |
 | `azdo set-md-field <id> <field> [content]` | Set markdown field | `--file`, `--json`, `--org`, `--project` |
 | `azdo list-fields <id>` | List all fields of a work item | `--json`, `--org`, `--project` |
 | `azdo pr <subcommand>` | Manage pull requests (current branch or by `--pr-number`) | `status`, `open`, `comments`, `comment-resolve`, `comment-reopen`, `--pr-number`, `--hide-resolved`, `--json`, `--org`, `--project` |
@@ -34,6 +34,33 @@ azdo get-item 12345 --fields "System.Tags,Microsoft.VSTS.Common.Priority"
 # Convert rich-text fields to markdown
 azdo get-item 12345 --markdown
 ```
+
+### Downloading embedded images
+
+`get-item` and `get-md-field` can download images embedded in a work item's
+rich-text fields. Download is **opt-in** — without a flag, no files are written.
+Both legacy HTML fields (`<img>`) and native Markdown fields (`![](url)`) are
+supported; only images hosted as Azure DevOps attachments are downloaded
+(external image URLs are ignored).
+
+```bash
+# Download embedded images at original size to the system temp directory
+azdo get-item 12345 --download-images
+
+# Cap width at 1024px (aspect preserved, never upscaled) and save as PNG into ./img
+azdo get-item 12345 --resize-images 1024 --images-path ./img
+
+# --resize-images implies --download-images
+azdo get-item 12345 --resize-images 800
+
+# Same flags work on get-md-field for a single field
+azdo get-md-field 12345 System.Description --download-images
+```
+
+Notes:
+- Default destination is the OS temp directory; override with `--images-path <dir>` (must exist).
+- Files are named `wi-<id>-<index><ext>`; resized images are always `.png`.
+- A single image failing to download is reported to stderr; the rest still download.
 
 ```bash
 # Change state
