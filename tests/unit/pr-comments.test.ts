@@ -18,7 +18,7 @@ vi.mock('../../src/services/git-remote.js', () => ({
 }));
 
 vi.mock('../../src/services/auth.js', () => ({
-  requirePat: vi.fn(),
+  requireAuthCredential: vi.fn(),
 }));
 
 vi.mock('../../src/services/context.js', () => ({
@@ -27,7 +27,7 @@ vi.mock('../../src/services/context.js', () => ({
 
 import { getPullRequestById, getPullRequestThreads, listPullRequests } from '../../src/services/pr-client.js';
 import { detectRepoName, getCurrentBranch } from '../../src/services/git-remote.js';
-import { requirePat } from '../../src/services/auth.js';
+import { requireAuthCredential } from '../../src/services/auth.js';
 import { resolveContext } from '../../src/services/context.js';
 
 const run = createCommandRunner(createPrCommentsCommand);
@@ -55,7 +55,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   setupProcessSpies();
   vi.mocked(resolveContext).mockReturnValue({ org: 'test-org', project: 'test-project' });
-  vi.mocked(requirePat).mockResolvedValue({ pat: 'test-pat', source: 'env' });
+  vi.mocked(requireAuthCredential).mockResolvedValue({ pat: 'test-pat', source: 'env', kind: 'pat' });
   vi.mocked(detectRepoName).mockReturnValue('repo-name');
   vi.mocked(getCurrentBranch).mockReturnValue('feature/test');
   vi.mocked(listPullRequests).mockResolvedValue([basePullRequest]);
@@ -98,7 +98,7 @@ describe('pr comments command --pr-number', () => {
 
     await run(['--pr-number', '64']);
 
-    expect(vi.mocked(getPullRequestById)).toHaveBeenCalledWith(expect.any(Object), 'repo-name', 'test-pat', 64);
+    expect(vi.mocked(getPullRequestById)).toHaveBeenCalledWith(expect.any(Object), 'repo-name', expect.objectContaining({ pat: 'test-pat' }), 64);
     expect(vi.mocked(listPullRequests)).not.toHaveBeenCalled();
     expect(getStdout()).toContain('Comment threads for pull request #64: Reference PR');
     expect(getStdout()).toContain('Thread #500 [active]');
@@ -126,7 +126,7 @@ describe('pr comments command', () => {
   it('fails when no active pull request exists', async () => {
     vi.mocked(listPullRequests).mockResolvedValue([]);
     await run([]);
-    expect(getStderr()).toContain('No active pull request found for branch feature/test.');
+    expect(getStderr()).toContain('No open pull request matches branch feature/test. Pass --pr-number to target a specific PR, or push the branch and open a pull request.');
     expect(getExitCode()).toBe(1);
   });
 
@@ -142,7 +142,7 @@ describe('pr comments command', () => {
 
     await run([]);
 
-    expect(getStderr()).toContain('Multiple active pull requests found for branch feature/test: #12, #13. Use pr status to review them.');
+    expect(getStderr()).toContain('Multiple open pull requests match branch feature/test: #12, #13. Re-run with --pr-number to choose.');
     expect(getExitCode()).toBe(1);
   });
 

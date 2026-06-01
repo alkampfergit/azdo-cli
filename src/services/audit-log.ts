@@ -1,7 +1,14 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import type { AuthAuditEvent, AuthAuditEventKind } from '../types/audit.js';
+import type {
+  AuthAuditEvent,
+  AuthAuditEventKind,
+  OAuthClientIdSource,
+  OAuthFlow,
+  OAuthLoginFailedReason,
+  OAuthRefreshFailedReason,
+} from '../types/audit.js';
 import type { CredentialBackend } from '../types/credential.js';
 
 export function getAuditLogPath(): string {
@@ -37,6 +44,35 @@ export interface AppendInput {
   org: string;
   backend: CredentialBackend;
   masked_pat?: string;
+  flow?: OAuthFlow;
+  clientIdSource?: OAuthClientIdSource;
+  accountId?: string;
+  scope?: string;
+  tokenLifetimeSec?: number;
+  reason?: OAuthLoginFailedReason | OAuthRefreshFailedReason;
+}
+
+const FORBIDDEN_FIELDS = new Set([
+  'token',
+  'accessToken',
+  'access_token',
+  'refreshToken',
+  'refresh_token',
+  'pat',
+]);
+
+function stripForbidden(input: AppendInput): AppendInput {
+  const out: Record<string, unknown> = { ...(input as unknown as Record<string, unknown>) };
+  for (const key of Object.keys(out)) {
+    if (FORBIDDEN_FIELDS.has(key)) {
+      delete out[key];
+    }
+  }
+  return out as unknown as AppendInput;
+}
+
+function whenSet<T>(value: T | undefined, key: string): Record<string, T> {
+  return value === undefined ? {} : ({ [key]: value } as Record<string, T>);
 }
 
 export function appendAuthAuditEvent(input: AppendInput): void {
@@ -46,12 +82,20 @@ export function appendAuthAuditEvent(input: AppendInput): void {
   ensureDirWithPerms(dir);
   ensureFileWithPerms(auditLog);
 
+  const safe = stripForbidden(input);
+
   const record: AuthAuditEvent = {
     ts: new Date().toISOString(),
-    event: input.event,
-    org: input.org,
-    backend: input.backend,
-    ...(input.masked_pat !== undefined ? { masked_pat: input.masked_pat } : {}),
+    event: safe.event,
+    org: safe.org,
+    backend: safe.backend,
+    ...whenSet(safe.masked_pat, 'masked_pat'),
+    ...whenSet(safe.flow, 'flow'),
+    ...whenSet(safe.clientIdSource, 'clientIdSource'),
+    ...whenSet(safe.accountId, 'accountId'),
+    ...whenSet(safe.scope, 'scope'),
+    ...whenSet(safe.tokenLifetimeSec, 'tokenLifetimeSec'),
+    ...whenSet(safe.reason, 'reason'),
   };
 
   fs.appendFileSync(auditLog, `${JSON.stringify(record)}\n`);

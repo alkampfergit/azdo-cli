@@ -1,7 +1,7 @@
 import { Command } from 'commander';
 import type { AzdoContext } from '../types/work-item.js';
 import { updateWorkItem } from '../services/azdo-client.js';
-import { requirePat } from '../services/auth.js';
+import { requireAuthCredential } from '../services/auth.js';
 import { resolveContext } from '../services/context.js';
 import { parseWorkItemId, validateOrgProjectPair, handleCommandError } from '../services/command-helpers.js';
 
@@ -28,13 +28,13 @@ export function createSetStateCommand(): Command {
 
         try {
           context = resolveContext(options);
-          const credential = await requirePat(context.org);
+          const credential = await requireAuthCredential(context.org);
 
           const operations = [
             { op: 'add' as const, path: '/fields/System.State', value: state },
           ];
 
-          const result = await updateWorkItem(context, id, credential.pat, 'System.State', operations);
+          const result = await updateWorkItem(context, id, credential, 'System.State', operations);
 
           if (options.json) {
             process.stdout.write(

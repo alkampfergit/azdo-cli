@@ -1,7 +1,7 @@
 import { Command } from 'commander';
 import type { AzdoContext, WorkItemComment, WorkItemCommentsResult } from '../types/work-item.js';
 import { addWorkItemComment, listWorkItemComments } from '../services/azdo-client.js';
-import { requirePat } from '../services/auth.js';
+import { requireAuthCredential } from '../services/auth.js';
 import { resolveContext } from '../services/context.js';
 import { handleCommandError, parseWorkItemId, validateOrgProjectPair } from '../services/command-helpers.js';
 import { toMarkdown } from '../services/md-convert.js';
@@ -53,8 +53,8 @@ export function createCommentsListCommand(): Command {
 
       try {
         context = resolveContext(options);
-        const credential = await requirePat(context.org);
-        const result = await listWorkItemComments(context, id, credential.pat);
+        const credential = await requireAuthCredential(context.org);
+        const result = await listWorkItemComments(context, id, credential);
 
         if (options.json) {
           process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
@@ -98,9 +98,9 @@ export function createCommentsAddCommand(): Command {
 
       try {
         context = resolveContext(options);
-        const credential = await requirePat(context.org);
+        const credential = await requireAuthCredential(context.org);
         const format = options.markdown === true ? 'markdown' : 'html';
-        const result = await addWorkItemComment(context, id, credential.pat, text, format);
+        const result = await addWorkItemComment(context, id, credential, text, format);
 
         if (options.json) {
           process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);

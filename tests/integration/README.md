@@ -74,7 +74,7 @@ npm run test:integration
 | Function | Reason |
 |---|---|
 | `openPullRequest` | Mutating (creates real PRs); intentionally read-only test suite |
-| `resolvePat` | Tested indirectly by every suite via env var path |
+| `resolveAuthCredential` | Tested indirectly by every suite via env var path |
 | `resolveContext` | Tested indirectly; depends on config/git state |
 | `config-store.*` | File-based, not Azure DevOps dependent; covered by unit tests |
 | `authHeaders` / `fetchWithErrors` | Internal utilities used by every API call |

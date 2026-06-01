@@ -6,7 +6,7 @@ import {
   listWorkItemComments,
   updateWorkItem,
 } from '../../src/services/azdo-client.js';
-import { testContext as ctx, testPat as pat, makeFetchResponse, makeErrorResponse } from './helpers/api-test-utils.js';
+import { testContext as ctx, testPat as pat, makeFetchResponse, makeErrorResponse, makeHtmlResponse } from './helpers/api-test-utils.js';
 
 function makeWorkItemResponse(fields: Record<string, unknown>, status = 200) {
   return makeFetchResponse({
@@ -120,6 +120,11 @@ describe('getWorkItem', () => {
   it('throws NETWORK_ERROR when fetch fails', async () => {
     vi.mocked(fetch).mockRejectedValue(new Error('ECONNREFUSED'));
     await expect(getWorkItem(ctx, 42, pat)).rejects.toThrow('NETWORK_ERROR');
+  });
+
+  it('throws AUTH_FAILED when AzDO returns the AAD sign-in page (HTML, status 200)', async () => {
+    vi.mocked(fetch).mockResolvedValue(makeHtmlResponse());
+    await expect(getWorkItem(ctx, 42, pat)).rejects.toThrow('AUTH_FAILED');
   });
 
   it('sends correct Authorization header', async () => {

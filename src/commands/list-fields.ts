@@ -1,7 +1,7 @@
 import { Command } from 'commander';
 import type { AzdoContext } from '../types/work-item.js';
 import { getWorkItemFields } from '../services/azdo-client.js';
-import { requirePat } from '../services/auth.js';
+import { requireAuthCredential } from '../services/auth.js';
 import { resolveContext } from '../services/context.js';
 import { parseWorkItemId, validateOrgProjectPair, handleCommandError } from '../services/command-helpers.js';
 import { isHtml } from '../services/html-detect.js';
@@ -64,9 +64,9 @@ export function createListFieldsCommand(): Command {
 
         try {
           context = resolveContext(options);
-          const credential = await requirePat(context.org);
+          const credential = await requireAuthCredential(context.org);
 
-          const fields = await getWorkItemFields(context, id, credential.pat);
+          const fields = await getWorkItemFields(context, id, credential);
 
           if (options.json) {
             process.stdout.write(JSON.stringify({ id, fields }, null, 2) + '\n');

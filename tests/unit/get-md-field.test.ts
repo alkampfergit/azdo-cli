@@ -7,7 +7,7 @@ vi.mock('../../src/services/azdo-client.js', () => ({
 }));
 
 vi.mock('../../src/services/auth.js', () => ({
-  requirePat: vi.fn(),
+  requireAuthCredential: vi.fn(),
 }));
 
 vi.mock('../../src/services/context.js', () => ({
@@ -15,14 +15,14 @@ vi.mock('../../src/services/context.js', () => ({
 }));
 
 import { getWorkItemFieldValue } from '../../src/services/azdo-client.js';
-import { requirePat } from '../../src/services/auth.js';
+import { requireAuthCredential } from '../../src/services/auth.js';
 import { resolveContext } from '../../src/services/context.js';
 
 const run = createCommandRunner(createGetMdFieldCommand);
 
 beforeEach(() => {
   vi.mocked(resolveContext).mockReturnValue({ org: 'testorg', project: 'testproj' });
-  vi.mocked(requirePat).mockResolvedValue({ pat: 'test-pat', source: 'env' });
+  vi.mocked(requireAuthCredential).mockResolvedValue({ pat: 'test-pat', source: 'env', kind: 'pat' });
   vi.mocked(getWorkItemFieldValue).mockResolvedValue('<p>Hello</p>');
   setupProcessSpies();
 });
@@ -90,7 +90,7 @@ describe('get-md-field command', () => {
       expect(getWorkItemFieldValue).toHaveBeenCalledWith(
         { org: 'testorg', project: 'testproj' },
         42,
-        'test-pat',
+        expect.objectContaining({ pat: 'test-pat' }),
         'System.Description',
       );
     });

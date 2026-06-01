@@ -7,7 +7,7 @@ import type {
   PullRequestStatusPullRequest,
   PullRequestStatusResult,
 } from '../types/pull-request.js';
-import type { AzdoContext } from '../types/work-item.js';
+import type { AuthCredential, AzdoContext } from '../types/work-item.js';
 import {
   listPullRequests,
   openPullRequest,
@@ -17,7 +17,7 @@ import {
   isThreadResolved,
   patchThreadStatus,
 } from '../services/pr-client.js';
-import { requirePat } from '../services/auth.js';
+import { requireAuthCredential } from '../services/auth.js';
 import { resolveContext } from '../services/context.js';
 import { validateOrgProjectPair } from '../services/command-helpers.js';
 import { detectRepoName, getCurrentBranch } from '../services/git-remote.js';
@@ -41,11 +41,50 @@ function parsePositivePrNumber(raw: string): number | null {
   return Number.isFinite(n) && n > 0 ? n : null;
 }
 
+// Shared help text for the `--pr-number` option on the single-PR commands
+// (comments / comment-resolve / comment-reopen). Defined once so the wording
+// cannot drift between subcommands (FR-005 / contract C-1). `pr status` is a
+// multi-PR list command and intentionally does NOT carry this option (owner
+// decision A on PR #43).
+const PR_NUMBER_HELP =
+  "target the pull request with this numeric id, instead of the current branch's PR. " +
+  'When omitted, the CLI auto-detects the pull request whose source branch equals ' +
+  'refs/heads/<current branch> in the Azure DevOps repository identified by the origin ' +
+  'remote; if zero or more than one open PR matches, the command fails with a message ' +
+  'naming the searched branch.';
+
+// Renders help without commander's column wrapping, so the C-1 substring stays
+// contiguous in `--help` output regardless of terminal width.
+function configureUnwrappedHelp(command: Command): Command {
+  return command.configureHelp({ helpWidth: 1000 });
+}
+
+// C-2 (FR-006): the exact zero-match auto-detection error. Emitted verbatim to
+// stderr — NO "Error: " prefix — with exit code 1 and empty stdout.
+function autoDetectZeroMatch(branch: string): string {
+  return `No open pull request matches branch ${branch}. Pass --pr-number to target a specific PR, or push the branch and open a pull request.`;
+}
+
+// C-3 (FR-006): the exact multi-match auto-detection error. PR numbers are
+// listed in the order Azure DevOps returned them (no re-sort), each `#`-prefixed
+// and `, `-joined. Never prompts, even under a TTY.
+function autoDetectMultiMatch(branch: string, ids: number[]): string {
+  return `Multiple open pull requests match branch ${branch}: ${ids.map((id) => `#${id}`).join(', ')}. Re-run with --pr-number to choose.`;
+}
+
+// Writes a contract error line verbatim to stderr (no "Error: " prefix, unlike
+// writeError) and flags a non-zero exit. Used for the C-2/C-3 strings whose
+// exact text is pinned by contract. Callers MUST `return` afterwards.
+function writeContractError(line: string): void {
+  process.stderr.write(`${line}\n`);
+  process.exitCode = 1;
+}
+
 interface ResolvedPrCommandContext {
   context: AzdoContext;
   repo: string;
   branch: string | null;
-  pat: string;
+  pat: AuthCredential;
 }
 
 function formatBranchName(refName: string): string {
@@ -151,13 +190,13 @@ async function resolvePrCommandContext(
   // branch lookup entirely — it's unnecessary and would fail loudly on
   // detached HEAD or a branch that can't be resolved.
   const branch: string | null = requireBranch ? getCurrentBranch() : null;
-  const credential = await requirePat(context.org);
+  const credential = await requireAuthCredential(context.org);
 
   return {
     context,
     repo,
     branch,
-    pat: credential.pat,
+    pat: credential,
   };
 }
 
@@ -292,11 +331,11 @@ export function createPrOpenCommand(): Command {
 export function createPrCommentsCommand(): Command {
   const command = new Command('comments');
 
-  command
+  configureUnwrappedHelp(command)
     .description('List pull request comment threads for the current branch')
     .option('--org <org>', 'Azure DevOps organization')
     .option('--project <project>', 'Azure DevOps project')
-    .option('--pr-number <N>', 'target the pull request with this numeric id, instead of the current branch\'s PR')
+    .option('--pr-number <N>', PR_NUMBER_HELP)
     .option('--hide-resolved', 'hide threads whose status is resolved / won\'t fix / closed / by design')
     .option('--json', 'output JSON')
     .action(async (options: PrCommandOptions) => {
@@ -336,13 +375,12 @@ export function createPrCommentsCommand(): Command {
           });
 
           if (pullRequests.length === 0) {
-            writeError(`No active pull request found for branch ${resolved.branch}.`);
+            writeContractError(autoDetectZeroMatch(resolved.branch!));
             return;
           }
 
           if (pullRequests.length > 1) {
-            const ids = pullRequests.map((pr) => `#${pr.id}`).join(', ');
-            writeError(`Multiple active pull requests found for branch ${resolved.branch}: ${ids}. Use pr status to review them.`);
+            writeContractError(autoDetectMultiMatch(resolved.branch!, pullRequests.map((pr) => pr.id)));
             return;
           }
 
@@ -386,7 +424,7 @@ export function createPrCommentsCommand(): Command {
 interface ResolvedThreadTarget {
   context: AzdoContext;
   repo: string;
-  pat: string;
+  pat: AuthCredential;
   pullRequest: BranchPullRequestMatch;
   threadId: number;
 }
@@ -430,12 +468,11 @@ async function resolveThreadTarget(
       status: 'active',
     });
     if (pullRequests.length === 0) {
-      writeError(`No active pull request found for branch ${resolved.branch}.`);
+      writeContractError(autoDetectZeroMatch(resolved.branch!));
       return null;
     }
     if (pullRequests.length > 1) {
-      const ids = pullRequests.map((pr) => `#${pr.id}`).join(', ');
-      writeError(`Multiple active pull requests found for branch ${resolved.branch}: ${ids}. Use pr status to review them.`);
+      writeContractError(autoDetectMultiMatch(resolved.branch!, pullRequests.map((pr) => pr.id)));
       return null;
     }
     pullRequest = pullRequests[0];
@@ -527,12 +564,12 @@ async function runThreadStateChange(
 
 export function createPrCommentResolveCommand(): Command {
   const command = new Command('comment-resolve');
-  command
+  configureUnwrappedHelp(command)
     .description('Mark a pull request comment thread as resolved')
     .argument('<threadId>', 'numeric id of the thread to resolve')
     .option('--org <org>', 'Azure DevOps organization')
     .option('--project <project>', 'Azure DevOps project')
-    .option('--pr-number <N>', 'target the pull request with this numeric id, instead of the current branch\'s PR')
+    .option('--pr-number <N>', PR_NUMBER_HELP)
     .option('--json', 'output JSON')
     .action(async (threadIdRaw: string, options: PrCommandOptions) => {
       await runThreadStateChange(threadIdRaw, options, 'resolve');
@@ -542,12 +579,12 @@ export function createPrCommentResolveCommand(): Command {
 
 export function createPrCommentReopenCommand(): Command {
   const command = new Command('comment-reopen');
-  command
+  configureUnwrappedHelp(command)
     .description('Reopen (set to active) a previously resolved pull request comment thread')
     .argument('<threadId>', 'numeric id of the thread to reopen')
     .option('--org <org>', 'Azure DevOps organization')
     .option('--project <project>', 'Azure DevOps project')
-    .option('--pr-number <N>', 'target the pull request with this numeric id, instead of the current branch\'s PR')
+    .option('--pr-number <N>', PR_NUMBER_HELP)
     .option('--json', 'output JSON')
     .action(async (threadIdRaw: string, options: PrCommandOptions) => {
       await runThreadStateChange(threadIdRaw, options, 'reopen');

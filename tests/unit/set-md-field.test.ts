@@ -7,7 +7,7 @@ vi.mock('../../src/services/azdo-client.js', () => ({
 }));
 
 vi.mock('../../src/services/auth.js', () => ({
-  requirePat: vi.fn(),
+  requireAuthCredential: vi.fn(),
 }));
 
 vi.mock('../../src/services/context.js', () => ({
@@ -20,7 +20,7 @@ vi.mock('node:fs', () => ({
 }));
 
 import { updateWorkItem } from '../../src/services/azdo-client.js';
-import { requirePat } from '../../src/services/auth.js';
+import { requireAuthCredential } from '../../src/services/auth.js';
 import { resolveContext } from '../../src/services/context.js';
 import { existsSync, readFileSync } from 'node:fs';
 
@@ -36,7 +36,7 @@ const run = createCommandRunner(createSetMdFieldCommand);
 
 beforeEach(() => {
   vi.mocked(resolveContext).mockReturnValue({ org: 'testorg', project: 'testproj' });
-  vi.mocked(requirePat).mockResolvedValue({ pat: 'test-pat', source: 'env' });
+  vi.mocked(requireAuthCredential).mockResolvedValue({ pat: 'test-pat', source: 'env', kind: 'pat' });
   vi.mocked(updateWorkItem).mockResolvedValue(defaultResult);
   setupProcessSpies();
 });
@@ -76,7 +76,7 @@ describe('set-md-field command', () => {
       expect(updateWorkItem).toHaveBeenCalledWith(
         { org: 'testorg', project: 'testproj' },
         42,
-        'test-pat',
+        expect.objectContaining({ pat: 'test-pat' }),
         'System.Description',
         expect.arrayContaining([
           expect.objectContaining({ op: 'add', path: '/fields/System.Description', value: '# Hello World' }),
@@ -119,7 +119,7 @@ describe('set-md-field command', () => {
       expect(updateWorkItem).toHaveBeenCalledWith(
         expect.any(Object),
         42,
-        'test-pat',
+        expect.objectContaining({ pat: 'test-pat' }),
         'System.Description',
         expect.arrayContaining([
           expect.objectContaining({ value: '# File Content' }),
@@ -176,7 +176,7 @@ describe('set-md-field command', () => {
         expect(updateWorkItem).toHaveBeenCalledWith(
           expect.any(Object),
           42,
-          'test-pat',
+          expect.objectContaining({ pat: 'test-pat' }),
           'System.Description',
           expect.arrayContaining([
             expect.objectContaining({ value: '# From stdin' }),

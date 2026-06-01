@@ -22,7 +22,12 @@ function commandForPlatform(platform: NodeJS.Platform): { cmd: string; args: (ur
     case 'darwin':
       return { cmd: 'open', args: (url) => [url] };
     case 'win32':
-      return { cmd: 'cmd', args: (url) => ['/c', 'start', '""', url] };
+      // NOT `cmd /c start "" <url>`: cmd.exe interprets `&` as a command
+      // separator and would truncate any URL with query parameters at the
+      // first `&` (e.g. an OAuth /authorize URL would lose scope, state,
+      // PKCE — Entra then returns AADSTS900144 "scope missing"). rundll32
+      // is invoked via CreateProcess directly with no shell re-parsing.
+      return { cmd: 'rundll32', args: (url) => ['url.dll,FileProtocolHandler', url] };
     case 'linux':
       return { cmd: 'xdg-open', args: (url) => [url] };
     default:

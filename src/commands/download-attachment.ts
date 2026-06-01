@@ -4,7 +4,7 @@ import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import type { AzdoContext } from '../types/work-item.js';
 import { getWorkItem, downloadAttachment } from '../services/azdo-client.js';
-import { requirePat } from '../services/auth.js';
+import { requireAuthCredential } from '../services/auth.js';
 import { resolveContext } from '../services/context.js';
 import { parseWorkItemId, validateOrgProjectPair, handleCommandError } from '../services/command-helpers.js';
 import { formatFileSize } from './get-item.js';
@@ -32,7 +32,7 @@ export function createDownloadAttachmentCommand(): Command {
 
         try {
           context = resolveContext(options);
-          const credential = await requirePat(context.org);
+          const credential = await requireAuthCredential(context.org);
 
           const outputDir = options.output ?? '.';
           if (!existsSync(outputDir)) {
@@ -40,7 +40,7 @@ export function createDownloadAttachmentCommand(): Command {
             process.exit(1);
           }
 
-          const workItem = await getWorkItem(context, id, credential.pat);
+          const workItem = await getWorkItem(context, id, credential);
 
           const attachment = workItem.attachments?.find(
             (a) => a.name === filename,
@@ -53,7 +53,7 @@ export function createDownloadAttachmentCommand(): Command {
             process.exit(1);
           }
 
-          const data = await downloadAttachment(attachment.url, credential.pat);
+          const data = await downloadAttachment(attachment.url, credential);
           const outputPath = join(outputDir, filename);
           await writeFile(outputPath, Buffer.from(data));
 

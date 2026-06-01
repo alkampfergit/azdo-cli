@@ -1,23 +1,41 @@
 import { execSync } from 'node:child_process';
 import type { AzdoContext } from '../types/work-item.js';
+import { noticeCredentialBearingRemote } from './remote-warning.js';
 
+// Each HTTPS pattern tolerates an OPTIONAL `(?:[^@/]+@)?` userinfo prefix
+// (`<user>@` or `<user>:<token>@`) between the scheme and the host, and an
+// OPTIONAL `(?:\.git)?` suffix. The repository group is non-greedy
+// (`([^/]+?)`) so the optional `.git` is absorbed by the suffix rather than
+// captured as part of the repo name. The host literals are unchanged, so the
+// recognised host set is NOT widened (FR-003): `dev.azure.com.evil.example`
+// still fails because the literal `/` must immediately follow the host.
+// The SSH patterns already require userinfo by syntax; they only gain the
+// optional `.git` suffix.
 const patterns: RegExp[] = [
-  // HTTPS (current): https://dev.azure.com/{org}/{project}/_git/{repo}
-  /^https?:\/\/dev\.azure\.com\/([^/]+)\/([^/]+)\/_git\/([^/]+)$/,
-  // HTTPS (legacy + DefaultCollection): https://{org}.visualstudio.com/DefaultCollection/{project}/_git/{repo}
-  /^https?:\/\/([^.]+)\.visualstudio\.com\/DefaultCollection\/([^/]+)\/_git\/([^/]+)$/,
-  // HTTPS (legacy): https://{org}.visualstudio.com/{project}/_git/{repo}
-  /^https?:\/\/([^.]+)\.visualstudio\.com\/([^/]+)\/_git\/([^/]+)$/,
-  // SSH (current): git@ssh.dev.azure.com:v3/{org}/{project}/{repo}
-  /^git@ssh\.dev\.azure\.com:v3\/([^/]+)\/([^/]+)\/([^/]+)$/,
-  // SSH (legacy): {org}@vs-ssh.visualstudio.com:v3/{org}/{project}/{repo}
-  /^[^@]+@vs-ssh\.visualstudio\.com:v3\/([^/]+)\/([^/]+)\/([^/]+)$/,
+  // HTTPS (current): https://[user[:token]@]dev.azure.com/{org}/{project}/_git/{repo}[.git]
+  /^https?:\/\/(?:[^@/]+@)?dev\.azure\.com\/([^/]+)\/([^/]+)\/_git\/([^/]+?)(?:\.git)?$/,
+  // HTTPS (legacy + DefaultCollection): https://[user[:token]@]{org}.visualstudio.com/DefaultCollection/{project}/_git/{repo}[.git]
+  /^https?:\/\/(?:[^@/]+@)?([^.]+)\.visualstudio\.com\/DefaultCollection\/([^/]+)\/_git\/([^/]+?)(?:\.git)?$/,
+  // HTTPS (legacy): https://[user[:token]@]{org}.visualstudio.com/{project}/_git/{repo}[.git]
+  /^https?:\/\/(?:[^@/]+@)?([^.]+)\.visualstudio\.com\/([^/]+)\/_git\/([^/]+?)(?:\.git)?$/,
+  // SSH (current): git@ssh.dev.azure.com:v3/{org}/{project}/{repo}[.git]
+  /^git@ssh\.dev\.azure\.com:v3\/([^/]+)\/([^/]+)\/([^/]+?)(?:\.git)?$/,
+  // SSH (legacy): {org}@vs-ssh.visualstudio.com:v3/{org}/{project}/{repo}[.git]
+  /^[^@]+@vs-ssh\.visualstudio\.com:v3\/([^/]+)\/([^/]+)\/([^/]+?)(?:\.git)?$/,
 ];
+
+// True when an HTTPS URL carries a userinfo prefix (`<user>@` /
+// `<user>:<token>@`). SSH `user@host:` syntax is structural, not an embedded
+// credential, so it deliberately does not match here.
+const httpsUserinfo = /^https?:\/\/[^@/]+@/;
 
 export function parseAzdoRemote(url: string): AzdoContext | null {
   for (const pattern of patterns) {
     const match = pattern.exec(url);
     if (match) {
+      if (httpsUserinfo.test(url)) {
+        noticeCredentialBearingRemote();
+      }
       const project = match[2];
       // DefaultCollection is not a real project — skip this match
       if (/^DefaultCollection$/i.test(project)) {
@@ -49,6 +67,9 @@ export function parseRepoName(url: string): string | null {
   for (const pattern of patterns) {
     const match = pattern.exec(url);
     if (match) {
+      if (httpsUserinfo.test(url)) {
+        noticeCredentialBearingRemote();
+      }
       return match[3];
     }
   }

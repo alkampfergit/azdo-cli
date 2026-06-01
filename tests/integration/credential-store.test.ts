@@ -15,51 +15,53 @@ import { deletePat, getPat, storePat } from '../../src/services/credential-store
 
 const SKIP_LINUX = process.platform === 'linux';
 
+const TEST_ORG = 'azdo-cli-it-test';
+
 describe.skipIf(SKIP_LINUX)('credential-store integration', () => {
   // Clean up any leftover entry before and after the suite.
   beforeAll(async () => {
-    await deletePat();
+    await deletePat(TEST_ORG);
   });
 
   afterAll(async () => {
-    await deletePat();
+    await deletePat(TEST_ORG);
   });
 
   it('returns null when no PAT is stored', async () => {
-    const result = await getPat();
+    const result = await getPat(TEST_ORG);
     expect(result).toBeNull();
   });
 
   it('stores and retrieves a PAT', async () => {
-    await storePat('test-pat-value');
-    const result = await getPat();
+    await storePat(TEST_ORG, 'test-pat-value');
+    const result = await getPat(TEST_ORG);
     expect(result).toBe('test-pat-value');
   });
 
   it('overwrites an existing PAT', async () => {
-    await storePat('first-pat');
-    await storePat('second-pat');
-    const result = await getPat();
+    await storePat(TEST_ORG, 'first-pat');
+    await storePat(TEST_ORG, 'second-pat');
+    const result = await getPat(TEST_ORG);
     expect(result).toBe('second-pat');
   });
 
   it('deletes the PAT and returns true', async () => {
-    await storePat('to-be-deleted');
-    const deleted = await deletePat();
+    await storePat(TEST_ORG, 'to-be-deleted');
+    const deleted = await deletePat(TEST_ORG);
     expect(deleted).toBe(true);
   });
 
   it('returns null after deletion', async () => {
-    await storePat('to-be-deleted');
-    await deletePat();
-    const result = await getPat();
+    await storePat(TEST_ORG, 'to-be-deleted');
+    await deletePat(TEST_ORG);
+    const result = await getPat(TEST_ORG);
     expect(result).toBeNull();
   });
 
   it('returns platform-appropriate value when deleting a non-existent PAT', async () => {
     // Ensure nothing is stored first.
-    await deletePat();
-    const deleted = await deletePat();
+    await deletePat(TEST_ORG);
+    const deleted = await deletePat(TEST_ORG);
 
     if (process.platform === 'win32') {
       // Windows Credential Manager throws when the entry does not exist.

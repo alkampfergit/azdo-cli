@@ -24,16 +24,25 @@ describe('openUrl', () => {
     expect(execMock).toHaveBeenCalledWith('open', ['https://x/y'], expect.any(Function));
   });
 
-  it('uses `cmd /c start` on win32', async () => {
+  it('uses `rundll32 url.dll,FileProtocolHandler` on win32', async () => {
+    // `cmd /c start "" <url>` would let cmd.exe interpret `&` in OAuth URLs
+    // as a command separator, dropping every query param after client_id.
+    // rundll32 bypasses cmd entirely so the URL passes through verbatim.
     const execMock = vi.fn((_cmd: string, _args: string[], cb: (err: Error | null) => void) => {
       cb(null);
     });
-    const result = await openUrl('https://x/y', {
+    const ampUrl =
+      'https://login.microsoftonline.com/common/oauth2/v2.0/authorize?client_id=abc&response_type=code&scope=openid';
+    const result = await openUrl(ampUrl, {
       platform: 'win32',
       execFileFn: execMock,
     });
     expect(result).toBe('opened');
-    expect(execMock).toHaveBeenCalledWith('cmd', ['/c', 'start', '""', 'https://x/y'], expect.any(Function));
+    expect(execMock).toHaveBeenCalledWith(
+      'rundll32',
+      ['url.dll,FileProtocolHandler', ampUrl],
+      expect.any(Function),
+    );
   });
 
   it('uses `xdg-open` on linux with $DISPLAY set', async () => {
