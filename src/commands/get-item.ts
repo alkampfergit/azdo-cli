@@ -6,6 +6,12 @@ import { resolveContext } from '../services/context.js';
 import { loadConfig } from '../services/config-store.js';
 import { toMarkdown } from '../services/md-convert.js';
 import { parseWorkItemId, validateOrgProjectPair, handleCommandError } from '../services/command-helpers.js';
+import {
+  addImageDownloadOptions,
+  resolveImageDownloadOptionsOrExit,
+  runImageDownload,
+  type FieldContent,
+} from '../services/image-download.js';
 
 export function parseRequestedFields(raw?: string | string[]): string[] | undefined {
   if (raw === undefined) return undefined;
@@ -179,14 +185,29 @@ export function createGetItemCommand(): Command {
     .option('--project <project>', 'Azure DevOps project')
     .option('--short', 'show abbreviated output')
     .option('--fields <fields>', 'comma-separated additional field reference names')
-    .option('--markdown', 'convert rich text fields to markdown')
+    .option('--markdown', 'convert rich text fields to markdown');
+  addImageDownloadOptions(command);
+  command
     .action(
       async (
         idStr: string,
-        options: { org?: string; project?: string; short?: boolean; fields?: string; markdown?: boolean },
+        options: {
+          org?: string;
+          project?: string;
+          short?: boolean;
+          fields?: string;
+          markdown?: boolean;
+          downloadImages?: boolean;
+          resizeImages?: string;
+          imagesPath?: string;
+        },
       ) => {
         const id = parseWorkItemId(idStr);
         validateOrgProjectPair(options);
+
+        // Resolve image options first so an invalid --resize-images / --images-path
+        // fails fast before any network call and downloads nothing.
+        const imageOptions = resolveImageDownloadOptionsOrExit(options);
 
         let context: AzdoContext | undefined;
 
@@ -203,6 +224,16 @@ export function createGetItemCommand(): Command {
           const markdownEnabled = options.markdown ?? loadConfig().markdown ?? false;
           const output = formatWorkItem(workItem, options.short ?? false, markdownEnabled);
           process.stdout.write(output + '\n');
+
+          if (imageOptions.enabled) {
+            const fields: FieldContent[] = [{ content: workItem.description ?? '', field: 'Description' }];
+            if (workItem.extraFields) {
+              for (const [name, value] of Object.entries(workItem.extraFields)) {
+                fields.push({ content: value, field: name });
+              }
+            }
+            await runImageDownload(fields, { workItemId: id, options: imageOptions }, credential);
+          }
         } catch (err: unknown) {
           handleCommandError(err, id, context, 'read', false);
         }
