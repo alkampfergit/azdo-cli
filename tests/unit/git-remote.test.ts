@@ -1,5 +1,7 @@
-import { describe, it, expect } from 'vitest';
-import { parseAzdoRemote } from '../../src/services/git-remote.js';
+import { describe, it, expect, afterEach, vi } from 'vitest';
+import { parseAzdoRemote, parseRepoName } from '../../src/services/git-remote.js';
+import { __resetForTests } from '../../src/services/remote-warning.js';
+import { FROZEN_BASELINE } from './fixtures/git-remote.cases.js';
 
 describe('parseAzdoRemote', () => {
   it('parses HTTPS current format', () => {
@@ -52,4 +54,85 @@ describe('parseAzdoRemote', () => {
   it('returns null for random string', () => {
     expect(parseAzdoRemote('not-a-url-at-all')).toBeNull();
   });
+});
+
+// --- 019-fix-pr-command: userinfo + .git recognition matrix (contracts C-5/C-6/C-7) ---
+
+describe('parseAzdoRemote — userinfo + .git recognition (C-5)', () => {
+  afterEach(() => {
+    __resetForTests();
+    vi.restoreAllMocks();
+  });
+
+  // Each HTTPS form, expected to resolve to org=contoso / project=Widgets
+  // regardless of an optional userinfo prefix and an optional .git suffix.
+  const httpsForms: Array<{ label: string; build: (userinfo: string, dotGit: string) => string }> = [
+    {
+      label: 'HTTPS current (dev.azure.com)',
+      build: (u, g) => `https://${u}dev.azure.com/contoso/Widgets/_git/api${g}`,
+    },
+    {
+      label: 'HTTPS legacy DefaultCollection',
+      build: (u, g) => `https://${u}contoso.visualstudio.com/DefaultCollection/Widgets/_git/api${g}`,
+    },
+    {
+      label: 'HTTPS legacy',
+      build: (u, g) => `https://${u}contoso.visualstudio.com/Widgets/_git/api${g}`,
+    },
+  ];
+
+  const userinfos = ['', 'prxm@', 'prxm:sometoken@'];
+  const suffixes = ['', '.git'];
+
+  for (const form of httpsForms) {
+    for (const userinfo of userinfos) {
+      for (const dotGit of suffixes) {
+        const url = form.build(userinfo, dotGit);
+        it(`${form.label} [userinfo="${userinfo || 'none'}" suffix="${dotGit || 'none'}"] → context`, () => {
+          // Silence the credential warning so it doesn't pollute test output.
+          vi.spyOn(process.stderr, 'write').mockReturnValue(true);
+          expect(parseAzdoRemote(url)).toEqual({ org: 'contoso', project: 'Widgets' });
+        });
+        it(`${form.label} [userinfo="${userinfo || 'none'}" suffix="${dotGit || 'none'}"] → repo`, () => {
+          vi.spyOn(process.stderr, 'write').mockReturnValue(true);
+          expect(parseRepoName(url)).toBe('api');
+        });
+      }
+    }
+  }
+
+  it('accepts SSH current form with a trailing .git suffix', () => {
+    expect(parseAzdoRemote('git@ssh.dev.azure.com:v3/contoso/Widgets/api.git')).toEqual({ org: 'contoso', project: 'Widgets' });
+    expect(parseRepoName('git@ssh.dev.azure.com:v3/contoso/Widgets/api.git')).toBe('api');
+  });
+
+  it('accepts the reported issue #40 URL form', () => {
+    vi.spyOn(process.stderr, 'write').mockReturnValue(true);
+    expect(parseAzdoRemote('https://prxm@dev.azure.com/prxm/Jarvis/_git/jarvis-claude-plugin')).toEqual({
+      org: 'prxm',
+      project: 'Jarvis',
+    });
+  });
+});
+
+describe('parseAzdoRemote — negatives (C-6, FR-003)', () => {
+  it.each([
+    ['N1 unrelated host', 'https://github.com/owner/repo.git'],
+    ['N2 unrelated host with userinfo', 'https://user@github.com/owner/repo.git'],
+    ['N3 host-suffix attack with userinfo', 'https://user@dev.azure.com.evil.example/o/p/_git/r'],
+    ['N4 host-suffix attack no userinfo', 'https://dev.azure.com.evil.example/o/p/_git/r'],
+    ['N5 non-http(s) scheme', 'ftp://dev.azure.com/o/p/_git/r'],
+  ])('rejects %s', (_label, url) => {
+    expect(parseAzdoRemote(url)).toBeNull();
+    expect(parseRepoName(url)).toBeNull();
+  });
+});
+
+describe('parseAzdoRemote / parseRepoName — frozen parity (C-7, FR-007)', () => {
+  for (const c of FROZEN_BASELINE) {
+    it(`${c.label} parses byte-identically to the frozen baseline`, () => {
+      expect(parseAzdoRemote(c.url)).toEqual(c.context);
+      expect(parseRepoName(c.url)).toBe(c.repo);
+    });
+  }
 });

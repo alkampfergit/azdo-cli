@@ -92,6 +92,7 @@ azdo pr comment-reopen   17 --pr-number 64 # reopen a previously resolved thread
 **`azdo pr comments`**
 - Lists every comment thread on the target PR with a bracketed status indicator (`[active]`, `[pending]`, `[resolved]`) next to each thread title
 - `--pr-number <N>` targets any PR by numeric id and bypasses the current-branch lookup entirely; invalid numbers and missing PRs fail cleanly with non-zero exit, no crash
+- When `--pr-number` is omitted, the active PR is auto-detected as the open PR whose source branch equals `refs/heads/<current branch>`. If zero or more than one open PR matches, the command fails (exit 1) with a message naming the searched branch — pass `--pr-number` to disambiguate. (`pr status` is unaffected: it remains a multi-PR overview that lists all matches.)
 - `--hide-resolved` drops threads whose backend state is settled (`fixed`, `wontFix`, `closed`, `byDesign`) — useful when triaging only the threads that still need attention
 - Tolerant of Azure DevOps responses that omit `_links.web` (root cause of the original crash reported in issue #34)
 
