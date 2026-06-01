@@ -52,6 +52,22 @@ describe('extractImageReferences', () => {
     expect(extractImageReferences(html, 'Description')).toHaveLength(0);
   });
 
+  it('rejects a non-Azure-DevOps host even when the path mimics the attachment endpoint (credential-exfil guard)', () => {
+    const evil = `https://evil.example/_apis/wit/attachments/${GUID_A}?fileName=x.png`;
+    expect(extractImageReferences(`<img src="${evil}">`, 'Description')).toHaveLength(0);
+    expect(extractImageReferences(`![x](${evil})`, 'Description')).toHaveLength(0);
+  });
+
+  it('accepts the legacy *.visualstudio.com attachment host', () => {
+    const url = `https://myorg.visualstudio.com/proj/_apis/wit/attachments/${GUID_A}?fileName=a.png`;
+    expect(extractImageReferences(`<img src="${url}">`, 'Description')).toHaveLength(1);
+  });
+
+  it('rejects a non-https (http) attachment URL', () => {
+    const url = `http://dev.azure.com/org/_apis/wit/attachments/${GUID_A}?fileName=a.png`;
+    expect(extractImageReferences(`<img src="${url}">`, 'Description')).toHaveLength(0);
+  });
+
   it('ignores non-image markdown links', () => {
     const md = `[a document](${attUrl(GUID_A, 'doc.pdf')})`;
     expect(extractImageReferences(md, 'Description')).toHaveLength(0);

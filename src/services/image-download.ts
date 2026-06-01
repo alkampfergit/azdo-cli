@@ -57,6 +57,17 @@ export interface FieldContent {
 
 const ATTACHMENT_GUID_RE = /_apis\/wit\/attachments\/([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})/;
 
+/**
+ * Only fetch attachments from Azure DevOps hosts. Without this check, a work item could
+ * embed `https://evil.example/_apis/wit/attachments/<guid>` and the authenticated
+ * downloader would leak the user's credential to that host. The rest of the CLI targets
+ * `dev.azure.com`; `*.visualstudio.com` is the legacy host.
+ */
+function isAzureDevOpsAttachmentHost(hostname: string): boolean {
+  const host = hostname.toLowerCase();
+  return host === 'dev.azure.com' || host.endsWith('.dev.azure.com') || host.endsWith('.visualstudio.com');
+}
+
 function decodeHtmlEntities(value: string): string {
   return value
     .replaceAll('&quot;', '"')
@@ -68,19 +79,28 @@ function decodeHtmlEntities(value: string): string {
 
 function parseAttachmentReference(rawUrl: string, sourceField: string): EmbeddedImageReference | null {
   const url = decodeHtmlEntities(rawUrl.trim());
-  const match = ATTACHMENT_GUID_RE.exec(url);
+
+  // Must be an absolute https URL on an Azure DevOps host — otherwise downloading it would
+  // send the user's auth credential to an arbitrary (possibly malicious) host.
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return null;
+  }
+  if (parsed.protocol !== 'https:' || !isAzureDevOpsAttachmentHost(parsed.hostname)) {
+    return null;
+  }
+
+  const match = ATTACHMENT_GUID_RE.exec(parsed.pathname);
   if (!match) return null;
 
   const guid = match[1].toLowerCase();
 
   let suggestedExtension = '.png';
-  try {
-    const fileName = new URL(url).searchParams.get('fileName');
-    if (fileName?.includes('.')) {
-      suggestedExtension = fileName.slice(fileName.lastIndexOf('.')).toLowerCase();
-    }
-  } catch {
-    // Non-absolute URL — keep the default extension.
+  const fileName = parsed.searchParams.get('fileName');
+  if (fileName?.includes('.')) {
+    suggestedExtension = fileName.slice(fileName.lastIndexOf('.')).toLowerCase();
   }
 
   return { url, sourceField, guid, suggestedExtension };
