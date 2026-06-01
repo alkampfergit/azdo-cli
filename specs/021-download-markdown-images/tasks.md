@@ -92,7 +92,8 @@ description: "Task list for Download images from markdown field (issue #44)"
 - [X] T020 [P] Update `docs/commands.md` with the new flags and examples (both commands; HTML + markdown field note).
 - [X] T021 File a follow-up GitHub issue: authoritative HTML-vs-Markdown field-format detection via `multilineFieldsFormat`, plus the `isHtml()` mixed-content misclassification fix (deferred from #44 per owner decision). Do NOT mention any GitHub bot.
 - [X] T022 Run `npm test && npm run lint && npm run build`; fix any failures.
-- [ ] T023 Execute `specs/021-download-markdown-images/quickstart.md` steps against work item 41748 to validate end-to-end (SC-002, SC-003). — MANUAL: requires real Azure DevOps access to WI 41748 (owner to run; cannot execute in CI/sandbox).
+- [X] T023 Validate end-to-end against work item 41748 (SC-002, SC-003) — automated live integration test `tests/integration/download-images.test.ts` reads WI 41748 `System.Description`, then downloads and resizes the embedded image against the real Azure DevOps instance. Verified passing locally against the live instance.
+- [X] T024 Add live integration test `tests/integration/download-images.test.ts` (env-gated via `SKIP_AZDO`; WI id/field overridable via `AZDO_IMAGE_ITEM_ID`/`AZDO_IMAGE_FIELD`, default 41748/`System.Description`).
 
 ---
 
