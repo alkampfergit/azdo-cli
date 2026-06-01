@@ -51,7 +51,21 @@ azdo boards get-item 41748 --resize-images abc
 
 **Expect**: clear error on stderr, non-zero exit, no files written. (FR-007)
 
-## 6. No images present
+## 6. Same flags on `get-md-field`
+
+```bash
+# Print the field as markdown (as today) AND download its embedded images
+azdo boards get-md-field 41748 System.Description --download-images
+
+# Resize variant
+azdo boards get-md-field 41748 System.Description --resize-images 1024 --images-path ./out
+```
+
+**Expect**: the field's markdown is printed exactly as before, and the field's embedded
+image(s) are saved (resized to ≤ 1024 px PNG in the second case). Without
+`--download-images`/`--resize-images`, only the markdown prints — no files. (US1 scenarios 5–6)
+
+## 7. No images present
 
 ```bash
 azdo boards get-item <id-with-no-embedded-images> --download-images

@@ -21,13 +21,25 @@ images — only to download their bytes.
 - A markdown-level scan (`![](url)`) — rejected: the source field is HTML, not markdown;
   the markdown conversion is a *display* transform and happens after.
 
-## R2: Which fields are scanned?
+## R2: Which fields are scanned, and on which commands?
 
-**Decision**: Scan the rich-text fields the command already surfaces — primarily
-`Description`, plus any HTML `extraFields` requested via `--fields`. Do not fetch new
-fields solely to find images (matches spec Assumption).
+**Decision**: The flags apply to **both** retrieval commands, using one shared service:
+- **`get-item`**: scan the rich-text fields it already surfaces — `Description` plus any
+  HTML `extraFields` requested via `--fields`.
+- **`get-md-field`**: scan the single requested field's raw HTML (the value returned by
+  `getWorkItemFieldValue` before the `toMarkdown` conversion).
 
-**Rationale**: Keeps scope aligned with what the user already sees; honours Principle V.
+Do not fetch new fields solely to find images (matches spec Assumption).
+
+**Rationale**: `get-md-field` already retrieves the field HTML (`value`) and converts it to
+markdown for display; the same HTML is exactly the input the image extractor needs, so the
+shared `extractImageReferences(html)` works unchanged. Owner explicitly requested
+`get-md-field` support (clarify 2026-06-01). Keeps scope aligned with what each command
+already surfaces; honours Principles III (shared logic) and V (simplicity).
+
+**Implementation note**: the service exposes a command-agnostic entry point, e.g.
+`downloadImagesFromHtml(htmlFragments, { workItemId, options }, credential)`, that both
+commands call after they have the field HTML in hand.
 
 ## R3: Download transport
 

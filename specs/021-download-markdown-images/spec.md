@@ -10,10 +10,13 @@
 ### User Story 1 - Download images embedded in a work item's rich-text fields (Priority: P1)
 
 A user retrieves a work item whose rich-text (markdown) field contains one or
-more embedded images. Today the command shows the field text but the images
-remain only as references hosted in Azure DevOps. The user wants an explicit,
-opt-in way to also pull those images down to local files so they can be
-inspected, archived, or fed to other tools offline.
+more embedded images, using either the work-item view command (`get-item`) or
+the single-field markdown command (`get-md-field`). Today these commands show
+the field text but the images remain only as references hosted in Azure DevOps.
+The user wants an explicit, opt-in way to also pull those images down to local
+files so they can be inspected, archived, or fed to other tools offline — and
+this MUST work on both commands, including `get-md-field` which is the natural
+command for "give me this markdown field (and its images)".
 
 **Why this priority**: This is the core ask. Without it the feature delivers
 nothing. It is independently valuable: simply getting the images onto disk —
@@ -31,6 +34,8 @@ normal text output is unchanged.
 2. **Given** the same work item, **When** the user runs the retrieval command **without** `--download-images`, **Then** no image file is written (download is strictly opt-in).
 3. **Given** a work item with several embedded images, **When** the user runs the command with `--download-images`, **Then** every embedded image is saved as a separate file.
 4. **Given** a work item with no embedded images, **When** the user runs the command with `--download-images`, **Then** the command completes normally and reports that no images were found, without error.
+5. **Given** a work item whose `System.Description` (or any rich-text field) contains an embedded image, **When** the user runs `get-md-field <id> <field> --download-images`, **Then** the field's markdown is printed as today **and** the embedded image(s) of that field are saved to local files.
+6. **Given** the same field, **When** the user runs `get-md-field <id> <field>` **without** `--download-images`, **Then** only the markdown is printed and no image file is written.
 
 ---
 
@@ -74,15 +79,16 @@ is a PNG.
 - Q: If `--resize-images` is supplied without `--download-images`, is it an error or does it imply download? → A: `--resize-images` implicitly enables download. [owner: alkampfergit, 2026-06-01]
 - Q: Where are downloaded images written, and how is the destination overridden? → A: Default to the system temporary directory; provide an optional `--images-path` flag to override. [owner: alkampfergit, 2026-06-01]
 - Q: Which images are in scope — Azure DevOps attachments only, or also external URLs? → A: Download only images hosted as Azure DevOps attachments. [owner: alkampfergit, 2026-06-01]
+- Q: Which command(s) get the image-download flags? → A: BOTH `get-item` and `get-md-field` — `get-md-field` is the natural "give me this markdown field (and its images)" command and must support the same flags. [owner: alkampfergit, 2026-06-01]
 
 ## Requirements *(mandatory)*
 
 ### Functional Requirements
 
-- **FR-001**: The work-item retrieval command MUST accept an opt-in `--download-images` flag that, when present, downloads images embedded in the work item's rich-text (markdown) fields to local files.
+- **FR-001**: The work-item retrieval commands — **`get-item`** (whole work item) and **`get-md-field`** (a single field) — MUST each accept an opt-in `--download-images` flag that, when present, downloads images embedded in the relevant rich-text (markdown) field(s) to local files. For `get-item` the scope is the displayed rich-text fields; for `get-md-field` the scope is the single requested field.
 - **FR-002**: When `--download-images` is absent, the command MUST NOT write any image files — image download is strictly opt-in and never automatic.
 - **FR-003**: The command MUST detect every distinct embedded image reference within the retrieved rich-text field(s) and save each as a separate local file.
-- **FR-004**: The command MUST accept an optional `--resize-images <N>` flag specifying the maximum horizontal size (width, in pixels) for saved images.
+- **FR-004**: Both commands MUST accept an optional `--resize-images <N>` flag specifying the maximum horizontal size (width, in pixels) for saved images. The `--download-images`, `--resize-images`, and `--images-path` flags MUST behave identically on `get-item` and `get-md-field`.
 - **FR-005**: When `--resize-images <N>` is supplied, the command MUST scale down any image wider than `N` so its width equals `N`, preserving the original aspect ratio, and MUST save the result as a PNG.
 - **FR-006**: When `--resize-images <N>` is supplied, the command MUST NOT enlarge images that are already at or below `N` pixels wide; such images are saved as PNG without upscaling.
 - **FR-007**: The command MUST validate that `--resize-images` is a positive whole number and MUST fail fast with a clear message (downloading nothing) when it is not.
@@ -112,7 +118,7 @@ is a PNG.
 
 ## Assumptions
 
-- The feature extends the existing work-item retrieval command rather than introducing a separate command, since the images live in the fields that command already retrieves.
+- The feature extends the two existing work-item retrieval commands — `get-item` and `get-md-field` — rather than introducing a separate command, since the images live in the rich-text fields those commands already retrieve. The download/resize logic is shared between them.
 - "Images" means raster images embedded/referenced in the rich-text field (e.g. screenshots pasted into a Description). Links to non-image resources are out of scope.
 - "Max horizontal size" refers to image width in pixels; aspect ratio is always preserved and images are never upscaled.
 - Resizing always produces PNG output; non-resized downloads keep their original format.

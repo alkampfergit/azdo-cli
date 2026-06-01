@@ -5,14 +5,18 @@
 
 ## Summary
 
-Add opt-in image download to the existing `get-item` command. When `--download-images`
-is supplied, the command scans the work item's rich-text (HTML) fields for embedded
-Azure DevOps attachment images (`<img src="…/_apis/wit/attachments/…">`), downloads each
-via the existing `downloadAttachment` transport, and writes them to the system temp
-directory (or a `--images-path` override). When `--resize-images <N>` is supplied it
-implicitly enables download and additionally scales any image wider than `N` px down to
-`N` (aspect preserved, never upscaled), re-encoding the result as PNG. Downloading is
-strictly additive — the command's existing text/markdown output is unchanged.
+Add opt-in image download to **both** existing work-item retrieval commands — `get-item`
+(whole work item) and `get-md-field` (a single field). When `--download-images` is
+supplied, the command scans the relevant rich-text (HTML) field(s) for embedded Azure
+DevOps attachment images (`<img src="…/_apis/wit/attachments/…">`), downloads each via the
+existing `downloadAttachment` transport, and writes them to the system temp directory (or
+a `--images-path` override). When `--resize-images <N>` is supplied it implicitly enables
+download and additionally scales any image wider than `N` px down to `N` (aspect
+preserved, never upscaled), re-encoding the result as PNG. The extraction/download/resize
+logic lives in **one shared service** used by both commands; `get-item` scans the
+description + requested rich `--fields`, `get-md-field` scans the single requested field's
+HTML. Downloading is strictly additive — each command's existing text/markdown output is
+unchanged.
 
 ## Technical Context
 
@@ -34,7 +38,7 @@ strictly additive — the command's existing text/markdown output is unchanged.
 |-----------|------------|
 | **I. CLI-First Design** | ✅ Implemented as opt-in flags on the existing `get-item` command; output to stdout, errors to stderr, meaningful exit codes. |
 | **II. TypeScript Strictness** | ✅ All new code strict-typed; no `any`. Image refs and download results get explicit interfaces. |
-| **III. Single Responsibility** | ✅ Image extraction/download/resize logic lives in a new `src/services/image-download.ts` service; the command only wires flags → service. No unrelated operations combined. |
+| **III. Single Responsibility** | ✅ Image extraction/download/resize logic lives in a new `src/services/image-download.ts` service, **shared by both `get-item` and `get-md-field`**; each command only wires flags → service. No duplication, no unrelated operations combined. |
 | **IV. npm Distribution** | ⚠️ Adds one runtime dependency (`jimp`). Justified in Complexity Tracking — chosen specifically because it is **pure-JS and bundles with tsup** (no native binaries), unlike `sharp`. |
 | **V. Simplicity** | ✅ Reuses existing `downloadAttachment`; default destination is the system temp dir (no new config file); flags only. |
 
@@ -64,24 +68,27 @@ specs/021-download-markdown-images/
 ```text
 src/
 ├── commands/
-│   └── get-item.ts            # MODIFIED: add --download-images, --resize-images, --images-path; wire to service
+│   ├── get-item.ts            # MODIFIED: add --download-images, --resize-images, --images-path; scan description + rich --fields; wire to service
+│   └── get-md-field.ts        # MODIFIED: add the same three flags; scan the single requested field's HTML; wire to service
 ├── services/
-│   ├── azdo-client.ts         # REUSED: downloadAttachment(url, credential)
-│   └── image-download.ts      # NEW: extract <img> attachment refs, download, optional resize→PNG, write to disk
+│   ├── azdo-client.ts         # REUSED: downloadAttachment(url, credential); getWorkItemFieldValue (get-md-field)
+│   └── image-download.ts      # NEW (shared): extract <img> attachment refs from HTML, download, optional resize→PNG, write to disk; resolve+validate options; format summary
 └── types/
     └── work-item.ts           # MAYBE: add an EmbeddedImage type (or co-locate in service)
 
 tests/
 ├── unit/
-│   ├── image-download.test.ts # NEW: extraction (img-src parsing, ADO-only filter), naming, resize decision, validation
-│   └── get-item.test.ts       # EXTENDED: flag parsing / opt-in guarantee (no write without flag)
+│   ├── image-download.test.ts # NEW: extraction (img-src parsing, ADO-only filter, dedupe), naming, resize decision, option validation
+│   ├── get-item.test.ts       # EXTENDED: flag parsing / opt-in guarantee (no write without flag)
+│   └── get-md-field.test.ts   # EXTENDED/NEW: same flags on get-md-field; opt-in guarantee; markdown output unchanged
 └── integration/
     └── (existing real-credential pattern; optional WI-41748 manual check via quickstart)
 ```
 
-**Structure Decision**: Single-project CLI (Option 1). The feature extends the
-existing `get-item` command and adds one focused service module, matching the
-established `commands/` + `services/` layout.
+**Structure Decision**: Single-project CLI (Option 1). The feature extends the existing
+`get-item` **and** `get-md-field` commands, both delegating to one focused, shared service
+module — matching the established `commands/` + `services/` layout and Principle III
+(shared logic extracted, not duplicated).
 
 ## Complexity Tracking
 

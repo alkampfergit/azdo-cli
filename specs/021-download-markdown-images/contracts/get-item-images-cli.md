@@ -1,6 +1,10 @@
-# CLI Contract: get-item image download
+# CLI Contract: work-item image download
 
-Extends the existing `azdo boards get-item <id>` command with three options.
+Extends **both** `azdo boards get-item <id>` and `azdo boards get-md-field <id> <field>`
+with the same three options. The behaviour contract below applies identically to both;
+the only difference is scope:
+- `get-item` scans the displayed rich-text fields (Description + requested `--fields`).
+- `get-md-field` scans the single requested `<field>`'s HTML.
 
 ## New options
 
@@ -45,6 +49,10 @@ azdo boards get-item 41748 --resize-images 1024 --images-path ./img
 
 # Resize implies download (no --download-images needed)
 azdo boards get-item 41748 --resize-images 800
+
+# Same flags on get-md-field — print the field as markdown AND save its images
+azdo boards get-md-field 41748 System.Description --download-images
+azdo boards get-md-field 41748 System.Description --resize-images 1024 --images-path ./img
 ```
 
 ## Example output (human-readable)
