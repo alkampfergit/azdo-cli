@@ -60,12 +60,18 @@ is a PNG.
 
 ### Edge Cases
 
-- **Resize without download**: If `--resize-images` is given but `--download-images` is not, the command [NEEDS CLARIFICATION: should this be a validation error, or should `--resize-images` implicitly enable downloading?].
+- **Resize without download**: If `--resize-images` is given but `--download-images` is not, `--resize-images` implicitly enables download (resizing requested ⇒ images are downloaded). It is never an error to supply `--resize-images` alone.
 - **Download without resize (format)**: With `--download-images` only (no `--resize-images`), images are saved in their original format and bytes (no re-encoding). Resizing to PNG happens only when `--resize-images` is supplied.
 - **An image reference cannot be fetched** (deleted attachment, permission denied, network error): the command saves the images it can, reports each failure clearly (which image, why), and does not abort the whole retrieval.
 - **Duplicate or repeated image references** in the same field: each distinct image is saved once; the command does not overwrite a previously saved file from the same run with a different image.
 - **Non-image references** in the rich-text field (links to documents, other work items): these are ignored; only images are downloaded.
 - **A field references an image hosted outside Azure DevOps** (absolute external URL): [NEEDS CLARIFICATION: are externally-hosted images in scope, or only attachments hosted by Azure DevOps?].
+
+## Clarifications
+
+### Session 2026-06-01
+
+- Q: If `--resize-images` is supplied without `--download-images`, is it an error or does it imply download? → A: `--resize-images` implicitly enables download. [owner: alkampfergit, 2026-06-01]
 
 ## Requirements *(mandatory)*
 
@@ -82,6 +88,7 @@ is a PNG.
 - **FR-009**: If an individual image cannot be downloaded, the command MUST report that specific failure (which image and why) and continue with the remaining images and the command's normal output, rather than aborting.
 - **FR-010**: When a work item has no embedded images, the command with `--download-images` MUST complete successfully and inform the user that no images were found.
 - **FR-011**: Enabling image download MUST NOT change the command's existing text/markdown output behaviour; downloading is an additive side effect.
+- **FR-013**: Supplying `--resize-images <N>` MUST implicitly enable image download even when `--download-images` is not given; it MUST NOT be treated as a validation error.
 - **FR-012**: Downloaded images MUST be saved to [NEEDS CLARIFICATION: output location and file-naming scheme not specified — e.g. current directory, a per-work-item subfolder, or a path supplied via a flag? what naming avoids collisions across images and across runs?].
 
 ### Key Entities *(include if data involved)*
