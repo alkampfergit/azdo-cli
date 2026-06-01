@@ -69,7 +69,7 @@ is a PNG.
 - **Download without resize (format)**: With `--download-images` only (no `--resize-images`), images are saved in their original format and bytes (no re-encoding). Resizing to PNG happens only when `--resize-images` is supplied.
 - **An image reference cannot be fetched** (deleted attachment, permission denied, network error): the command saves the images it can, reports each failure clearly (which image, why), and does not abort the whole retrieval.
 - **Duplicate or repeated image references** in the same field: each distinct image is saved once; the command does not overwrite a previously saved file from the same run with a different image.
-- **Non-image references** in the rich-text field (links to documents, other work items): these are ignored; only images are downloaded.
+- **Non-image references** in the rich-text field (links to documents, other work items): these are ignored; only images are downloaded. In Markdown, only image syntax `![](url)` is in scope — plain link syntax `[text](url)` (non-image attachments) is out of scope for this story.
 - **A field references an image hosted outside Azure DevOps** (absolute external URL): out of scope — only images hosted as Azure DevOps attachments are downloaded. External image URLs are ignored.
 
 ## Clarifications
@@ -80,6 +80,7 @@ is a PNG.
 - Q: Where are downloaded images written, and how is the destination overridden? → A: Default to the system temporary directory; provide an optional `--images-path` flag to override. [owner: alkampfergit, 2026-06-01]
 - Q: Which images are in scope — Azure DevOps attachments only, or also external URLs? → A: Download only images hosted as Azure DevOps attachments. [owner: alkampfergit, 2026-06-01]
 - Q: Which command(s) get the image-download flags? → A: BOTH `get-item` and `get-md-field` — `get-md-field` is the natural "give me this markdown field (and its images)" command and must support the same flags. [owner: alkampfergit, 2026-06-01]
+- Q: Azure DevOps supports native Markdown fields (images as `![](url)`) as well as legacy HTML fields (`<img>`). Does this story handle both? → A: Yes — Option A. Detect `<img>` first, then standard Markdown images `![](url)`; de-duplicate by attachment GUID. Keep the existing `isHtml()` conversion behaviour unchanged. The authoritative `multilineFieldsFormat`-based format detection and the `isHtml()` mixed-content fix are deferred to a separate follow-up issue. [owner: alkampfergit, 2026-06-01]
 
 ## Requirements *(mandatory)*
 
@@ -87,7 +88,8 @@ is a PNG.
 
 - **FR-001**: The work-item retrieval commands — **`get-item`** (whole work item) and **`get-md-field`** (a single field) — MUST each accept an opt-in `--download-images` flag that, when present, downloads images embedded in the relevant rich-text (markdown) field(s) to local files. For `get-item` the scope is the displayed rich-text fields; for `get-md-field` the scope is the single requested field.
 - **FR-002**: When `--download-images` is absent, the command MUST NOT write any image files — image download is strictly opt-in and never automatic.
-- **FR-003**: The command MUST detect every distinct embedded image reference within the retrieved rich-text field(s) and save each as a separate local file.
+- **FR-003**: The command MUST detect every distinct embedded image reference within the retrieved rich-text field(s) and save each as a separate local file. Detection MUST cover **both** HTML `<img src="…">` tags (legacy HTML fields) **and** Markdown image syntax `![alt](url)` (native Markdown fields), scanning for `<img>` first and then markdown images. Because raw HTML is also valid inside a Markdown field, scanning both forms works for HTML and Markdown fields alike.
+- **FR-003a**: When the same image is referenced more than once (including via both `<img>` and `![]()` in the same field), the command MUST de-duplicate by the attachment identity (the attachment GUID in the URL) and download/save it once.
 - **FR-004**: Both commands MUST accept an optional `--resize-images <N>` flag specifying the maximum horizontal size (width, in pixels) for saved images. The `--download-images`, `--resize-images`, and `--images-path` flags MUST behave identically on `get-item` and `get-md-field`.
 - **FR-005**: When `--resize-images <N>` is supplied, the command MUST scale down any image wider than `N` so its width equals `N`, preserving the original aspect ratio, and MUST save the result as a PNG.
 - **FR-006**: When `--resize-images <N>` is supplied, the command MUST NOT enlarge images that are already at or below `N` pixels wide; such images are saved as PNG without upscaling.
@@ -123,4 +125,5 @@ is a PNG.
 - "Max horizontal size" refers to image width in pixels; aspect ratio is always preserved and images are never upscaled.
 - Resizing always produces PNG output; non-resized downloads keep their original format.
 - The work item's rich-text fields already retrieved/displayed by the command are the scope for image scanning (no new fields are fetched solely to find images).
+- Image detection covers HTML `<img>` and Markdown `![](url)`. The existing `isHtml()` heuristic and the markdown/HTML display conversion are left unchanged by this story; authoritative field-format detection (via `multilineFieldsFormat`) and the `isHtml()` mixed-content edge case are a separate follow-up.
 - Saved image file names follow a collision-free scheme that incorporates the work item id and a per-image discriminator (e.g. `wi-<id>-<n>.<ext>`); the exact format is an implementation detail to be settled in planning, but it MUST NOT overwrite a different image saved in the same run.

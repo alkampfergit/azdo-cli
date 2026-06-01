@@ -29,6 +29,9 @@ the only difference is scope:
 ### Scope
 - Only images hosted as Azure DevOps attachments are downloaded. External (`http(s)`
   non-ADO) image URLs are ignored.
+- Both HTML `<img src>` and Markdown `![alt](url)` image references are detected (covering
+  legacy HTML and native Markdown fields), de-duplicated by attachment GUID. Markdown plain
+  links `[text](url)` (non-image attachments) are out of scope.
 
 ### Output / exit
 - Existing work-item text/markdown output is unchanged and still printed.

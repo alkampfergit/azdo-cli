@@ -2,24 +2,32 @@
 
 ## R1: How are embedded images represented in a work item's rich-text field?
 
-**Decision**: Parse the raw HTML of rich-text fields (e.g. `workItem.description`) for
-`<img>` tags and take their `src` attribute. Treat a reference as an in-scope image only
-when the `src` points at an Azure DevOps attachment endpoint
-(`.../_apis/wit/attachments/<guid>` on the org host).
+**Decision**: Extract image references from the raw field content using **two** patterns,
+in order: (1) HTML `<img src="…">` tags, then (2) Markdown image syntax `![alt](url)`.
+Treat a reference as in-scope only when the URL points at an Azure DevOps attachment
+endpoint (`.../_apis/wit/attachments/<guid>` on the org host). **De-duplicate by the
+attachment GUID** so an image referenced twice (or via both forms) downloads once.
 
-**Rationale**: In Azure DevOps, pasted/embedded images in HTML fields are stored as
-attachments and referenced by `<img src="https://dev.azure.com/<org>/<project>/_apis/wit/attachments/<guid>?fileName=image.png">`.
-`get-item` already retrieves the field HTML (`workItem.description` is the raw HTML that
-`convertRichText` later converts). No additional API round-trip is needed to *find* the
-images — only to download their bytes.
+**Rationale**: Azure DevOps now supports **native Markdown** multiline fields (GA
+2025-07-07, api 7.1) in addition to **legacy HTML** fields:
+- HTML field → images are `<img src="https://dev.azure.com/<org>/<project>/_apis/wit/attachments/<guid>?fileName=image.png">`.
+- Native Markdown field → images are `![alt](https://dev.azure.com/.../_apis/wit/attachments/<guid>?fileName=image.png)` — **no `<img>` tags**.
+
+An `<img>`-only scan would silently find nothing on a Markdown field (exit 0, "no images"),
+which is a confidently-wrong result. Scanning both forms covers both field types; and since
+raw HTML is valid inside Markdown too, the combined scan is robust to mixed content. The
+attachment URL form is identical in both cases, so the download/resize path is unaffected.
+(Owner decision 2026-06-01, Option A.)
+
+**Out of scope (follow-up)**: authoritative HTML-vs-Markdown detection via the
+`multilineFieldsFormat` field dictionary, and the existing `isHtml()` mixed-content
+misclassification — both touch the shared read path but are deferred to a separate issue.
 
 **Alternatives considered**:
-- Using the work item's `attachments` relations list — rejected: that lists *all*
-  attachments (including non-embedded file attachments), not specifically the images
-  embedded inline in a given field; the `<img src>` scan is precise to "images in the
-  markdown field".
-- A markdown-level scan (`![](url)`) — rejected: the source field is HTML, not markdown;
-  the markdown conversion is a *display* transform and happens after.
+- Using the work item's `attachments` relations list — rejected: lists *all* attachments,
+  not specifically the images embedded inline in a given field; the `<img>`/`![]()` scan is
+  precise to "images in the field".
+- `<img>`-only extraction — rejected: misses every image in native Markdown fields.
 
 ## R2: Which fields are scanned, and on which commands?
 

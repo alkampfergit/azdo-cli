@@ -7,10 +7,11 @@
 
 Add opt-in image download to **both** existing work-item retrieval commands — `get-item`
 (whole work item) and `get-md-field` (a single field). When `--download-images` is
-supplied, the command scans the relevant rich-text (HTML) field(s) for embedded Azure
-DevOps attachment images (`<img src="…/_apis/wit/attachments/…">`), downloads each via the
-existing `downloadAttachment` transport, and writes them to the system temp directory (or
-a `--images-path` override). When `--resize-images <N>` is supplied it implicitly enables
+supplied, the command scans the relevant rich-text field(s) for embedded Azure DevOps
+attachment images — both HTML `<img src="…/_apis/wit/attachments/…">` and Markdown
+`![alt](…/_apis/wit/attachments/…)` (native Markdown fields), de-duplicated by attachment
+GUID — downloads each via the existing `downloadAttachment` transport, and writes them to
+the system temp directory (or a `--images-path` override). When `--resize-images <N>` is supplied it implicitly enables
 download and additionally scales any image wider than `N` px down to `N` (aspect
 preserved, never upscaled), re-encoding the result as PNG. The extraction/download/resize
 logic lives in **one shared service** used by both commands; `get-item` scans the
@@ -72,13 +73,13 @@ src/
 │   └── get-md-field.ts        # MODIFIED: add the same three flags; scan the single requested field's HTML; wire to service
 ├── services/
 │   ├── azdo-client.ts         # REUSED: downloadAttachment(url, credential); getWorkItemFieldValue (get-md-field)
-│   └── image-download.ts      # NEW (shared): extract <img> attachment refs from HTML, download, optional resize→PNG, write to disk; resolve+validate options; format summary
+│   └── image-download.ts      # NEW (shared): extract attachment image refs (<img> AND ![](url), GUID-deduped), download, optional resize→PNG, write to disk; resolve+validate options; format summary
 └── types/
     └── work-item.ts           # MAYBE: add an EmbeddedImage type (or co-locate in service)
 
 tests/
 ├── unit/
-│   ├── image-download.test.ts # NEW: extraction (img-src parsing, ADO-only filter, dedupe), naming, resize decision, option validation
+│   ├── image-download.test.ts # NEW: extraction (<img> AND ![](url) parsing, ADO-only filter, GUID dedupe across both forms), naming, resize decision, option validation
 │   ├── get-item.test.ts       # EXTENDED: flag parsing / opt-in guarantee (no write without flag)
 │   └── get-md-field.test.ts   # EXTENDED/NEW: same flags on get-md-field; opt-in guarantee; markdown output unchanged
 └── integration/
