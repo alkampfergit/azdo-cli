@@ -18,7 +18,14 @@ export function noticeCredentialBearingRemote(): void {
     return;
   }
   warned = true;
-  process.stderr.write(WARNING);
+  // Best-effort: process.stderr.write can throw if the stream is closed/errored.
+  // The warning must never affect command execution or the exit code (FR-004a),
+  // so swallow any failure.
+  try {
+    process.stderr.write(WARNING);
+  } catch {
+    // intentionally ignored — a failed warning must not break the CLI
+  }
 }
 
 // Test-only: reset the module-scope `warned` flag between unit tests.

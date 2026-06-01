@@ -93,13 +93,13 @@ non-zero with empty stdout (spec US2, scenarios 1–3).
 
 ### Tests for User Story 2 (write first, must FAIL before implementation) ⚠️
 
-- [ ] T007 [P] [US2] Create `tests/unit/pr.test.ts` covering: the C-1 help-text contract — rendering `--help` for `pr status`/`comments`/`comment-resolve`/`comment-reopen` each contains the substring `pull request whose source branch equals refs/heads/<current branch>`; the C-2 zero-match error (exact string, stderr, exit 1, empty stdout); the C-3 multi-match error (exact string with `#`-prefixed, comma-space-joined PR numbers in API order, stderr, exit 1, no interactive prompt even when `isTTY`).
+- [X] T007 [P] [US2] Create `tests/unit/pr.test.ts` covering: the C-1 help-text contract — rendering `--help` for `pr status`/`comments`/`comment-resolve`/`comment-reopen` each contains the substring `pull request whose source branch equals refs/heads/<current branch>`; the C-2 zero-match error (exact string, stderr, exit 1, empty stdout); the C-3 multi-match error (exact string with `#`-prefixed, comma-space-joined PR numbers in API order, stderr, exit 1, no interactive prompt even when `isTTY`).
 
 ### Implementation for User Story 2
 
-- [ ] T008 [US2] In `src/commands/pr.ts`, define a single shared `--pr-number` help sentence constant (research §4) and apply it to the `--pr-number` option of `status`, `comments`, `comment-resolve`, and `comment-reopen` so the text cannot drift (FR-005, C-1). (makes the help-text portion of T007 pass)
-- [ ] T009 [US2] In `src/commands/pr.ts`, implement the auto-detection result handling gated on the candidate count: zero matches → emit the exact C-2 line to stderr and exit non-zero; ≥2 matches → emit the exact C-3 line (branch + `#`-prefixed PR numbers in API order) to stderr and exit non-zero; single match → unchanged happy path. Ensure no `readline`/interactive prompt exists on this path under any `isTTY` (FR-006, C-2, C-3). (makes the error portion of T007 pass)
-- [ ] T010 [US2] Verify `src/services/pr-client.ts::listPullRequests()` returns the full candidate set for the current branch (research §3). Only modify it if it currently collapses/enforces uniqueness; otherwise leave untouched and note "no change required" — the multi-match decision lives in `pr.ts` (T009), keeping the API client free of UX concerns.
+- [X] T008 [US2] In `src/commands/pr.ts`, define a single shared `--pr-number` help sentence constant (research §4) and apply it to the `--pr-number` option of `status`, `comments`, `comment-resolve`, and `comment-reopen` so the text cannot drift (FR-005, C-1). (makes the help-text portion of T007 pass)
+- [X] T009 [US2] In `src/commands/pr.ts`, implement the auto-detection result handling gated on the candidate count: zero matches → emit the exact C-2 line to stderr and exit non-zero; ≥2 matches → emit the exact C-3 line (branch + `#`-prefixed PR numbers in API order) to stderr and exit non-zero; single match → unchanged happy path. Ensure no `readline`/interactive prompt exists on this path under any `isTTY` (FR-006, C-2, C-3). (makes the error portion of T007 pass)
+- [X] T010 [US2] Verify `src/services/pr-client.ts::listPullRequests()` returns the full candidate set for the current branch (research §3). Only modify it if it currently collapses/enforces uniqueness; otherwise leave untouched and note "no change required" — the multi-match decision lives in `pr.ts` (T009), keeping the API client free of UX concerns.
 
 **Checkpoint**: US1 AND US2 both green and independently testable.
 
@@ -107,9 +107,9 @@ non-zero with empty stdout (spec US2, scenarios 1–3).
 
 ## Phase 5: Polish & Cross-Cutting Concerns
 
-- [ ] T011 [P] Run the `specs/019-fix-pr-command/quickstart.md` verification recipe end-to-end (reproduce the bug on the userinfo remote, confirm the fix resolves context and prints the one-time warning once).
-- [ ] T012 Update user-facing docs only if the help-text change is user-visible: refresh the relevant `pr` examples in `README.md` / `docs/commands.md` and the `AGENTS.md` "Active Technologies"/recent-changes note (no new tech). Skip individual files that need no change and say so.
-- [ ] T013 Run the full validation gate `npm test && npm run lint` and confirm green (build + vitest unit/integration + eslint). Fix any regression before handing off.
+- [X] T011 [P] Run the `specs/019-fix-pr-command/quickstart.md` verification recipe end-to-end (reproduce the bug on the userinfo remote, confirm the fix resolves context and prints the one-time warning once).
+- [X] T012 Update user-facing docs only if the help-text change is user-visible: refresh the relevant `pr` examples in `README.md` / `docs/commands.md` and the `AGENTS.md` "Active Technologies"/recent-changes note (no new tech). Skip individual files that need no change and say so.
+- [X] T013 Run the full validation gate `npm test && npm run lint` and confirm green (build + vitest unit/integration + eslint). Fix any regression before handing off.
 
 ---
 

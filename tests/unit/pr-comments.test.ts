@@ -126,7 +126,7 @@ describe('pr comments command', () => {
   it('fails when no active pull request exists', async () => {
     vi.mocked(listPullRequests).mockResolvedValue([]);
     await run([]);
-    expect(getStderr()).toContain('No active pull request found for branch feature/test.');
+    expect(getStderr()).toContain('No open pull request matches branch feature/test. Pass --pr-number to target a specific PR, or push the branch and open a pull request.');
     expect(getExitCode()).toBe(1);
   });
 
@@ -142,7 +142,7 @@ describe('pr comments command', () => {
 
     await run([]);
 
-    expect(getStderr()).toContain('Multiple active pull requests found for branch feature/test: #12, #13. Use pr status to review them.');
+    expect(getStderr()).toContain('Multiple open pull requests match branch feature/test: #12, #13. Re-run with --pr-number to choose.');
     expect(getExitCode()).toBe(1);
   });
 

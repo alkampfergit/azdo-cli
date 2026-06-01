@@ -120,4 +120,5 @@ bd close <id>         # Complete work
 - TypeScript 5.x (strict mode) + commander.js (existing), native `fetch` (existing), `node:child_process` `execSync` for `git remote get-url origin` and `git rev-parse --abbrev-ref HEAD` (existing). No new runtime deps. (019-fix-pr-command)
 
 ## Recent Changes
+- 019-fix-pr-command: `azdo pr` now recognises HTTPS remotes with a `<user>[:<token>]@` userinfo prefix and an optional `.git` suffix (one-time, sanitised stderr credential warning; host allow-list unchanged). The single-PR commands (`pr comments` / `comment-resolve` / `comment-reopen`) document the branch→PR auto-detection rule in `--help` and fail cleanly on zero/multi-match; `pr status` stays a multi-PR list (decision A). No new runtime deps.
 - 015-fix-pat-visibility: Updated PAT prompt behavior to use `readline` with `output: null` and raw stdin handling so the token is never echoed during entry
