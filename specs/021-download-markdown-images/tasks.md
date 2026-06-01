@@ -23,7 +23,7 @@ description: "Task list for Download images from markdown field (issue #44)"
 **Purpose**: Bring in the one new dependency and the type surface.
 
 - [ ] T001 Add `jimp` as a runtime dependency in `package.json` (`npm install jimp`), then run `npm run build` to confirm it bundles cleanly with tsup (no native binary errors).
-- [ ] T002 [P] Define `EmbeddedImageReference`, `ImageDownloadOptions`, and `SavedImageResult` interfaces (per data-model.md) at the top of the new file `src/services/image-download.ts`.
+- [X] T002 [P] Define `EmbeddedImageReference`, `ImageDownloadOptions`, and `SavedImageResult` interfaces (per data-model.md) at the top of the new file `src/services/image-download.ts`.
 
 ---
 
@@ -33,12 +33,12 @@ description: "Task list for Download images from markdown field (issue #44)"
 
 **⚠️ CRITICAL**: No user story work can begin until this phase is complete.
 
-- [ ] T003 Implement `extractImageReferences(htmlOrMd: string, sourceField: string): EmbeddedImageReference[]` in `src/services/image-download.ts`: scan for HTML `<img src="…">` **first**, then Markdown `![alt](url)`; keep only URLs matching the Azure DevOps attachment endpoint (`_apis/wit/attachments/<guid>`); de-duplicate by attachment GUID (FR-003, FR-003a, FR-014).
-- [ ] T004 [P] Implement attachment-URL helpers in `src/services/image-download.ts`: parse the `<guid>` and the `fileName` query param, derive `suggestedExtension` (default `.png`), and build the collision-free output filename `wi-<workItemId>-<index><ext>` (data-model.md "Filename derivation").
-- [ ] T005 [P] Implement `resolveImageDownloadOptions(flags): ImageDownloadOptions` in `src/services/image-download.ts`: set `enabled` when `--download-images` OR `--resize-images` present; validate `--resize-images` is a positive integer (else throw a clear error — FR-007); default `outputDir` to `os.tmpdir()`, else `--images-path`; verify the directory exists (clear error + non-zero exit if not, mirroring `download-attachment`).
-- [ ] T006 Implement the download+write loop (original format, no resize) in `src/services/image-download.ts`: for each reference call the existing `downloadAttachment(url, credential)` from `services/azdo-client.ts`, write bytes to `outputDir/<filename>`, capture a `SavedImageResult`; on a per-image error record the failure and continue (FR-009).
-- [ ] T007 [P] Implement `formatImageSummary(results): string` in `src/services/image-download.ts`: "Images: N downloaded" + each saved path, or "Images: no images found …" when none (FR-008, FR-010).
-- [ ] T008 Expose the shared entry point `downloadImagesFromHtml(fragments: {html: string; field: string}[], args: {workItemId: number; options: ImageDownloadOptions}, credential): Promise<SavedImageResult[]>` in `src/services/image-download.ts`, wiring extraction → download/write → results (resize hook left for US2).
+- [X] T003 Implement `extractImageReferences(htmlOrMd: string, sourceField: string): EmbeddedImageReference[]` in `src/services/image-download.ts`: scan for HTML `<img src="…">` **first**, then Markdown `![alt](url)`; keep only URLs matching the Azure DevOps attachment endpoint (`_apis/wit/attachments/<guid>`); de-duplicate by attachment GUID (FR-003, FR-003a, FR-014).
+- [X] T004 [P] Implement attachment-URL helpers in `src/services/image-download.ts`: parse the `<guid>` and the `fileName` query param, derive `suggestedExtension` (default `.png`), and build the collision-free output filename `wi-<workItemId>-<index><ext>` (data-model.md "Filename derivation").
+- [X] T005 [P] Implement `resolveImageDownloadOptions(flags): ImageDownloadOptions` in `src/services/image-download.ts`: set `enabled` when `--download-images` OR `--resize-images` present; validate `--resize-images` is a positive integer (else throw a clear error — FR-007); default `outputDir` to `os.tmpdir()`, else `--images-path`; verify the directory exists (clear error + non-zero exit if not, mirroring `download-attachment`).
+- [X] T006 Implement the download+write loop (original format, no resize) in `src/services/image-download.ts`: for each reference call the existing `downloadAttachment(url, credential)` from `services/azdo-client.ts`, write bytes to `outputDir/<filename>`, capture a `SavedImageResult`; on a per-image error record the failure and continue (FR-009).
+- [X] T007 [P] Implement `formatImageSummary(results): string` in `src/services/image-download.ts`: "Images: N downloaded" + each saved path, or "Images: no images found …" when none (FR-008, FR-010).
+- [X] T008 Expose the shared entry point `downloadImagesFromHtml(fragments: {html: string; field: string}[], args: {workItemId: number; options: ImageDownloadOptions}, credential): Promise<SavedImageResult[]>` in `src/services/image-download.ts`, wiring extraction → download/write → results (resize hook left for US2).
 
 **Checkpoint**: Shared service can extract ADO attachment images (both syntaxes) and download them at original size.
 
@@ -52,15 +52,15 @@ description: "Task list for Download images from markdown field (issue #44)"
 
 ### Tests for User Story 1
 
-- [ ] T009 [P] [US1] Unit tests in `tests/unit/image-download.test.ts`: `<img>` extraction, `![](url)` extraction, ADO-attachment-only filter (external URLs ignored), GUID de-dup across both forms, filename derivation, and `resolveImageDownloadOptions` (opt-in on/off, `--images-path` existence). Write first; ensure they fail.
-- [ ] T010 [P] [US1] Unit test in `tests/unit/get-item.test.ts`: with no image flags, the command writes no files (opt-in guarantee) and existing output is unchanged.
-- [ ] T011 [P] [US1] Unit test in `tests/unit/get-md-field.test.ts`: `--download-images` triggers a download of the field's images; without it, only markdown is printed (no files). Markdown output unchanged.
+- [X] T009 [P] [US1] Unit tests in `tests/unit/image-download.test.ts`: `<img>` extraction, `![](url)` extraction, ADO-attachment-only filter (external URLs ignored), GUID de-dup across both forms, filename derivation, and `resolveImageDownloadOptions` (opt-in on/off, `--images-path` existence). Write first; ensure they fail.
+- [X] T010 [P] [US1] Unit test in `tests/unit/get-item.test.ts`: with no image flags, the command writes no files (opt-in guarantee) and existing output is unchanged.
+- [X] T011 [P] [US1] Unit test in `tests/unit/get-md-field.test.ts`: `--download-images` triggers a download of the field's images; without it, only markdown is printed (no files). Markdown output unchanged.
 
 ### Implementation for User Story 1
 
-- [ ] T012 [US1] Add `--download-images` and `--images-path <dir>` options to `createGetItemCommand()` in `src/commands/get-item.ts`; after fetching the work item, collect Description (+ requested rich `--fields`) HTML and call `downloadImagesFromHtml`; print the summary after the existing output (FR-001, FR-002, FR-011).
-- [ ] T013 [US1] Add `--download-images` and `--images-path <dir>` options to `createGetMdFieldCommand()` in `src/commands/get-md-field.ts`; pass the raw field value (the HTML/markdown returned by `getWorkItemFieldValue`, before/after `toMarkdown` as appropriate) into `downloadImagesFromHtml`; print markdown as today, then the summary (FR-001 for get-md-field).
-- [ ] T014 [US1] Ensure per-image download failures are reported to stderr (which image + reason) without aborting the command or remaining downloads, in both command wirings (FR-009).
+- [X] T012 [US1] Add `--download-images` and `--images-path <dir>` options to `createGetItemCommand()` in `src/commands/get-item.ts`; after fetching the work item, collect Description (+ requested rich `--fields`) HTML and call `downloadImagesFromHtml`; print the summary after the existing output (FR-001, FR-002, FR-011).
+- [X] T013 [US1] Add `--download-images` and `--images-path <dir>` options to `createGetMdFieldCommand()` in `src/commands/get-md-field.ts`; pass the raw field value (the HTML/markdown returned by `getWorkItemFieldValue`, before/after `toMarkdown` as appropriate) into `downloadImagesFromHtml`; print markdown as today, then the summary (FR-001 for get-md-field).
+- [X] T014 [US1] Ensure per-image download failures are reported to stderr (which image + reason) without aborting the command or remaining downloads, in both command wirings (FR-009).
 
 **Checkpoint**: US1 fully functional on both commands — images download at original size, opt-in, partial-failure tolerant.
 
@@ -74,13 +74,13 @@ description: "Task list for Download images from markdown field (issue #44)"
 
 ### Tests for User Story 2
 
-- [ ] T015 [P] [US2] Unit tests in `tests/unit/image-download.test.ts`: resize decision (downscale when wider than N; never upscale; aspect preserved), PNG re-encode when resizing, and `--resize-images` validation (reject 0 / negative / non-integer). Write first; ensure they fail.
+- [X] T015 [P] [US2] Unit tests in `tests/unit/image-download.test.ts`: resize decision (downscale when wider than N; never upscale; aspect preserved), PNG re-encode when resizing, and `--resize-images` validation (reject 0 / negative / non-integer). Write first; ensure they fail.
 
 ### Implementation for User Story 2
 
-- [ ] T016 [US2] Implement resize-to-PNG in `src/services/image-download.ts` using `jimp`: when `options.maxWidth` is set and the image is wider, scale to width `maxWidth` preserving aspect; always re-encode to PNG when `maxWidth` is set; never upscale; set `resized`/`format` on the result (FR-005, FR-006). Hook into the T008 entry point.
-- [ ] T017 [P] [US2] Add `--resize-images <N>` option to `createGetItemCommand()` in `src/commands/get-item.ts` (parsed via `resolveImageDownloadOptions`; implies download — FR-013).
-- [ ] T018 [P] [US2] Add `--resize-images <N>` option to `createGetMdFieldCommand()` in `src/commands/get-md-field.ts` (implies download — FR-013).
+- [X] T016 [US2] Implement resize-to-PNG in `src/services/image-download.ts` using `jimp`: when `options.maxWidth` is set and the image is wider, scale to width `maxWidth` preserving aspect; always re-encode to PNG when `maxWidth` is set; never upscale; set `resized`/`format` on the result (FR-005, FR-006). Hook into the T008 entry point.
+- [X] T017 [P] [US2] Add `--resize-images <N>` option to `createGetItemCommand()` in `src/commands/get-item.ts` (parsed via `resolveImageDownloadOptions`; implies download — FR-013).
+- [X] T018 [P] [US2] Add `--resize-images <N>` option to `createGetMdFieldCommand()` in `src/commands/get-md-field.ts` (implies download — FR-013).
 
 **Checkpoint**: Both commands support download + resize; US1 still works unchanged.
 

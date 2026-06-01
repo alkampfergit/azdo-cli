@@ -6,6 +6,12 @@ import { resolveContext } from '../services/context.js';
 import { loadConfig } from '../services/config-store.js';
 import { toMarkdown } from '../services/md-convert.js';
 import { parseWorkItemId, validateOrgProjectPair, handleCommandError } from '../services/command-helpers.js';
+import {
+  resolveImageDownloadOptions,
+  downloadImagesFromFields,
+  formatImageSummary,
+  type FieldContent,
+} from '../services/image-download.js';
 
 export function parseRequestedFields(raw?: string | string[]): string[] | undefined {
   if (raw === undefined) return undefined;
@@ -180,13 +186,39 @@ export function createGetItemCommand(): Command {
     .option('--short', 'show abbreviated output')
     .option('--fields <fields>', 'comma-separated additional field reference names')
     .option('--markdown', 'convert rich text fields to markdown')
+    .option('--download-images', 'download images embedded in rich-text fields to local files')
+    .option('--resize-images <pixels>', 'max image width in px; downloads and resizes embedded images to PNG (implies --download-images)')
+    .option('--images-path <dir>', 'destination directory for downloaded images (default: system temp dir)')
     .action(
       async (
         idStr: string,
-        options: { org?: string; project?: string; short?: boolean; fields?: string; markdown?: boolean },
+        options: {
+          org?: string;
+          project?: string;
+          short?: boolean;
+          fields?: string;
+          markdown?: boolean;
+          downloadImages?: boolean;
+          resizeImages?: string;
+          imagesPath?: string;
+        },
       ) => {
         const id = parseWorkItemId(idStr);
         validateOrgProjectPair(options);
+
+        // Resolve image options first so an invalid --resize-images / --images-path
+        // fails fast before any network call and downloads nothing.
+        let imageOptions;
+        try {
+          imageOptions = resolveImageDownloadOptions({
+            downloadImages: options.downloadImages,
+            resizeImages: options.resizeImages,
+            imagesPath: options.imagesPath,
+          });
+        } catch (err: unknown) {
+          process.stderr.write(`Error: ${err instanceof Error ? err.message : String(err)}\n`);
+          process.exit(1);
+        }
 
         let context: AzdoContext | undefined;
 
@@ -203,6 +235,22 @@ export function createGetItemCommand(): Command {
           const markdownEnabled = options.markdown ?? loadConfig().markdown ?? false;
           const output = formatWorkItem(workItem, options.short ?? false, markdownEnabled);
           process.stdout.write(output + '\n');
+
+          if (imageOptions.enabled) {
+            const fields: FieldContent[] = [{ content: workItem.description ?? '', field: 'Description' }];
+            if (workItem.extraFields) {
+              for (const [name, value] of Object.entries(workItem.extraFields)) {
+                fields.push({ content: value, field: name });
+              }
+            }
+            const results = await downloadImagesFromFields(fields, { workItemId: id, options: imageOptions }, credential);
+            process.stdout.write(formatImageSummary(results) + '\n');
+            for (const result of results) {
+              if (result.error) {
+                process.stderr.write(`Failed to download image ${result.reference.url}: ${result.error}\n`);
+              }
+            }
+          }
         } catch (err: unknown) {
           handleCommandError(err, id, context, 'read', false);
         }
