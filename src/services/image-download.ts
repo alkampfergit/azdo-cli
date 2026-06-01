@@ -75,7 +75,7 @@ function parseAttachmentReference(rawUrl: string, sourceField: string): Embedded
   let suggestedExtension = '.png';
   try {
     const fileName = new URL(url).searchParams.get('fileName');
-    if (fileName && fileName.includes('.')) {
+    if (fileName?.includes('.')) {
       suggestedExtension = fileName.slice(fileName.lastIndexOf('.')).toLowerCase();
     }
   } catch {
@@ -232,6 +232,25 @@ export async function downloadImagesFromFields(
   }
 
   return results;
+}
+
+/**
+ * Convenience wrapper used by the commands: download the images for the given fields,
+ * write the summary to stdout, and report any per-image failures to stderr. Keeps the
+ * command actions thin and avoids duplicating the summary/failure handling.
+ */
+export async function runImageDownload(
+  fields: FieldContent[],
+  args: { workItemId: number; options: ImageDownloadOptions },
+  credential: AuthCredential,
+): Promise<void> {
+  const results = await downloadImagesFromFields(fields, args, credential);
+  process.stdout.write(formatImageSummary(results) + '\n');
+  for (const result of results) {
+    if (result.error) {
+      process.stderr.write(`Failed to download image ${result.reference.url}: ${result.error}\n`);
+    }
+  }
 }
 
 /** Format the stdout summary line(s): count + saved paths, or a "no images found" notice. */

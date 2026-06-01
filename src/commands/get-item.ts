@@ -8,8 +8,7 @@ import { toMarkdown } from '../services/md-convert.js';
 import { parseWorkItemId, validateOrgProjectPair, handleCommandError } from '../services/command-helpers.js';
 import {
   resolveImageDownloadOptions,
-  downloadImagesFromFields,
-  formatImageSummary,
+  runImageDownload,
   type FieldContent,
 } from '../services/image-download.js';
 
@@ -243,13 +242,7 @@ export function createGetItemCommand(): Command {
                 fields.push({ content: value, field: name });
               }
             }
-            const results = await downloadImagesFromFields(fields, { workItemId: id, options: imageOptions }, credential);
-            process.stdout.write(formatImageSummary(results) + '\n');
-            for (const result of results) {
-              if (result.error) {
-                process.stderr.write(`Failed to download image ${result.reference.url}: ${result.error}\n`);
-              }
-            }
+            await runImageDownload(fields, { workItemId: id, options: imageOptions }, credential);
           }
         } catch (err: unknown) {
           handleCommandError(err, id, context, 'read', false);

@@ -7,8 +7,7 @@ import { toMarkdown } from '../services/md-convert.js';
 import { parseWorkItemId, validateOrgProjectPair, handleCommandError } from '../services/command-helpers.js';
 import {
   resolveImageDownloadOptions,
-  downloadImagesFromFields,
-  formatImageSummary,
+  runImageDownload,
 } from '../services/image-download.js';
 
 export function createGetMdFieldCommand(): Command {
@@ -66,17 +65,11 @@ export function createGetMdFieldCommand(): Command {
           }
 
           if (imageOptions.enabled) {
-            const results = await downloadImagesFromFields(
+            await runImageDownload(
               [{ content: value ?? '', field }],
               { workItemId: id, options: imageOptions },
               credential,
             );
-            process.stdout.write(formatImageSummary(results) + '\n');
-            for (const result of results) {
-              if (result.error) {
-                process.stderr.write(`Failed to download image ${result.reference.url}: ${result.error}\n`);
-              }
-            }
           }
         } catch (err: unknown) {
           handleCommandError(err, id, context, 'read');

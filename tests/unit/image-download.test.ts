@@ -201,10 +201,11 @@ describe('formatImageSummary', () => {
   });
 
   it('reports the count and saved paths', () => {
+    const savedPath = join('output', 'wi-1-1.png');
     const summary = formatImageSummary([
-      { reference: { url: 'u', sourceField: 'd', guid: GUID_A, suggestedExtension: '.png' }, path: '/tmp/wi-1-1.png', resized: false, format: 'png' },
+      { reference: { url: 'u', sourceField: 'd', guid: GUID_A, suggestedExtension: '.png' }, path: savedPath, resized: false, format: 'png' },
     ]);
     expect(summary).toContain('Images: 1 downloaded');
-    expect(summary).toContain('/tmp/wi-1-1.png');
+    expect(summary).toContain(savedPath);
   });
 });
