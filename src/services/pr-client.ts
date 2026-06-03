@@ -3,8 +3,11 @@ import { authHeaders, fetchWithErrors } from './azdo-client.js';
 import type {
   ActiveCommentThread,
   ActivePullRequestComment,
+  AzdoPolicyEvaluation,
+  AzdoPolicyEvaluationListResponse,
   AzdoPrListResponse,
   AzdoPrStatusListResponse,
+  AzdoProject,
   AzdoPullRequest,
   AzdoPullRequestStatus,
   AzdoThread,
@@ -43,6 +46,25 @@ function buildPullRequestStatusesUrl(context: AzdoContext, repo: string, prId: n
     `https://dev.azure.com/${encodeURIComponent(context.org)}/${encodeURIComponent(context.project)}/_apis/git/repositories/${encodeURIComponent(repo)}/pullRequests/${prId}/statuses`,
   );
   url.searchParams.set('api-version', '7.1');
+  return url;
+}
+
+function buildProjectUrl(context: AzdoContext): URL {
+  const url = new URL(
+    `https://dev.azure.com/${encodeURIComponent(context.org)}/_apis/projects/${encodeURIComponent(context.project)}`,
+  );
+  url.searchParams.set('api-version', '7.1');
+  return url;
+}
+
+function buildPolicyEvaluationsUrl(context: AzdoContext, projectId: string, prId: number): URL {
+  const url = new URL(
+    `https://dev.azure.com/${encodeURIComponent(context.org)}/${encodeURIComponent(context.project)}/_apis/policy/evaluations`,
+  );
+  url.searchParams.set('api-version', '7.1');
+  // The PR is identified to the policy engine by a CodeReview artifact id that
+  // embeds the project GUID and the pull request id.
+  url.searchParams.set('artifactId', `vstfs:///CodeReview/CodeReviewId/${projectId}/${prId}`);
   return url;
 }
 
@@ -92,6 +114,58 @@ function mapPullRequestCheck(status: AzdoPullRequestStatus): PullRequestCheck | 
     createdBy: status.createdBy?.displayName ?? null,
     createdAt: status.creationDate ?? null,
     updatedAt: status.updatedDate ?? null,
+    source: 'status',
+  };
+}
+
+// Branch policy evaluation status values map onto the same check states the
+// status formatter already renders. `notApplicable`/`notSet` evaluations carry
+// no signal, so we drop them — mirroring mapPullRequestCheck().
+function mapPolicyEvaluationState(status: string | undefined): string | null {
+  switch (status) {
+    case 'approved':
+      return 'succeeded';
+    case 'rejected':
+      return 'failed';
+    case 'running':
+    case 'queued':
+      return 'pending';
+    case 'notApplicable':
+    case 'notSet':
+    case undefined:
+      return null;
+    default:
+      // Unknown future states pass through verbatim so we never hide a check.
+      return status;
+  }
+}
+
+function mapPolicyEvaluationName(evaluation: AzdoPolicyEvaluation): string {
+  const display =
+    evaluation.configuration?.settings?.displayName?.trim() ||
+    evaluation.configuration?.type?.displayName?.trim();
+  if (display) {
+    return display;
+  }
+  return `Policy ${evaluation.configuration?.id ?? evaluation.evaluationId ?? '?'}`;
+}
+
+function mapPolicyEvaluationCheck(evaluation: AzdoPolicyEvaluation): PullRequestCheck | null {
+  const state = mapPolicyEvaluationState(evaluation.status);
+  if (state === null) {
+    return null;
+  }
+
+  return {
+    id: evaluation.configuration?.id ?? 0,
+    state,
+    name: mapPolicyEvaluationName(evaluation),
+    description: null,
+    targetUrl: null,
+    createdBy: null,
+    createdAt: null,
+    updatedAt: null,
+    source: 'policy',
   };
 }
 
@@ -244,6 +318,38 @@ export async function getPullRequestChecks(
 
   return data.value
     .map(mapPullRequestCheck)
+    .filter((check): check is PullRequestCheck => check !== null);
+}
+
+// Resolves the project GUID for the current context. Needed to build the
+// policy-evaluation artifactId, since the PR/context only carry the project
+// name. Callers should resolve once and reuse for the duration of a command.
+export async function resolveProjectId(context: AzdoContext, cred: AuthCredential): Promise<string> {
+  const response = await fetchWithErrors(buildProjectUrl(context).toString(), {
+    headers: authHeaders(cred),
+  });
+  const data = await readJsonResponse<AzdoProject>(response);
+  return data.id;
+}
+
+// Fetches branch policy evaluations for a PR and maps them to checks. These are
+// the build-validation / required-reviewer "checks" the Azure DevOps UI shows;
+// they are NOT returned by the statuses endpoint, which is why `pr status`
+// merges both sources.
+export async function getPullRequestPolicyEvaluations(
+  context: AzdoContext,
+  cred: AuthCredential,
+  projectId: string,
+  prId: number,
+): Promise<PullRequestCheck[]> {
+  const response = await fetchWithErrors(
+    buildPolicyEvaluationsUrl(context, projectId, prId).toString(),
+    { headers: authHeaders(cred) },
+  );
+  const data = await readJsonResponse<AzdoPolicyEvaluationListResponse>(response);
+
+  return data.value
+    .map(mapPolicyEvaluationCheck)
     .filter((check): check is PullRequestCheck => check !== null);
 }
 

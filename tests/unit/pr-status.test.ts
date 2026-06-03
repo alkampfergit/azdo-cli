@@ -5,6 +5,11 @@ import { createCommandRunner, getExitCode, getStderr, getStdout, setupProcessSpi
 vi.mock('../../src/services/pr-client.js', () => ({
   listPullRequests: vi.fn(),
   getPullRequestChecks: vi.fn(),
+  getPullRequestPolicyEvaluations: vi.fn(),
+  resolveProjectId: vi.fn(),
+  getPullRequestThreads: vi.fn(),
+  isThreadResolved: (status: string) =>
+    new Set(['fixed', 'wontFix', 'closed', 'byDesign']).has(status),
 }));
 
 vi.mock('../../src/services/git-remote.js', () => ({
@@ -20,7 +25,13 @@ vi.mock('../../src/services/context.js', () => ({
   resolveContext: vi.fn(),
 }));
 
-import { getPullRequestChecks, listPullRequests } from '../../src/services/pr-client.js';
+import {
+  getPullRequestChecks,
+  getPullRequestPolicyEvaluations,
+  getPullRequestThreads,
+  listPullRequests,
+  resolveProjectId,
+} from '../../src/services/pr-client.js';
 import { detectRepoName, getCurrentBranch } from '../../src/services/git-remote.js';
 import { requireAuthCredential } from '../../src/services/auth.js';
 import { resolveContext } from '../../src/services/context.js';
@@ -68,6 +79,9 @@ beforeEach(() => {
   vi.mocked(getCurrentBranch).mockReturnValue('feature/test');
   vi.mocked(listPullRequests).mockResolvedValue([]);
   vi.mocked(getPullRequestChecks).mockResolvedValue([]);
+  vi.mocked(resolveProjectId).mockResolvedValue('project-guid');
+  vi.mocked(getPullRequestPolicyEvaluations).mockResolvedValue([]);
+  vi.mocked(getPullRequestThreads).mockResolvedValue([]);
 });
 
 afterEach(() => {
@@ -153,6 +167,8 @@ describe('pr status command', () => {
         {
           ...pullRequest,
           checks: [makeCheck()],
+          codeCommentCounts: { open: 0, closed: 0 },
+          checksError: null,
         },
       ],
     });
@@ -165,14 +181,18 @@ describe('pr status command', () => {
     expect(getExitCode()).toBe(1);
   });
 
-  it('fails when Azure DevOps check lookup fails', async () => {
+  it('reports checks as unavailable (not "none") when both check sources fail, without aborting', async () => {
     vi.mocked(listPullRequests).mockResolvedValue([makePullRequest({ title: 'Test PR', status: 'active' })]);
     vi.mocked(getPullRequestChecks).mockRejectedValue(new Error('HTTP_500'));
+    vi.mocked(getPullRequestPolicyEvaluations).mockRejectedValue(new Error('HTTP_500'));
 
     await run([]);
 
-    expect(getStderr()).toContain('Azure DevOps request failed with HTTP_500.');
-    expect(getExitCode()).toBe(1);
+    const output = getStdout();
+    expect(output).toContain('#12 [active] Test PR');
+    expect(output).toContain('Checks: unable to retrieve');
+    expect(output).not.toContain('none reported');
+    expect(getExitCode()).toBe(0);
   });
 
   it('prints a detached HEAD error and exits with code 1', async () => {
@@ -182,5 +202,57 @@ describe('pr status command', () => {
     await run([]);
     expect(getStderr()).toContain('Not on a named branch. Check out a named branch and try again.');
     expect(getExitCode()).toBe(1);
+  });
+
+  // US1 — merge branch policy evaluations with status-API checks (#50)
+  it('lists branch policy evaluation checks alongside status checks', async () => {
+    vi.mocked(listPullRequests).mockResolvedValue([makePullRequest({ title: 'Test PR', status: 'active' })]);
+    vi.mocked(getPullRequestChecks).mockResolvedValue([]);
+    vi.mocked(getPullRequestPolicyEvaluations).mockResolvedValue([
+      {
+        id: 10,
+        state: 'succeeded',
+        name: 'Build validation',
+        description: null,
+        targetUrl: null,
+        createdBy: null,
+        createdAt: null,
+        updatedAt: null,
+        source: 'policy',
+      },
+    ]);
+
+    await run([]);
+
+    const output = getStdout();
+    expect(output).toContain('Checks:');
+    expect(output).toContain('- [succeeded] Build validation');
+    expect(output).not.toContain('none reported');
+  });
+
+  // US3 — open/closed code-comment counts (#50)
+  it('prints open/closed counts of code-anchored comments, excluding general threads', async () => {
+    vi.mocked(listPullRequests).mockResolvedValue([makePullRequest({ title: 'Test PR', status: 'active' })]);
+    vi.mocked(getPullRequestThreads).mockResolvedValue([
+      { id: 1, status: 'active', threadContext: 'src/a.ts', comments: [] },
+      { id: 2, status: 'active', threadContext: 'src/b.ts', comments: [] },
+      { id: 3, status: 'fixed', threadContext: 'src/c.ts', comments: [] },
+      { id: 4, status: 'active', threadContext: null, comments: [] }, // general — excluded
+    ]);
+
+    await run([]);
+
+    expect(getStdout()).toContain('Code comments: 2 open, 1 closed');
+  });
+
+  it('reports zero code-comment counts when there are no code-anchored threads', async () => {
+    vi.mocked(listPullRequests).mockResolvedValue([makePullRequest({ title: 'Test PR', status: 'active' })]);
+    vi.mocked(getPullRequestThreads).mockResolvedValue([
+      { id: 4, status: 'active', threadContext: null, comments: [] },
+    ]);
+
+    await run([]);
+
+    expect(getStdout()).toContain('Code comments: 0 open, 0 closed');
   });
 });

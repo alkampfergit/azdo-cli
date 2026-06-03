@@ -56,7 +56,9 @@ azdo comments add 12345 "Investigating the root cause now."
 # PR comment threads — list, filter, target by number, resolve or reopen
 azdo pr comments                        # active-branch PR
 azdo pr comments --pr-number 64         # any PR by number (skips branch lookup)
-azdo pr comments --pr-number 64 --hide-resolved
+azdo pr comments --pr-number 64 --hide-resolved      # or --exclude-resolved (alias)
+azdo pr comments --code-related-only    # only file/line-anchored threads
+azdo pr status                          # PR checks (status + branch policies) + code-comment counts
 azdo pr comment-resolve 17 --pr-number 64   # idempotent: exit 0 even when already resolved
 azdo pr comment-reopen 17  --pr-number 64
 ```
