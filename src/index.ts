@@ -12,6 +12,7 @@ import { createSetMdFieldCommand } from "./commands/set-md-field.js";
 import { createUpsertCommand } from "./commands/upsert.js";
 import { createListFieldsCommand } from "./commands/list-fields.js";
 import { createPrCommand } from "./commands/pr.js";
+import { createPipelineCommand } from "./commands/pipeline.js";
 import { createCommentsCommand } from "./commands/comments.js";
 import { createDownloadAttachmentCommand } from "./commands/download-attachment.js";
 import { getUpdateNotice } from "./services/update-check.js";
@@ -34,6 +35,7 @@ program.addCommand(createSetMdFieldCommand());
 program.addCommand(createUpsertCommand());
 program.addCommand(createListFieldsCommand());
 program.addCommand(createPrCommand());
+program.addCommand(createPipelineCommand());
 program.addCommand(createCommentsCommand());
 program.addCommand(createDownloadAttachmentCommand());
 

@@ -14,6 +14,7 @@
 | `azdo set-md-field <id> <field> [content]` | Set markdown field | `--file`, `--json`, `--org`, `--project` |
 | `azdo list-fields <id>` | List all fields of a work item | `--json`, `--org`, `--project` |
 | `azdo pr <subcommand>` | Manage pull requests (current branch or by `--pr-number`) | `status`, `open`, `comments`, `comment-resolve`, `comment-reopen`, `--pr-number`, `--hide-resolved`, `--exclude-resolved`, `--code-related-only`, `--json`, `--org`, `--project` |
+| `azdo pipeline <subcommand>` | Inspect and operate Azure DevOps pipelines | `list`, `get-runs`, `wait`, `get-run-detail`, `logs`, `start`, `--filter`, `--limit`, `--branch`, `--timeout`, `--poll-interval`, `--log-id`, `--parameter`, `--json`, `--org`, `--project` |
 | `azdo config <subcommand>` | Manage saved settings | `set`, `get`, `list`, `unset`, `wizard`, `--json` |
 | `azdo auth login` | Authenticate against an org — OAuth (Microsoft Entra) by default, or a PAT with `--use-pat` | `--org`, `--use-pat`, `--device-code`, `--client-id`, `--tenant-id`, `--scopes`, `--from-stdin`, `--no-browser` |
 | `azdo auth` | Legacy PAT-prompt entry point (back-compat alias of `azdo auth login --use-pat`) | `--org`, `--from-stdin`, `--no-browser` |
@@ -139,6 +140,47 @@ azdo pr comment-reopen   17 --pr-number 64 # reopen a previously resolved thread
 - Mirror of `comment-resolve` — flips any settled thread back to `active`
 - Idempotent: exits 0 with "already active" when the thread is already open/pending
 - Same flags as `comment-resolve`
+
+## Pipeline commands
+
+Operate Azure DevOps pipelines. Every subcommand supports `--json`, `--org`, and `--project`.
+Designed to be scriptable for CI loops and AI coding agents (push → build → wait → read errors → repeat).
+
+```bash
+azdo pipeline list                         # list pipeline definitions
+azdo pipeline list --filter ci             # filter definitions by name (substring)
+azdo pipeline get-runs 12 --limit 5        # recent runs for definition 12
+azdo pipeline get-runs 12 --branch develop # runs for a specific branch
+azdo pipeline wait 3456                     # block until run 3456 finishes (exit code = result)
+azdo pipeline get-run-detail 3456          # date, commit, result, errors, failing tests, stages
+azdo pipeline logs 3456                     # list a run's logs
+azdo pipeline logs 3456 --log-id 7         # print a specific log
+azdo pipeline start 12 --branch develop --parameter env=staging
+```
+
+**`azdo pipeline list`**
+- Lists pipeline definitions (id + name, and folder when present); `--filter <name>` is a case-insensitive substring match
+
+**`azdo pipeline get-runs <def_id>`**
+- Lists recent runs newest-first (run id, state/result, timestamp, branch)
+- `--limit <n>` caps the count (default 10); `--branch <branch>` restricts to runs for that branch
+
+**`azdo pipeline wait <run_id>`**
+- Blocks until the run reaches a terminal state, then sets the **process exit code from the result**: `0` succeeded, `1` failed, `2` canceled, `124` on `--timeout`
+- `--timeout <seconds>` (default 1800) bounds the wait; `--poll-interval <seconds>` (default 5) sets the cadence; a timeout does **not** cancel the run
+- The exit-code contract makes the AI-agent loop scriptable: `azdo pipeline wait $RID && deploy || azdo pipeline get-run-detail $RID`
+
+**`azdo pipeline get-run-detail <run_id>`**
+- Composes the run's core (date, built commit, result, web link), the build timeline (errors + per-stage status), and the test summary
+- Reports the failing-test count when tests ran, and shows **"no tests present"** distinctly from "0 failures"
+- Degrades gracefully: a source that can't be retrieved is shown as "unavailable" rather than failing the command
+
+**`azdo pipeline logs <run_id>`**
+- Lists the run's logs; `--log-id <id>` prints a specific log's content to stdout
+
+**`azdo pipeline start <def_id>`**
+- Queues a new run and returns its id and link; `--branch <branch>` targets a branch (default: the pipeline's default), `--parameter key=value` (repeatable) passes template parameters
+- Pipe the new id straight into `wait`: `RID=$(azdo pipeline start 12 --json | jq .id); azdo pipeline wait $RID`
 
 ## Work item comment commands
 
