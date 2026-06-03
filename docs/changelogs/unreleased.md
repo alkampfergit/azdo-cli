@@ -7,6 +7,7 @@
 ### Added
 
 - **OAuth login** — `azdo auth login` with one-command browser login and a headless / no-browser fallback (`018-oauth-login`, #37/#38).
+- **`azdo pipeline` command group** — inspect and operate Azure DevOps pipelines: `list` (`--filter`), `get-runs` (`--limit`/`--branch`), `wait` (blocks until a run finishes and maps the result to the process exit code: `0` success, `1` failed, `2` canceled, `124` on `--timeout`), `get-run-detail` (execution date, built commit, result, errors, failing-test count, per-stage status, web link), `logs` (`--log-id`), and `start` (`--branch`, repeatable `--parameter key=value`). `--json` on every subcommand; built for CI / AI-agent loops. No new runtime dependencies (`024-azdo-pipeline`, #51).
 
 ### Fixed
 

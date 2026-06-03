@@ -15,6 +15,7 @@ the project uses [Semantic Versioning](https://semver.org/).
 _Targeting **0.11.0** (`release/0.11.0` in flight). Working detail: [`docs/changelogs/unreleased.md`](docs/changelogs/unreleased.md)._
 
 - OAuth login (`azdo auth login`) with browser and headless flows (#38).
+- New `azdo pipeline` command group (list/get-runs/wait/get-run-detail/logs/start) for Azure DevOps Pipelines (#51).
 - Fix `azdo pr` on Azure DevOps remotes that carry userinfo (#43).
 - Sync authentication docs with the current auth surface (#42).
 
