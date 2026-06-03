@@ -3,11 +3,13 @@ import type { AzdoContext } from '../../src/types/work-item.js';
 import {
   getPullRequestById,
   getPullRequestChecks,
+  getPullRequestPolicyEvaluations,
   getPullRequestThreads,
   isThreadResolved,
   listPullRequests,
   openPullRequest,
   patchThreadStatus,
+  resolveProjectId,
 } from '../../src/services/pr-client.js';
 
 const context: AzdoContext = { org: 'test-org', project: 'test-project' };
@@ -455,6 +457,7 @@ describe('pr-client', () => {
           createdBy: 'Azure Pipelines',
           createdAt: '2026-03-31T10:00:00Z',
           updatedAt: '2026-03-31T10:05:00Z',
+          source: 'status',
         },
         {
           id: 2,
@@ -465,6 +468,7 @@ describe('pr-client', () => {
           createdBy: null,
           createdAt: '2026-03-31T10:01:00Z',
           updatedAt: '2026-03-31T10:06:00Z',
+          source: 'status',
         },
         {
           id: 3,
@@ -475,6 +479,7 @@ describe('pr-client', () => {
           createdBy: null,
           createdAt: '2026-03-31T10:02:00Z',
           updatedAt: '2026-03-31T10:07:00Z',
+          source: 'status',
         },
       ]);
     });
@@ -486,6 +491,57 @@ describe('pr-client', () => {
       } as Response);
 
       await expect(getPullRequestChecks(context, 'repo-name', 'pat', 12)).rejects.toThrow('AUTH_FAILED');
+    });
+  });
+
+  describe('resolveProjectId', () => {
+    it('returns the project GUID from the Projects API', async () => {
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({ id: 'abc-123-guid', name: 'test-project' }),
+      } as Response);
+
+      const id = await resolveProjectId(context, 'pat');
+      expect(id).toBe('abc-123-guid');
+      expect(fetchSpy.mock.calls[0][0]).toContain('/_apis/projects/test-project');
+    });
+  });
+
+  describe('getPullRequestPolicyEvaluations', () => {
+    it('maps policy evaluations to checks and normalises their state', async () => {
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          value: [
+            {
+              evaluationId: 'e1',
+              status: 'approved',
+              configuration: { id: 10, type: { displayName: 'Build' }, settings: { displayName: 'Build validation' } },
+            },
+            { evaluationId: 'e2', status: 'rejected', configuration: { id: 11, type: { displayName: 'Required reviewers' } } },
+            { evaluationId: 'e3', status: 'running', configuration: { id: 12, type: { displayName: 'Status' } } },
+            { evaluationId: 'e4', status: 'queued', configuration: { id: 13, type: { displayName: 'Queued policy' } } },
+            // dropped — no signal
+            { evaluationId: 'e5', status: 'notApplicable', configuration: { id: 14, type: { displayName: 'N/A' } } },
+            { evaluationId: 'e6', status: 'notSet', configuration: { id: 15, type: { displayName: 'Not set' } } },
+          ],
+        }),
+      } as Response);
+
+      const result = await getPullRequestPolicyEvaluations(context, 'pat', 'proj-guid', 12);
+
+      // build artifactId carries project GUID + PR id
+      expect(fetchSpy.mock.calls[0][0]).toContain(
+        'artifactId=vstfs%3A%2F%2F%2FCodeReview%2FCodeReviewId%2Fproj-guid%2F12',
+      );
+      expect(result).toEqual([
+        { id: 10, state: 'succeeded', name: 'Build validation', description: null, targetUrl: null, createdBy: null, createdAt: null, updatedAt: null, source: 'policy' },
+        { id: 11, state: 'failed', name: 'Required reviewers', description: null, targetUrl: null, createdBy: null, createdAt: null, updatedAt: null, source: 'policy' },
+        { id: 12, state: 'pending', name: 'Status', description: null, targetUrl: null, createdBy: null, createdAt: null, updatedAt: null, source: 'policy' },
+        { id: 13, state: 'pending', name: 'Queued policy', description: null, targetUrl: null, createdBy: null, createdAt: null, updatedAt: null, source: 'policy' },
+      ]);
     });
   });
 

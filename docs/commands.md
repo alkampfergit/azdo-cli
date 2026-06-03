@@ -13,7 +13,7 @@
 | `azdo get-md-field <id> <field>` | Get rich-text field as markdown | `--download-images`, `--resize-images <px>`, `--images-path <dir>`, `--org`, `--project` |
 | `azdo set-md-field <id> <field> [content]` | Set markdown field | `--file`, `--json`, `--org`, `--project` |
 | `azdo list-fields <id>` | List all fields of a work item | `--json`, `--org`, `--project` |
-| `azdo pr <subcommand>` | Manage pull requests (current branch or by `--pr-number`) | `status`, `open`, `comments`, `comment-resolve`, `comment-reopen`, `--pr-number`, `--hide-resolved`, `--json`, `--org`, `--project` |
+| `azdo pr <subcommand>` | Manage pull requests (current branch or by `--pr-number`) | `status`, `open`, `comments`, `comment-resolve`, `comment-reopen`, `--pr-number`, `--hide-resolved`, `--exclude-resolved`, `--code-related-only`, `--json`, `--org`, `--project` |
 | `azdo config <subcommand>` | Manage saved settings | `set`, `get`, `list`, `unset`, `wizard`, `--json` |
 | `azdo auth login` | Authenticate against an org — OAuth (Microsoft Entra) by default, or a PAT with `--use-pat` | `--org`, `--use-pat`, `--device-code`, `--client-id`, `--tenant-id`, `--scopes`, `--from-stdin`, `--no-browser` |
 | `azdo auth` | Legacy PAT-prompt entry point (back-compat alias of `azdo auth login --use-pat`) | `--org`, `--from-stdin`, `--no-browser` |
@@ -101,14 +101,19 @@ azdo pr open --title "…" --description "…"      # open PR targeting develop
 azdo pr comments                           # list threads for current branch's PR
 azdo pr comments --pr-number 64            # list threads for any PR by number
 azdo pr comments --hide-resolved           # triage view — hide settled threads
+azdo pr comments --exclude-resolved        # alias of --hide-resolved
+azdo pr comments --code-related-only       # only threads anchored to a file/line
 azdo pr comment-resolve  17 --pr-number 64 # mark thread as resolved (idempotent)
 azdo pr comment-reopen   17 --pr-number 64 # reopen a previously resolved thread
 ```
 
 **`azdo pr status`**
 - Lists PRs for the current branch, including Azure DevOps checks
+- **Checks merge two sources**: the Pull Request Status API *and* branch **policy evaluations** (build validation, required reviewers, etc.). Branch-policy checks are the green checks the Azure DevOps UI shows and are not returned by the status endpoint, so both are combined. Each check carries a `source` of `status` or `policy` in `--json`.
+- `Checks: none reported by Azure DevOps` is shown only when both sources are genuinely empty; a retrieval failure shows `Checks: unable to retrieve (…)` instead (never silently "none")
 - Shows `Detail: …` for failed/errored checks when description is available
-- `--json` includes a `checks` array per PR
+- Shows a `Code comments: N open, M closed` line counting only **code-anchored** (file/line) threads; general discussion threads are excluded
+- `--json` includes a `checks` array (with `source`) and a `codeCommentCounts` object per PR
 
 **`azdo pr open`**
 - Requires `--title` and `--description`
@@ -120,7 +125,9 @@ azdo pr comment-reopen   17 --pr-number 64 # reopen a previously resolved thread
 - Lists every comment thread on the target PR with a bracketed status indicator (`[active]`, `[pending]`, `[resolved]`) next to each thread title
 - `--pr-number <N>` targets any PR by numeric id and bypasses the current-branch lookup entirely; invalid numbers and missing PRs fail cleanly with non-zero exit, no crash
 - When `--pr-number` is omitted, the active PR is auto-detected as the open PR whose source branch equals `refs/heads/<current branch>`. If zero or more than one open PR matches, the command fails (exit 1) with a message naming the searched branch — pass `--pr-number` to disambiguate. (`pr status` is unaffected: it remains a multi-PR overview that lists all matches.)
-- `--hide-resolved` drops threads whose backend state is settled (`fixed`, `wontFix`, `closed`, `byDesign`) — useful when triaging only the threads that still need attention
+- `--hide-resolved` (and its alias `--exclude-resolved`) drops threads whose backend state is settled (`fixed`, `wontFix`, `closed`, `byDesign`) — useful when triaging only the threads that still need attention
+- `--code-related-only` shows only threads anchored to a real file/line, omitting general discussion threads
+- The two filters are independent and combinable; with neither flag the output is unchanged. Both are honoured in `--json` output
 - Tolerant of Azure DevOps responses that omit `_links.web` (root cause of the original crash reported in issue #34)
 
 **`azdo pr comment-resolve <threadId>`**
