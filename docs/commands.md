@@ -217,6 +217,25 @@ azdo config unset fields
 azdo config list --json
 ```
 
+## Update notifications
+
+On each command run `azdo` quietly checks the npm registry for a newer **stable**
+release and, if one is found, prints a single line to **stderr** after the
+command's own output:
+
+```
+A new version of azdo-cli is available: 0.5.0 → 0.6.0. Run `npm i -g azdo-cli` to update.
+```
+
+The check is best-effort and never blocks or fails your command:
+
+- **Throttled** to at most one registry lookup per 10 minutes (a failed check
+  does not reset the window, so the next run may retry).
+- **Suppressed** when output is non-interactive (piped, redirected, or in CI),
+  so it never pollutes stdout/JSON.
+- **Opt-out** with the global `--no-update-check` flag, e.g.
+  `azdo --no-update-check get-item 1234`.
+
 ## JSON output
 
 All commands that produce structured data support `--json`:
