@@ -104,7 +104,7 @@ function formatTable(rows: string[][], rightAlign: ReadonlySet<number> = new Set
       row
         .map((cell, i) => (rightAlign.has(i) ? cell.padStart(widths[i]) : cell.padEnd(widths[i])))
         .join('  ')
-        .replace(/\s+$/, ''),
+        .trimEnd(),
     )
     .join('\n');
 }
