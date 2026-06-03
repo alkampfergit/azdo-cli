@@ -88,6 +88,27 @@ function sleep(ms: number): Promise<void> {
   });
 }
 
+// Renders rows as space-padded columns that line up in a monospace terminal
+// (tabs don't align — they jump to fixed tab stops). Columns in `rightAlign`
+// are right-justified (used for numeric ids); a two-space gutter separates
+// columns and trailing whitespace is trimmed per line.
+function formatTable(rows: string[][], rightAlign: ReadonlySet<number> = new Set()): string {
+  const widths: number[] = [];
+  for (const row of rows) {
+    row.forEach((cell, i) => {
+      widths[i] = Math.max(widths[i] ?? 0, cell.length);
+    });
+  }
+  return rows
+    .map((row) =>
+      row
+        .map((cell, i) => (rightAlign.has(i) ? cell.padStart(widths[i]) : cell.padEnd(widths[i])))
+        .join('  ')
+        .replace(/\s+$/, ''),
+    )
+    .join('\n');
+}
+
 // ---------------------------------------------------------------------------
 // pipeline list
 // ---------------------------------------------------------------------------
@@ -119,10 +140,11 @@ function createPipelineListCommand(): Command {
           process.stdout.write('No pipelines found.\n');
           return;
         }
-        const lines = definitions.map(
-          (d) => `${d.id}\t${d.name}${d.folder ? `\t${d.folder}` : ''}`,
+        const hasFolder = definitions.some((d) => d.folder);
+        const rows = definitions.map((d) =>
+          hasFolder ? [String(d.id), d.name, d.folder ?? ''] : [String(d.id), d.name],
         );
-        process.stdout.write(`${lines.join('\n')}\n`);
+        process.stdout.write(`${formatTable(rows, new Set([0]))}\n`);
       } catch (err) {
         handlePipelineError(err, context);
       }
@@ -134,9 +156,9 @@ function createPipelineListCommand(): Command {
 // pipeline get-runs <def_id>
 // ---------------------------------------------------------------------------
 
-function formatRunLine(run: PipelineRunSummary): string {
+function runRow(run: PipelineRunSummary): string[] {
   const status = run.result ? `${run.state}/${run.result}` : run.state;
-  return `${run.id}\t[${status}]\t${run.createdDate ?? '—'}\t${formatBranchName(run.sourceBranch)}`;
+  return [String(run.id), `[${status}]`, run.createdDate ?? '—', formatBranchName(run.sourceBranch)];
 }
 
 function createPipelineGetRunsCommand(): Command {
@@ -183,7 +205,7 @@ function createPipelineGetRunsCommand(): Command {
           process.stdout.write(`No runs found for pipeline ${defId}.\n`);
           return;
         }
-        process.stdout.write(`${runs.map(formatRunLine).join('\n')}\n`);
+        process.stdout.write(`${formatTable(runs.map(runRow), new Set([0]))}\n`);
       } catch (err) {
         handlePipelineError(err, context);
       }
@@ -398,8 +420,12 @@ function createPipelineLogsCommand(): Command {
           process.stdout.write(`No logs found for run ${runId}.\n`);
           return;
         }
-        const lines = logs.map((l) => `${l.id}\t${l.createdOn ?? '—'}${l.lineCount != null ? `\t${l.lineCount} lines` : ''}`);
-        process.stdout.write(`${lines.join('\n')}\n`);
+        const rows = logs.map((l) => [
+          String(l.id),
+          l.createdOn ?? '—',
+          l.lineCount != null ? `${l.lineCount} lines` : '',
+        ]);
+        process.stdout.write(`${formatTable(rows, new Set([0]))}\n`);
       } catch (err) {
         handlePipelineError(err, context);
       }

@@ -44,15 +44,21 @@ afterEach(() => {
 });
 
 describe('pipeline list', () => {
-  it('lists id and name', async () => {
+  it('lists id and name in aligned (tab-free) columns', async () => {
     vi.mocked(getPipelineDefinitions).mockResolvedValue([
       { id: 1, name: 'CI', folder: null },
-      { id: 2, name: 'Release Train', folder: null },
+      { id: 200, name: 'Release Train', folder: null },
     ]);
     await run(['list']);
     const out = getStdout();
-    expect(out).toContain('1\tCI');
-    expect(out).toContain('2\tRelease Train');
+    expect(out).toContain('CI');
+    expect(out).toContain('Release Train');
+    // No tab characters — columns are space-padded so they align in a terminal.
+    expect(out).not.toContain('\t');
+    // Right-aligned numeric id column: the shorter id is space-padded to width.
+    const lines = out.trimEnd().split('\n');
+    expect(lines[0]).toMatch(/^\s+1 /);
+    expect(lines[1]).toMatch(/^200 /);
   });
 
   it('--filter narrows by case-insensitive substring', async () => {
@@ -63,7 +69,7 @@ describe('pipeline list', () => {
     await run(['list', '--filter', 'release']);
     const out = getStdout();
     expect(out).toContain('Release Train');
-    expect(out).not.toContain('\tCI');
+    expect(out).not.toContain('CI');
   });
 
   it('prints a no-pipelines message', async () => {
