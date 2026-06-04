@@ -61,6 +61,13 @@ azdo pr comments --code-related-only    # only file/line-anchored threads
 azdo pr status                          # PR checks (status + branch policies) + code-comment counts
 azdo pr comment-resolve 17 --pr-number 64   # idempotent: exit 0 even when already resolved
 azdo pr comment-reopen 17  --pr-number 64
+
+# Pipelines — list, inspect runs, wait (exit code = result), start
+azdo pipeline list --filter ci
+azdo pipeline get-runs 12 --branch develop --limit 1
+azdo pipeline wait 3456                     # blocks; exit 0 success / non-zero failure / 124 timeout
+azdo pipeline get-run-detail 3456           # errors, failing tests, per-stage status
+azdo pipeline start 12 --branch develop --parameter env=staging
 ```
 
 ## Documentation
