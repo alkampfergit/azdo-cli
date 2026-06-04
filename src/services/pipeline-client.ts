@@ -2,18 +2,22 @@ import type { AuthCredential, AzdoContext } from '../types/work-item.js';
 import { authHeaders, fetchWithErrors } from './azdo-client.js';
 import type {
   AzdoBuild,
+  AzdoBuildListResponse,
   AzdoBuildLogListResponse,
   AzdoPipeline,
   AzdoPipelineListResponse,
   AzdoRun,
-  AzdoRunListResponse,
+  AzdoTestResultListResponse,
   AzdoTestResultSummary,
+  AzdoTestRunListResponse,
   AzdoTimeline,
+  FailedTest,
   PipelineDefinition,
   PipelineLog,
   PipelineRunDetail,
   PipelineRunError,
   PipelineRunResult,
+  PipelineRunsQuery,
   PipelineRunState,
   PipelineRunSummary,
   PipelineStageStatus,
@@ -81,23 +85,21 @@ function mapBuildState(status: string | undefined): PipelineRunState {
   return 'inProgress'; // notStarted | inProgress | postponed | cancelling
 }
 
-function firstRepositoryResource(run: AzdoRun) {
-  const repos = run.resources?.repositories;
-  if (!repos) return undefined;
-  return repos.self ?? Object.values(repos)[0];
+function mapBuildSummary(build: AzdoBuild): PipelineRunSummary {
+  return {
+    id: build.id,
+    name: build.buildNumber ?? null,
+    state: mapBuildState(build.status),
+    result: mapRunResult(build.result),
+    createdDate: build.queueTime ?? build.startTime ?? null,
+    finishedDate: build.finishTime ?? null,
+    sourceBranch: build.sourceBranch ?? null,
+    sourceCommit: build.sourceVersion ?? null,
+  };
 }
 
-function mapRunSummary(run: AzdoRun): PipelineRunSummary {
-  const repo = firstRepositoryResource(run);
-  return {
-    id: run.id,
-    name: run.name ?? null,
-    state: mapRunState(run.state),
-    result: mapRunResult(run.result),
-    createdDate: run.createdDate ?? null,
-    finishedDate: run.finishedDate ?? null,
-    sourceBranch: repo?.refName ?? null,
-  };
+function normalizeRef(branch: string): string {
+  return branch.startsWith('refs/') ? branch : `refs/heads/${branch}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -114,18 +116,40 @@ export async function getPipelineDefinitions(
   return data.value.map(mapPipeline);
 }
 
+// How many recent builds to scan when filtering by commit: the Build API has
+// no sourceVersion query parameter, so the match happens client-side over a
+// recent window.
+const COMMIT_LOOKBACK = 200;
+
 export async function getPipelineRuns(
   context: AzdoContext,
   cred: AuthCredential,
-  pipelineId: number,
+  query: PipelineRunsQuery,
 ): Promise<PipelineRunSummary[]> {
-  const url = withApiVersion(
-    new URL(`${orgProjectBase(context)}/_apis/pipelines/${pipelineId}/runs`),
-  );
+  // Listed through the Build API rather than the Pipelines runs endpoint: the
+  // latter omits resources/repositories in list responses (sourceBranch would
+  // always be null), while builds carry sourceBranch/sourceVersion and filter
+  // by branch server-side. Build id == run id for YAML pipelines.
+  const url = withApiVersion(new URL(`${orgProjectBase(context)}/_apis/build/builds`));
+  if (query.definitionId !== undefined) {
+    url.searchParams.set('definitions', String(query.definitionId));
+  }
+  if (query.prNumber !== undefined) {
+    // PR validation builds run on the PR's synthetic merge ref.
+    url.searchParams.set('branchName', `refs/pull/${query.prNumber}/merge`);
+  } else if (query.branch) {
+    url.searchParams.set('branchName', normalizeRef(query.branch));
+  }
+  url.searchParams.set('queryOrder', 'queueTimeDescending');
+  url.searchParams.set('$top', String(query.commit ? COMMIT_LOOKBACK : query.top));
   const response = await fetchWithErrors(url.toString(), { headers: authHeaders(cred) });
-  const data = await readJsonResponse<AzdoRunListResponse>(response);
-  // The runs endpoint returns newest-first already; keep its order.
-  return data.value.map(mapRunSummary);
+  const data = await readJsonResponse<AzdoBuildListResponse>(response);
+  let runs = data.value.map(mapBuildSummary);
+  if (query.commit) {
+    const needle = query.commit.toLowerCase();
+    runs = runs.filter((run) => run.sourceCommit?.toLowerCase().startsWith(needle));
+  }
+  return runs.slice(0, query.top);
 }
 
 export async function runPipeline(
@@ -235,13 +259,51 @@ export async function getTestSummary(
   const analysis = data.aggregatedResultsAnalysis;
   const total = analysis?.totalTests ?? 0;
   if (!analysis || total === 0) {
-    return { present: false, total: 0, failed: 0 };
+    return { present: false, total: 0, failed: 0, failedTests: [] };
   }
   return {
     present: true,
     total,
     failed: analysis.resultsByOutcome?.Failed?.count ?? 0,
+    failedTests: [],
   };
+}
+
+// Caps the failing-test list so a catastrophic run doesn't flood the output.
+const MAX_FAILED_TESTS = 50;
+
+export async function getFailedTests(
+  context: AzdoContext,
+  cred: AuthCredential,
+  buildId: number,
+): Promise<FailedTest[]> {
+  // Two-step Test Results API walk: build → its test runs → each run's
+  // Failed-outcome results. ResultSummaryByBuild only carries counts.
+  const runsUrl = withApiVersion(new URL(`${orgProjectBase(context)}/_apis/test/runs`));
+  runsUrl.searchParams.set('buildUri', `vstfs:///Build/Build/${buildId}`);
+  const runsResponse = await fetchWithErrors(runsUrl.toString(), { headers: authHeaders(cred) });
+  const runsData = await readJsonResponse<AzdoTestRunListResponse>(runsResponse);
+
+  const failed: FailedTest[] = [];
+  for (const testRun of runsData.value) {
+    if (failed.length >= MAX_FAILED_TESTS) break;
+    const resultsUrl = withApiVersion(
+      new URL(`${orgProjectBase(context)}/_apis/test/runs/${testRun.id}/results`),
+    );
+    resultsUrl.searchParams.set('outcomes', 'Failed');
+    resultsUrl.searchParams.set('$top', String(MAX_FAILED_TESTS - failed.length));
+    const resultsResponse = await fetchWithErrors(resultsUrl.toString(), {
+      headers: authHeaders(cred),
+    });
+    const resultsData = await readJsonResponse<AzdoTestResultListResponse>(resultsResponse);
+    for (const result of resultsData.value) {
+      failed.push({
+        name: result.testCaseTitle ?? result.automatedTestName ?? '(unnamed test)',
+        errorMessage: result.errorMessage ?? null,
+      });
+    }
+  }
+  return failed;
 }
 
 export async function getRunDetail(
@@ -262,10 +324,17 @@ export async function getRunDetail(
     errorsAvailable = false;
   }
 
-  let tests: TestSummary = { present: false, total: 0, failed: 0 };
+  let tests: TestSummary = { present: false, total: 0, failed: 0, failedTests: [] };
   let testsAvailable = true;
   try {
     tests = await getTestSummary(context, cred, buildId);
+    if (tests.failed > 0) {
+      try {
+        tests = { ...tests, failedTests: await getFailedTests(context, cred, buildId) };
+      } catch {
+        // The failing count alone is still useful — degrade to counts-only.
+      }
+    }
   } catch {
     testsAvailable = false;
   }

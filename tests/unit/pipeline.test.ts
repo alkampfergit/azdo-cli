@@ -25,6 +25,7 @@ import {
   getPipelineDefinitions,
   getPipelineRuns,
   getRunDetail,
+  getRunLog,
   getRunLogs,
   runPipeline,
 } from '../../src/services/pipeline-client.js';
@@ -87,8 +88,8 @@ describe('pipeline list', () => {
 
 describe('pipeline get-runs', () => {
   const runs = [
-    { id: 100, name: 'a', state: 'completed' as const, result: 'succeeded' as const, createdDate: null, finishedDate: null, sourceBranch: 'refs/heads/develop' },
-    { id: 99, name: 'b', state: 'completed' as const, result: 'failed' as const, createdDate: null, finishedDate: null, sourceBranch: 'refs/heads/feature/x' },
+    { id: 100, name: 'a', state: 'completed' as const, result: 'succeeded' as const, createdDate: null, finishedDate: null, sourceBranch: 'refs/heads/develop', sourceCommit: 'abc123def456' },
+    { id: 99, name: 'b', state: 'completed' as const, result: 'failed' as const, createdDate: null, finishedDate: null, sourceBranch: 'refs/heads/feature/x', sourceCommit: null },
   ];
 
   it('rejects a non-numeric def id', async () => {
@@ -97,18 +98,59 @@ describe('pipeline get-runs', () => {
     expect(getExitCode()).toBe(1);
   });
 
-  it('--limit caps the result', async () => {
-    vi.mocked(getPipelineRuns).mockResolvedValue(runs);
-    await run(['get-runs', '5', '--limit', '1', '--json']);
+  it('requires a def id when no --commit/--pr filter is given', async () => {
+    await run(['get-runs']);
+    expect(getStderr()).toContain('Definition id is required');
+    expect(getExitCode()).toBe(1);
+  });
+
+  it('passes --limit and --branch through to the runs query', async () => {
+    vi.mocked(getPipelineRuns).mockResolvedValue([runs[0]]);
+    await run(['get-runs', '5', '--limit', '1', '--branch', 'develop', '--json']);
+    expect(vi.mocked(getPipelineRuns)).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      { definitionId: 5, branch: 'develop', prNumber: undefined, commit: undefined, top: 1 },
+    );
     expect(JSON.parse(getStdout())).toHaveLength(1);
   });
 
-  it('--branch filters by source branch', async () => {
+  it('--pr works without a def id and maps to the query', async () => {
     vi.mocked(getPipelineRuns).mockResolvedValue(runs);
-    await run(['get-runs', '5', '--branch', 'develop', '--json']);
-    const out = JSON.parse(getStdout());
-    expect(out).toHaveLength(1);
-    expect(out[0].id).toBe(100);
+    await run(['get-runs', '--pr', '4664', '--json']);
+    expect(vi.mocked(getPipelineRuns)).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      expect.objectContaining({ definitionId: undefined, prNumber: 4664 }),
+    );
+  });
+
+  it('--commit works without a def id and rejects a non-SHA value', async () => {
+    vi.mocked(getPipelineRuns).mockResolvedValue([runs[0]]);
+    await run(['get-runs', '--commit', 'abc123', '--json']);
+    expect(vi.mocked(getPipelineRuns)).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      expect.objectContaining({ commit: 'abc123' }),
+    );
+
+    await run(['get-runs', '--commit', 'not-a-sha']);
+    expect(getStderr()).toContain('Invalid --commit');
+    expect(getExitCode()).toBe(1);
+  });
+
+  it('rejects --branch combined with --pr', async () => {
+    await run(['get-runs', '5', '--branch', 'develop', '--pr', '1']);
+    expect(getStderr()).toContain('Use either --branch or --pr');
+    expect(getExitCode()).toBe(1);
+  });
+
+  it('shows the abbreviated commit in the table output', async () => {
+    vi.mocked(getPipelineRuns).mockResolvedValue(runs);
+    await run(['get-runs', '5']);
+    const out = getStdout();
+    expect(out).toContain('abc123de');
+    expect(out).not.toContain('abc123def456');
   });
 });
 
@@ -162,21 +204,42 @@ describe('pipeline get-run-detail', () => {
   };
 
   it('shows errors and failing-test count', async () => {
-    vi.mocked(getRunDetail).mockResolvedValue({ ...base, tests: { present: true, total: 10, failed: 2 }, testsAvailable: true });
+    vi.mocked(getRunDetail).mockResolvedValue({ ...base, tests: { present: true, total: 10, failed: 2, failedTests: [] }, testsAvailable: true });
     await run(['get-run-detail', '100']);
     const out = getStdout();
     expect(out).toContain('boom');
     expect(out).toContain('2 failing of 10');
   });
 
+  it('lists failing tests with the first line of the error message', async () => {
+    vi.mocked(getRunDetail).mockResolvedValue({
+      ...base,
+      tests: {
+        present: true,
+        total: 10,
+        failed: 2,
+        failedTests: [
+          { name: 'Suite.testX', errorMessage: 'expected 1 to be 2\nlong stack trace' },
+          { name: 'Suite.testY', errorMessage: null },
+        ],
+      },
+      testsAvailable: true,
+    });
+    await run(['get-run-detail', '100']);
+    const out = getStdout();
+    expect(out).toContain('- Suite.testX: expected 1 to be 2');
+    expect(out).not.toContain('long stack trace');
+    expect(out).toContain('- Suite.testY');
+  });
+
   it('distinguishes "no tests present" from zero failures', async () => {
-    vi.mocked(getRunDetail).mockResolvedValue({ ...base, tests: { present: false, total: 0, failed: 0 }, testsAvailable: true });
+    vi.mocked(getRunDetail).mockResolvedValue({ ...base, tests: { present: false, total: 0, failed: 0, failedTests: [] }, testsAvailable: true });
     await run(['get-run-detail', '100']);
     expect(getStdout()).toContain('no tests present');
   });
 
   it('shows "unavailable" when a source degrades', async () => {
-    vi.mocked(getRunDetail).mockResolvedValue({ ...base, errors: [], errorsAvailable: false, stages: [], tests: { present: false, total: 0, failed: 0 }, testsAvailable: false });
+    vi.mocked(getRunDetail).mockResolvedValue({ ...base, errors: [], errorsAvailable: false, stages: [], tests: { present: false, total: 0, failed: 0, failedTests: [] }, testsAvailable: false });
     await run(['get-run-detail', '100']);
     const out = getStdout();
     expect(out).toContain('unavailable');
@@ -188,6 +251,37 @@ describe('pipeline logs / start', () => {
     vi.mocked(getRunLogs).mockResolvedValue([{ id: 1, createdOn: null, lineCount: 5 }]);
     await run(['logs', '100', '--json']);
     expect(JSON.parse(getStdout())).toEqual([{ id: 1, createdOn: null, lineCount: 5 }]);
+  });
+
+  it('--tail prints only the last N lines of a log', async () => {
+    vi.mocked(getRunLog).mockResolvedValue('one\ntwo\nthree\nfour\n');
+    await run(['logs', '100', '--log-id', '7', '--tail', '2']);
+    expect(getStdout()).toBe('three\nfour\n');
+  });
+
+  it('--grep filters lines by regex and combines with --tail', async () => {
+    vi.mocked(getRunLog).mockResolvedValue('ok step\nERROR: a\nok again\nERROR: b\nERROR: c\n');
+    await run(['logs', '100', '--log-id', '7', '--grep', '^ERROR', '--tail', '2']);
+    expect(getStdout()).toBe('ERROR: b\nERROR: c\n');
+  });
+
+  it('--grep with no matches prints nothing', async () => {
+    vi.mocked(getRunLog).mockResolvedValue('one\ntwo\n');
+    await run(['logs', '100', '--log-id', '7', '--grep', 'nothing-matches']);
+    expect(getStdout()).toBe('');
+    expect(getExitCode()).toBe(0);
+  });
+
+  it('rejects --tail/--grep without --log-id and invalid values', async () => {
+    await run(['logs', '100', '--tail', '5']);
+    expect(getStderr()).toContain('require --log-id');
+    expect(getExitCode()).toBe(1);
+
+    await run(['logs', '100', '--log-id', '7', '--grep', '[unclosed']);
+    expect(getStderr()).toContain('Invalid --grep');
+
+    await run(['logs', '100', '--log-id', '7', '--tail', 'zero']);
+    expect(getStderr()).toContain('Invalid --tail');
   });
 
   it('start parses repeated --parameter and --branch', async () => {

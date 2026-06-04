@@ -23,6 +23,18 @@ export interface PipelineRunSummary {
   createdDate: string | null;
   finishedDate: string | null;
   sourceBranch: string | null;
+  sourceCommit: string | null;
+}
+
+// Filters for listing runs. `prNumber` maps to the PR's synthetic merge ref;
+// `commit` is matched client-side (the Build API has no sourceVersion filter)
+// and accepts an abbreviated SHA prefix.
+export interface PipelineRunsQuery {
+  definitionId?: number;
+  branch?: string;
+  prNumber?: number;
+  commit?: string;
+  top: number;
 }
 
 export interface PipelineRunError {
@@ -36,14 +48,20 @@ export interface PipelineStageStatus {
   result: string | null;
 }
 
+export interface FailedTest {
+  name: string;
+  errorMessage: string | null;
+}
+
 export interface TestSummary {
   present: boolean;
   total: number;
   failed: number;
+  // Populated only when failures exist and the Test Results API is reachable.
+  failedTests: FailedTest[];
 }
 
 export interface PipelineRunDetail extends PipelineRunSummary {
-  sourceCommit: string | null;
   webUrl: string | null;
   errors: PipelineRunError[];
   errorsAvailable: boolean;
@@ -86,11 +104,6 @@ export interface AzdoPipelineListResponse {
   value: AzdoPipeline[];
 }
 
-export interface AzdoRunRepositoryResource {
-  refName?: string;
-  version?: string;
-}
-
 export interface AzdoRun {
   id: number;
   name?: string;
@@ -98,15 +111,7 @@ export interface AzdoRun {
   result?: string;
   createdDate?: string;
   finishedDate?: string;
-  resources?: {
-    repositories?: Record<string, AzdoRunRepositoryResource>;
-  };
   _links?: { web?: { href?: string } };
-}
-
-export interface AzdoRunListResponse {
-  count?: number;
-  value: AzdoRun[];
 }
 
 // Build API (api-version 7.1) — used for wait/detail/logs, keyed by build id
@@ -116,11 +121,17 @@ export interface AzdoBuild {
   buildNumber?: string;
   status?: string; // notStarted | inProgress | completed | ...
   result?: string; // succeeded | failed | canceled | partiallySucceeded
+  queueTime?: string;
   startTime?: string;
   finishTime?: string;
   sourceBranch?: string;
   sourceVersion?: string;
   _links?: { web?: { href?: string } };
+}
+
+export interface AzdoBuildListResponse {
+  count?: number;
+  value: AzdoBuild[];
 }
 
 export interface AzdoTimelineIssue {
@@ -138,6 +149,27 @@ export interface AzdoTimelineRecord {
 
 export interface AzdoTimeline {
   records?: AzdoTimelineRecord[];
+}
+
+// Test Results API — used to list individual failing tests for a build.
+export interface AzdoTestRun {
+  id: number;
+}
+
+export interface AzdoTestRunListResponse {
+  count?: number;
+  value: AzdoTestRun[];
+}
+
+export interface AzdoTestCaseResult {
+  testCaseTitle?: string;
+  automatedTestName?: string;
+  errorMessage?: string;
+}
+
+export interface AzdoTestResultListResponse {
+  count?: number;
+  value: AzdoTestCaseResult[];
 }
 
 export interface AzdoTestResultSummary {

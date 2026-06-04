@@ -1,6 +1,7 @@
 import { Command } from 'commander';
 import type { AuthCredential, AzdoContext } from '../types/work-item.js';
 import type {
+  FailedTest,
   PipelineRunDetail,
   PipelineRunSummary,
   PipelineWaitResult,
@@ -162,24 +163,49 @@ function createPipelineListCommand(): Command {
 
 function runRow(run: PipelineRunSummary): string[] {
   const status = run.result ? `${run.state}/${run.result}` : run.state;
-  return [String(run.id), `[${status}]`, run.createdDate ?? '—', formatBranchName(run.sourceBranch)];
+  return [
+    String(run.id),
+    `[${status}]`,
+    run.createdDate ?? '—',
+    formatBranchName(run.sourceBranch),
+    run.sourceCommit ? run.sourceCommit.slice(0, 8) : '—',
+  ];
 }
+
+interface GetRunsOptions extends PipelineCommonOptions {
+  limit?: string;
+  branch?: string;
+  commit?: string;
+  pr?: string;
+}
+
+// Abbreviated or full SHA-1; six hex chars is git's practical lower bound.
+const COMMIT_SHA_PATTERN = /^[0-9a-f]{6,40}$/i;
 
 function createPipelineGetRunsCommand(): Command {
   const command = new Command('get-runs');
   command
     .description('List recent runs for a pipeline definition (newest first)')
-    .argument('<def_id>', 'pipeline definition id')
+    .argument('[def_id]', 'pipeline definition id (optional with --commit or --pr)')
     .option('--org <org>', 'Azure DevOps organization')
     .option('--project <project>', 'Azure DevOps project')
     .option('--limit <n>', 'maximum number of runs to show (default 10)')
     .option('--branch <branch>', 'only show runs for this source branch')
+    .option('--commit <sha>', 'only show runs that built this commit (full or abbreviated SHA)')
+    .option('--pr <number>', 'only show runs for this pull request')
     .option('--json', 'output JSON')
-    .action(async (defIdRaw: string, options: PipelineCommonOptions & { limit?: string; branch?: string }) => {
+    .action(async (defIdRaw: string | undefined, options: GetRunsOptions) => {
       validateOrgProjectPair(options);
-      const defId = parsePositiveId(defIdRaw);
-      if (defId === null) {
-        writeError(`Invalid definition id "${defIdRaw}"; expected a positive integer.`);
+      let defId: number | undefined;
+      if (defIdRaw !== undefined) {
+        const parsed = parsePositiveId(defIdRaw);
+        if (parsed === null) {
+          writeError(`Invalid definition id "${defIdRaw}"; expected a positive integer.`);
+          return;
+        }
+        defId = parsed;
+      } else if (options.commit === undefined && options.pr === undefined) {
+        writeError('Definition id is required unless --commit or --pr is given.');
         return;
       }
       let limit = 10;
@@ -191,22 +217,44 @@ function createPipelineGetRunsCommand(): Command {
         }
         limit = parsed;
       }
+      let prNumber: number | undefined;
+      if (options.pr !== undefined) {
+        const parsed = parsePositiveId(options.pr);
+        if (parsed === null) {
+          writeError(`Invalid --pr "${options.pr}"; expected a positive integer.`);
+          return;
+        }
+        prNumber = parsed;
+      }
+      if (options.commit !== undefined && !COMMIT_SHA_PATTERN.test(options.commit)) {
+        writeError(`Invalid --commit "${options.commit}"; expected 6-40 hex characters.`);
+        return;
+      }
+      if (options.branch !== undefined && prNumber !== undefined) {
+        writeError('Use either --branch or --pr, not both.');
+        return;
+      }
       let context: AzdoContext | undefined;
       try {
         const resolved = await resolvePipelineContext(options);
         context = resolved.context;
-        let runs = await getPipelineRuns(resolved.context, resolved.cred, defId);
-        if (options.branch) {
-          const target = options.branch.startsWith('refs/') ? options.branch : `refs/heads/${options.branch}`;
-          runs = runs.filter((r) => r.sourceBranch === target || formatBranchName(r.sourceBranch) === options.branch);
-        }
-        runs = runs.slice(0, limit);
+        const runs = await getPipelineRuns(resolved.context, resolved.cred, {
+          definitionId: defId,
+          branch: options.branch,
+          prNumber,
+          commit: options.commit,
+          top: limit,
+        });
         if (options.json) {
           process.stdout.write(`${JSON.stringify(runs, null, 2)}\n`);
           return;
         }
         if (runs.length === 0) {
-          process.stdout.write(`No runs found for pipeline ${defId}.\n`);
+          process.stdout.write(
+            defId !== undefined
+              ? `No runs found for pipeline ${defId}.\n`
+              : 'No runs found matching the filters.\n',
+          );
           return;
         }
         process.stdout.write(`${formatTable(runs.map(runRow), new Set([0]))}\n`);
@@ -330,12 +378,24 @@ function errorRows(detail: PipelineRunDetail): string[] {
   });
 }
 
+// One row per failing test: name plus the first line of its error message.
+function failedTestRow(test: FailedTest): string {
+  if (!test.errorMessage) {
+    return `  - ${test.name}`;
+  }
+  const firstLine = test.errorMessage.split('\n', 1)[0].trim();
+  return `  - ${test.name}: ${firstLine}`;
+}
+
 function testRows(detail: PipelineRunDetail): string[] {
   if (!detail.testsAvailable) {
     return ['  unavailable'];
   }
   if (detail.tests.present) {
-    return [`  ${detail.tests.failed} failing of ${detail.tests.total}`];
+    return [
+      `  ${detail.tests.failed} failing of ${detail.tests.total}`,
+      ...detail.tests.failedTests.map(failedTestRow),
+    ];
   }
   return ['  no tests present'];
 }
@@ -396,6 +456,29 @@ function createPipelineGetRunDetailCommand(): Command {
 // pipeline logs <run_id>
 // ---------------------------------------------------------------------------
 
+// Applies --grep then --tail to a raw log payload. Returns the lines to print
+// (without a trailing newline); an empty array means "print nothing".
+function filterLogLines(content: string, grep: RegExp | undefined, tail: number | undefined): string[] {
+  let lines = content.split('\n');
+  // A trailing newline yields one empty final element — not a real line.
+  if (lines.at(-1) === '') {
+    lines.pop();
+  }
+  if (grep) {
+    lines = lines.filter((line) => grep.test(line));
+  }
+  if (tail !== undefined && lines.length > tail) {
+    lines = lines.slice(-tail);
+  }
+  return lines;
+}
+
+interface LogsOptions extends PipelineCommonOptions {
+  logId?: string;
+  tail?: string;
+  grep?: string;
+}
+
 function createPipelineLogsCommand(): Command {
   const command = new Command('logs');
   command
@@ -404,13 +487,37 @@ function createPipelineLogsCommand(): Command {
     .option('--org <org>', 'Azure DevOps organization')
     .option('--project <project>', 'Azure DevOps project')
     .option('--log-id <id>', 'print the content of this log id')
+    .option('--tail <n>', 'with --log-id, print only the last N lines')
+    .option('--grep <pattern>', 'with --log-id, print only lines matching this regular expression')
     .option('--json', 'output JSON')
-    .action(async (runIdRaw: string, options: PipelineCommonOptions & { logId?: string }) => {
+    .action(async (runIdRaw: string, options: LogsOptions) => {
       validateOrgProjectPair(options);
       const runId = parsePositiveId(runIdRaw);
       if (runId === null) {
         writeError(`Invalid run id "${runIdRaw}"; expected a positive integer.`);
         return;
+      }
+      if ((options.tail !== undefined || options.grep !== undefined) && options.logId === undefined) {
+        writeError('--tail and --grep require --log-id.');
+        return;
+      }
+      let tail: number | undefined;
+      if (options.tail !== undefined) {
+        const parsed = parsePositiveId(options.tail);
+        if (parsed === null) {
+          writeError(`Invalid --tail "${options.tail}"; expected a positive integer.`);
+          return;
+        }
+        tail = parsed;
+      }
+      let grep: RegExp | undefined;
+      if (options.grep !== undefined) {
+        try {
+          grep = new RegExp(options.grep);
+        } catch {
+          writeError(`Invalid --grep "${options.grep}"; expected a valid regular expression.`);
+          return;
+        }
       }
       let context: AzdoContext | undefined;
       try {
@@ -423,6 +530,13 @@ function createPipelineLogsCommand(): Command {
             return;
           }
           const content = await getRunLog(resolved.context, resolved.cred, runId, logId);
+          if (grep !== undefined || tail !== undefined) {
+            const lines = filterLogLines(content, grep, tail);
+            if (lines.length > 0) {
+              process.stdout.write(`${lines.join('\n')}\n`);
+            }
+            return;
+          }
           process.stdout.write(content.endsWith('\n') ? content : `${content}\n`);
           return;
         }

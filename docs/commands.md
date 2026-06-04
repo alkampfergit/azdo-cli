@@ -151,19 +151,24 @@ azdo pipeline list                         # list pipeline definitions
 azdo pipeline list --filter ci             # filter definitions by name (substring)
 azdo pipeline get-runs 12 --limit 5        # recent runs for definition 12
 azdo pipeline get-runs 12 --branch develop # runs for a specific branch
+azdo pipeline get-runs --commit abc123f    # which runs built this commit?
+azdo pipeline get-runs --pr 4664           # runs for a pull request
 azdo pipeline wait 3456                     # block until run 3456 finishes (exit code = result)
 azdo pipeline get-run-detail 3456          # date, commit, result, errors, failing tests, stages
 azdo pipeline logs 3456                     # list a run's logs
 azdo pipeline logs 3456 --log-id 7         # print a specific log
+azdo pipeline logs 3456 --log-id 7 --tail 50          # only the last 50 lines
+azdo pipeline logs 3456 --log-id 7 --grep 'error CS'  # only matching lines
 azdo pipeline start 12 --branch develop --parameter env=staging
 ```
 
 **`azdo pipeline list`**
 - Lists pipeline definitions (id + name, and folder when present); `--filter <name>` is a case-insensitive substring match
 
-**`azdo pipeline get-runs <def_id>`**
-- Lists recent runs newest-first (run id, state/result, timestamp, branch)
-- `--limit <n>` caps the count (default 10); `--branch <branch>` restricts to runs for that branch
+**`azdo pipeline get-runs [def_id]`**
+- Lists recent runs newest-first (run id, state/result, timestamp, branch, abbreviated commit)
+- `--limit <n>` caps the count (default 10); `--branch <branch>` restricts to runs for that branch (filtered server-side)
+- `--commit <sha>` finds the runs that built a commit (full or abbreviated SHA; matched over the 200 most recent builds); `--pr <number>` lists a pull request's validation runs — with either of these the definition id is optional, so "which run built commit `abc123f`?" is a single call
 
 **`azdo pipeline wait <run_id>`**
 - Blocks until the run reaches a terminal state, then sets the **process exit code from the result**: `0` succeeded, `1` failed, `2` canceled, `124` on `--timeout`
@@ -173,10 +178,12 @@ azdo pipeline start 12 --branch develop --parameter env=staging
 **`azdo pipeline get-run-detail <run_id>`**
 - Composes the run's core (date, built commit, result, web link), the build timeline (errors + per-stage status), and the test summary
 - Reports the failing-test count when tests ran, and shows **"no tests present"** distinctly from "0 failures"
+- When tests failed, lists the failing tests by name with the first line of each error message (capped at 50) — no need to download the full logs to see what broke
 - Degrades gracefully: a source that can't be retrieved is shown as "unavailable" rather than failing the command
 
 **`azdo pipeline logs <run_id>`**
 - Lists the run's logs; `--log-id <id>` prints a specific log's content to stdout
+- With `--log-id`: `--tail <n>` prints only the last N lines, `--grep <pattern>` prints only lines matching a regular expression (grep applies first, then tail) — avoids dumping multi-thousand-line logs to find one error
 
 **`azdo pipeline start <def_id>`**
 - Queues a new run and returns its id and link; `--branch <branch>` targets a branch (default: the pipeline's default), `--parameter key=value` (repeatable) passes template parameters
