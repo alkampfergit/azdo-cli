@@ -33,6 +33,12 @@ function withApiVersion(url: URL): URL {
 }
 
 async function readJsonResponse<T>(response: Response): Promise<T> {
+  // fetchWithErrors maps 401/403/404 and network failures; any other non-OK
+  // status (e.g. 400/500) must not be JSON-parsed as a success payload —
+  // mirror pr-client and fail fast with an HTTP_<status> error.
+  if (!response.ok) {
+    throw new Error(`HTTP_${response.status}`);
+  }
   return (await response.json()) as T;
 }
 
@@ -309,5 +315,10 @@ export async function getRunLog(
     new URL(`${orgProjectBase(context)}/_apis/build/builds/${buildId}/logs/${logId}`),
   );
   const response = await fetchWithErrors(url.toString(), { headers: authHeaders(cred) });
+  // Same non-OK guard as readJsonResponse: never print an error payload to
+  // stdout as if it were log content.
+  if (!response.ok) {
+    throw new Error(`HTTP_${response.status}`);
+  }
   return response.text();
 }

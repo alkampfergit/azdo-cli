@@ -133,4 +133,11 @@ describe('pipeline-client', () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(null, { status: 401 }));
     await expect(getPipelineDefinitions(context, cred)).rejects.toThrow('AUTH_FAILED');
   });
+
+  it('throws HTTP_<status> on non-OK responses instead of parsing the error payload', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({ message: 'boom' }), { status: 500 }),
+    );
+    await expect(getPipelineDefinitions(context, cred)).rejects.toThrow('HTTP_500');
+  });
 });

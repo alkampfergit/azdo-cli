@@ -52,6 +52,10 @@ function handlePipelineError(err: unknown, context?: AzdoContext): void {
     writeError(`Resource not found in ${context?.org}/${context?.project}.`);
     return;
   }
+  if (error.message.startsWith('HTTP_')) {
+    writeError(`Azure DevOps request failed with ${error.message}.`);
+    return;
+  }
   writeError(error.message);
 }
 

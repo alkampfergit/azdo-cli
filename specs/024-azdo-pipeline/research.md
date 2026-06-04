@@ -13,8 +13,10 @@ research was performed at the owner's explicit request.
 **Decision.** `GET https://dev.azure.com/{org}/{project}/_apis/pipelines?api-version=7.1`
 returns `{ value: [{ id, name, folder, ... }] }`. `--filter` is applied
 client-side as a case-insensitive substring on `name` (the list endpoint has no
-name-filter parameter). Pagination via `continuationToken` header/`$top`; the
-list command surfaces "more available" rather than silently truncating.
+name-filter parameter). The implementation issues a **single GET** and shows
+whatever the first page returns; `continuationToken` pagination is **not**
+implemented (acceptable for typical project sizes — noted as a follow-up if a
+project ever exceeds one page).
 
 **Rationale.** Simplest correct source; matches the issue's "list all the
 definitions, --filter by name".
@@ -90,10 +92,15 @@ ever observed, resolve via the run's `_links`/`id`.
 
 ## R5 — Run logs (US5)
 
-**Decision.** `GET .../_apis/pipelines/{pipelineId}/runs/{runId}/logs?api-version=7.1`
-lists logs (`logs[].id`, `createdOn`, line counts). `--log-id <id>` →
-`GET .../logs/{logId}?$expand=signedContent` or fetch the `url`/`signedContent`
-to print the log text. Pipeline-id resolution as in R3.
+**Decision (as implemented).** Logs are fetched via the **Build logs API**,
+keyed by the build id (== run id, per R4) — no pipeline-id lookup needed:
+`GET .../_apis/build/builds/{buildId}/logs?api-version=7.1` lists logs
+(`value[].id`, `createdOn`, `lineCount`), and
+`GET .../_apis/build/builds/{buildId}/logs/{logId}` returns a log's text.
+The Pipelines runs-logs endpoint (`_apis/pipelines/{pipelineId}/runs/{runId}/logs`)
+was considered but rejected because it requires resolving the pipeline id first;
+the Build endpoint is equivalent for YAML pipelines and consistent with how
+`wait`/`get-run-detail` already use the build id.
 
 ---
 
