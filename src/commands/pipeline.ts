@@ -2,6 +2,7 @@ import { Command } from 'commander';
 import type { AuthCredential, AzdoContext } from '../types/work-item.js';
 import type {
   FailedTest,
+  PipelineLog,
   PipelineRunDetail,
   PipelineRunSummary,
   PipelineStageStatus,
@@ -71,10 +72,16 @@ function parsePositiveId(raw: string): number | null {
   return Number.isFinite(n) && n > 0 ? n : null;
 }
 
-function parseLimit(raw: string | undefined): number | null {
-  if (raw === undefined) return null;
-  const n = parsePositiveId(raw);
-  return n;
+// Parses an optional positive-integer flag. Returns undefined when the flag
+// was not given; writes the error and returns null on invalid input.
+function parseOptionalCount(value: string | undefined, flag: string): number | undefined | null {
+  if (value === undefined) return undefined;
+  const parsed = parsePositiveId(value);
+  if (parsed === null) {
+    writeError(`Invalid ${flag} "${value}"; expected a positive integer.`);
+    return null;
+  }
+  return parsed;
 }
 
 function formatBranchName(refName: string | null): string {
@@ -185,6 +192,44 @@ interface GetRunsOptions extends PipelineCommonOptions {
 // Abbreviated or full SHA-1; six hex chars is git's practical lower bound.
 const COMMIT_SHA_PATTERN = /^[0-9a-f]{6,40}$/i;
 
+interface GetRunsInputs {
+  defId?: number;
+  limit: number;
+  prNumber?: number;
+}
+
+// Validates get-runs arguments; writes the error and returns null on bad input.
+function parseGetRunsInputs(
+  defIdRaw: string | undefined,
+  options: GetRunsOptions,
+): GetRunsInputs | null {
+  let defId: number | undefined;
+  if (defIdRaw !== undefined) {
+    const parsed = parsePositiveId(defIdRaw);
+    if (parsed === null) {
+      writeError(`Invalid definition id "${defIdRaw}"; expected a positive integer.`);
+      return null;
+    }
+    defId = parsed;
+  } else if (options.commit === undefined && options.pr === undefined) {
+    writeError('Definition id is required unless --commit or --pr is given.');
+    return null;
+  }
+  const limit = parseOptionalCount(options.limit, '--limit');
+  if (limit === null) return null;
+  const prNumber = parseOptionalCount(options.pr, '--pr');
+  if (prNumber === null) return null;
+  if (options.commit !== undefined && !COMMIT_SHA_PATTERN.test(options.commit)) {
+    writeError(`Invalid --commit "${options.commit}"; expected 6-40 hex characters.`);
+    return null;
+  }
+  if (options.branch !== undefined && prNumber !== undefined) {
+    writeError('Use either --branch or --pr, not both.');
+    return null;
+  }
+  return { defId, limit: limit ?? 10, prNumber };
+}
+
 function createPipelineGetRunsCommand(): Command {
   const command = new Command('get-runs');
   command
@@ -199,42 +244,8 @@ function createPipelineGetRunsCommand(): Command {
     .option('--json', 'output JSON')
     .action(async (defIdRaw: string | undefined, options: GetRunsOptions) => {
       validateOrgProjectPair(options);
-      let defId: number | undefined;
-      if (defIdRaw !== undefined) {
-        const parsed = parsePositiveId(defIdRaw);
-        if (parsed === null) {
-          writeError(`Invalid definition id "${defIdRaw}"; expected a positive integer.`);
-          return;
-        }
-        defId = parsed;
-      } else if (options.commit === undefined && options.pr === undefined) {
-        writeError('Definition id is required unless --commit or --pr is given.');
-        return;
-      }
-      let limit = 10;
-      if (options.limit !== undefined) {
-        const parsed = parseLimit(options.limit);
-        if (parsed === null) {
-          writeError(`Invalid --limit "${options.limit}"; expected a positive integer.`);
-          return;
-        }
-        limit = parsed;
-      }
-      let prNumber: number | undefined;
-      if (options.pr !== undefined) {
-        const parsed = parsePositiveId(options.pr);
-        if (parsed === null) {
-          writeError(`Invalid --pr "${options.pr}"; expected a positive integer.`);
-          return;
-        }
-        prNumber = parsed;
-      }
-      if (options.commit !== undefined && !COMMIT_SHA_PATTERN.test(options.commit)) {
-        writeError(`Invalid --commit "${options.commit}"; expected 6-40 hex characters.`);
-        return;
-      }
-      if (options.branch !== undefined && prNumber !== undefined) {
-        writeError('Use either --branch or --pr, not both.');
+      const inputs = parseGetRunsInputs(defIdRaw, options);
+      if (inputs === null) {
         return;
       }
       let context: AzdoContext | undefined;
@@ -242,11 +253,11 @@ function createPipelineGetRunsCommand(): Command {
         const resolved = await resolvePipelineContext(options);
         context = resolved.context;
         const runs = await getPipelineRuns(resolved.context, resolved.cred, {
-          definitionId: defId,
+          definitionId: inputs.defId,
           branch: options.branch,
-          prNumber,
+          prNumber: inputs.prNumber,
           commit: options.commit,
-          top: limit,
+          top: inputs.limit,
         });
         if (options.json) {
           process.stdout.write(`${JSON.stringify(runs, null, 2)}\n`);
@@ -254,9 +265,9 @@ function createPipelineGetRunsCommand(): Command {
         }
         if (runs.length === 0) {
           process.stdout.write(
-            defId !== undefined
-              ? `No runs found for pipeline ${defId}.\n`
-              : 'No runs found matching the filters.\n',
+            inputs.defId === undefined
+              ? 'No runs found matching the filters.\n'
+              : `No runs found for pipeline ${inputs.defId}.\n`,
           );
           return;
         }
@@ -527,6 +538,99 @@ interface LogsOptions extends PipelineCommonOptions {
   context?: string;
 }
 
+interface LogFilterValues {
+  tail?: number;
+  contextLines: number;
+  grep?: RegExp;
+}
+
+// Validates the log-slicing flags; writes the error and returns null on bad input.
+function parseLogFilters(options: LogsOptions): LogFilterValues | null {
+  if (options.logId !== undefined && options.step !== undefined) {
+    writeError('Use either --log-id or --step, not both.');
+    return null;
+  }
+  const selectsSingleLog = options.logId !== undefined || options.step !== undefined;
+  const slices =
+    options.tail !== undefined || options.grep !== undefined || options.context !== undefined;
+  if (slices && !selectsSingleLog) {
+    writeError('--tail, --grep, and --context require --log-id or --step.');
+    return null;
+  }
+  if (options.context !== undefined && options.grep === undefined) {
+    writeError('--context requires --grep.');
+    return null;
+  }
+  const tail = parseOptionalCount(options.tail, '--tail');
+  if (tail === null) return null;
+  const contextLines = parseOptionalCount(options.context, '--context');
+  if (contextLines === null) return null;
+  let grep: RegExp | undefined;
+  if (options.grep !== undefined) {
+    try {
+      grep = new RegExp(options.grep);
+    } catch {
+      writeError(`Invalid --grep "${options.grep}"; expected a valid regular expression.`);
+      return null;
+    }
+  }
+  return { tail, contextLines: contextLines ?? 0, grep };
+}
+
+// Resolves --step to a log id via the timeline step names; writes the error
+// and returns null when no unambiguous match exists.
+function chooseStepLog(logs: PipelineLog[], step: string, runId: number): number | null {
+  const needle = step.toLowerCase();
+  const matches = logs.filter((l) => l.step?.toLowerCase().includes(needle));
+  const exact = matches.filter((l) => l.step?.toLowerCase() === needle);
+  const chosen = exact.length === 1 ? exact : matches;
+  if (chosen.length === 0) {
+    writeError(`No log matches step "${step}" in run ${runId}.`);
+    return null;
+  }
+  if (chosen.length > 1) {
+    const candidates = chosen.map((l) => `${l.id} (${l.step})`).join(', ');
+    writeError(`Step "${step}" matches multiple logs: ${candidates}. Be more specific or use --log-id.`);
+    return null;
+  }
+  return chosen[0].id;
+}
+
+// Returns the selected log id, undefined when neither --log-id nor --step was
+// given, or null after writing an error.
+async function resolveRequestedLogId(
+  resolved: { context: AzdoContext; cred: AuthCredential },
+  runId: number,
+  options: LogsOptions,
+): Promise<number | undefined | null> {
+  if (options.logId !== undefined) {
+    const parsed = parsePositiveId(options.logId);
+    if (parsed === null) {
+      writeError(`Invalid --log-id "${options.logId}"; expected a positive integer.`);
+      return null;
+    }
+    return parsed;
+  }
+  if (options.step === undefined) {
+    return undefined;
+  }
+  // Resolve the log id from the step/job name — ids shift when jobs are
+  // skipped, so names are the stable selector.
+  const allLogs = await getRunLogs(resolved.context, resolved.cred, runId);
+  return chooseStepLog(allLogs, options.step, runId);
+}
+
+function printSingleLog(content: string, filters: LogFilterValues): void {
+  if (filters.grep !== undefined || filters.tail !== undefined) {
+    const lines = filterLogLines(content, filters.grep, filters.tail, filters.contextLines);
+    if (lines.length > 0) {
+      process.stdout.write(`${lines.join('\n')}\n`);
+    }
+    return;
+  }
+  process.stdout.write(content.endsWith('\n') ? content : `${content}\n`);
+}
+
 function createPipelineLogsCommand(): Command {
   const command = new Command('logs');
   command
@@ -547,88 +651,21 @@ function createPipelineLogsCommand(): Command {
         writeError(`Invalid run id "${runIdRaw}"; expected a positive integer.`);
         return;
       }
-      if (options.logId !== undefined && options.step !== undefined) {
-        writeError('Use either --log-id or --step, not both.');
+      const filters = parseLogFilters(options);
+      if (filters === null) {
         return;
-      }
-      const selectsSingleLog = options.logId !== undefined || options.step !== undefined;
-      if ((options.tail !== undefined || options.grep !== undefined || options.context !== undefined) && !selectsSingleLog) {
-        writeError('--tail, --grep, and --context require --log-id or --step.');
-        return;
-      }
-      if (options.context !== undefined && options.grep === undefined) {
-        writeError('--context requires --grep.');
-        return;
-      }
-      let tail: number | undefined;
-      if (options.tail !== undefined) {
-        const parsed = parsePositiveId(options.tail);
-        if (parsed === null) {
-          writeError(`Invalid --tail "${options.tail}"; expected a positive integer.`);
-          return;
-        }
-        tail = parsed;
-      }
-      let contextLines = 0;
-      if (options.context !== undefined) {
-        const parsed = parsePositiveId(options.context);
-        if (parsed === null) {
-          writeError(`Invalid --context "${options.context}"; expected a positive integer.`);
-          return;
-        }
-        contextLines = parsed;
-      }
-      let grep: RegExp | undefined;
-      if (options.grep !== undefined) {
-        try {
-          grep = new RegExp(options.grep);
-        } catch {
-          writeError(`Invalid --grep "${options.grep}"; expected a valid regular expression.`);
-          return;
-        }
       }
       let context: AzdoContext | undefined;
       try {
         const resolved = await resolvePipelineContext(options);
         context = resolved.context;
-        let logId: number | undefined;
-        if (options.logId !== undefined) {
-          const parsed = parsePositiveId(options.logId);
-          if (parsed === null) {
-            writeError(`Invalid --log-id "${options.logId}"; expected a positive integer.`);
-            return;
-          }
-          logId = parsed;
-        } else if (options.step !== undefined) {
-          // Resolve the log id from the step/job name — ids shift when jobs
-          // are skipped, so names are the stable selector.
-          const allLogs = await getRunLogs(resolved.context, resolved.cred, runId);
-          const needle = options.step.toLowerCase();
-          const matches = allLogs.filter((l) => l.step?.toLowerCase().includes(needle));
-          const exact = matches.filter((l) => l.step?.toLowerCase() === needle);
-          const chosen = exact.length === 1 ? exact : matches;
-          if (chosen.length === 0) {
-            writeError(`No log matches step "${options.step}" in run ${runId}.`);
-            return;
-          }
-          if (chosen.length > 1) {
-            writeError(
-              `Step "${options.step}" matches multiple logs: ${chosen.map((l) => `${l.id} (${l.step})`).join(', ')}. Be more specific or use --log-id.`,
-            );
-            return;
-          }
-          logId = chosen[0].id;
+        const logId = await resolveRequestedLogId(resolved, runId, options);
+        if (logId === null) {
+          return;
         }
         if (logId !== undefined) {
           const content = await getRunLog(resolved.context, resolved.cred, runId, logId);
-          if (grep !== undefined || tail !== undefined) {
-            const lines = filterLogLines(content, grep, tail, contextLines);
-            if (lines.length > 0) {
-              process.stdout.write(`${lines.join('\n')}\n`);
-            }
-            return;
-          }
-          process.stdout.write(content.endsWith('\n') ? content : `${content}\n`);
+          printSingleLog(content, filters);
           return;
         }
         const logs = await getRunLogs(resolved.context, resolved.cred, runId);
