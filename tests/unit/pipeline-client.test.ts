@@ -17,9 +17,9 @@ function mockFetchJson(json: unknown) {
   return vi.spyOn(globalThis, 'fetch').mockResolvedValue({
     ok: true,
     status: 200,
-    headers: { get: () => 'application/json' },
+    headers: new Headers({ 'content-type': 'application/json' }),
     json: async () => json,
-  } as unknown as Response);
+  } as Response);
 }
 
 describe('pipeline-client', () => {
@@ -31,7 +31,7 @@ describe('pipeline-client', () => {
     const fetchSpy = mockFetchJson({
       count: 2,
       value: [
-        { id: 1, name: 'CI', folder: '\\team' },
+        { id: 1, name: 'CI', folder: String.raw`\team` },
         { id: 2, name: 'Release' },
       ],
     });
@@ -39,7 +39,7 @@ describe('pipeline-client', () => {
     expect(fetchSpy.mock.calls[0][0]).toContain('/test-org/test-project/_apis/pipelines');
     expect(fetchSpy.mock.calls[0][0]).toContain('api-version=7.1');
     expect(result).toEqual([
-      { id: 1, name: 'CI', folder: '\\team' },
+      { id: 1, name: 'CI', folder: String.raw`\team` },
       { id: 2, name: 'Release', folder: null },
     ]);
   });
@@ -130,7 +130,7 @@ describe('pipeline-client', () => {
   });
 
   it('propagates AUTH_FAILED from fetchWithErrors', async () => {
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue({ ok: false, status: 401, headers: { get: () => '' } } as unknown as Response);
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue({ ok: false, status: 401, headers: new Headers() } as Response);
     await expect(getPipelineDefinitions(context, cred)).rejects.toThrow('AUTH_FAILED');
   });
 });

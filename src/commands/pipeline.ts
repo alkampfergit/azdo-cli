@@ -252,8 +252,8 @@ function createPipelineWaitCommand(): Command {
         writeError(`Invalid run id "${runIdRaw}"; expected a positive integer.`);
         return;
       }
-      const timeoutSec = options.timeout !== undefined ? Number(options.timeout) : 1800;
-      const pollSec = options.pollInterval !== undefined ? Number(options.pollInterval) : 5;
+      const timeoutSec = options.timeout === undefined ? 1800 : Number(options.timeout);
+      const pollSec = options.pollInterval === undefined ? 5 : Number(options.pollInterval);
       if (!Number.isFinite(timeoutSec) || timeoutSec < 0) {
         writeError(`Invalid --timeout "${options.timeout}"; expected a non-negative number.`);
         return;
@@ -303,46 +303,57 @@ function createPipelineWaitCommand(): Command {
 // pipeline get-run-detail <run_id>
 // ---------------------------------------------------------------------------
 
-function formatRunDetail(detail: PipelineRunDetail): string {
-  const lines: string[] = [];
-  const status = detail.result ? `${detail.state}/${detail.result}` : detail.state;
-  lines.push(`Run #${detail.id} [${status}]${detail.name ? ` ${detail.name}` : ''}`);
-  lines.push(`Started: ${detail.createdDate ?? '—'}    Finished: ${detail.finishedDate ?? '—'}`);
-  lines.push(`Branch: ${formatBranchName(detail.sourceBranch)}    Commit: ${detail.sourceCommit ?? 'unavailable'}`);
-  if (detail.webUrl) lines.push(`Link: ${detail.webUrl}`);
-
-  lines.push('', 'Stages:');
+function stageRows(detail: PipelineRunDetail): string[] {
   if (!detail.errorsAvailable) {
-    lines.push('  unavailable');
-  } else if (detail.stages.length === 0) {
-    lines.push('  (none)');
-  } else {
-    for (const stage of detail.stages) {
-      lines.push(`  - ${stage.name} [${stage.result ?? stage.state}]`);
-    }
+    return ['  unavailable'];
   }
+  if (detail.stages.length === 0) {
+    return ['  (none)'];
+  }
+  return detail.stages.map((stage) => `  - ${stage.name} [${stage.result ?? stage.state}]`);
+}
 
-  lines.push('', 'Errors:');
+function errorRows(detail: PipelineRunDetail): string[] {
   if (!detail.errorsAvailable) {
-    lines.push('  unavailable');
-  } else if (detail.errors.length === 0) {
-    lines.push('  (none)');
-  } else {
-    for (const error of detail.errors) {
-      lines.push(`  - ${error.source ? `[${error.source}] ` : ''}${error.message}`);
-    }
+    return ['  unavailable'];
   }
+  if (detail.errors.length === 0) {
+    return ['  (none)'];
+  }
+  return detail.errors.map((error) => {
+    const source = error.source ? `[${error.source}] ` : '';
+    return `  - ${source}${error.message}`;
+  });
+}
 
-  lines.push('', 'Tests:');
+function testRows(detail: PipelineRunDetail): string[] {
   if (!detail.testsAvailable) {
-    lines.push('  unavailable');
-  } else if (!detail.tests.present) {
-    lines.push('  no tests present');
-  } else {
-    lines.push(`  ${detail.tests.failed} failing of ${detail.tests.total}`);
+    return ['  unavailable'];
   }
+  if (detail.tests.present) {
+    return [`  ${detail.tests.failed} failing of ${detail.tests.total}`];
+  }
+  return ['  no tests present'];
+}
 
-  return lines.join('\n');
+function formatRunDetail(detail: PipelineRunDetail): string {
+  const status = detail.result ? `${detail.state}/${detail.result}` : detail.state;
+  const name = detail.name ? ` ${detail.name}` : '';
+  return [
+    `Run #${detail.id} [${status}]${name}`,
+    `Started: ${detail.createdDate ?? '—'}    Finished: ${detail.finishedDate ?? '—'}`,
+    `Branch: ${formatBranchName(detail.sourceBranch)}    Commit: ${detail.sourceCommit ?? 'unavailable'}`,
+    ...(detail.webUrl ? [`Link: ${detail.webUrl}`] : []),
+    '',
+    'Stages:',
+    ...stageRows(detail),
+    '',
+    'Errors:',
+    ...errorRows(detail),
+    '',
+    'Tests:',
+    ...testRows(detail),
+  ].join('\n');
 }
 
 function createPipelineGetRunDetailCommand(): Command {
@@ -423,7 +434,7 @@ function createPipelineLogsCommand(): Command {
         const rows = logs.map((l) => [
           String(l.id),
           l.createdOn ?? '—',
-          l.lineCount != null ? `${l.lineCount} lines` : '',
+          l.lineCount == null ? '' : `${l.lineCount} lines`,
         ]);
         process.stdout.write(`${formatTable(rows, new Set([0]))}\n`);
       } catch (err) {
