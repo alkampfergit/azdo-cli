@@ -8,7 +8,7 @@ import type {
   AzdoPipelineListResponse,
   AzdoRun,
   AzdoTestResultListResponse,
-  AzdoTestResultSummary,
+  AzdoTestRun,
   AzdoTestRunListResponse,
   AzdoTimeline,
   FailedTest,
@@ -214,11 +214,19 @@ export async function getBuildStatus(
   return { state: mapBuildState(build.status), result: mapRunResult(build.result) };
 }
 
+export interface BuildTimelineSummary {
+  errors: PipelineRunError[];
+  stages: PipelineStageStatus[];
+  jobs: PipelineStageStatus[];
+  // log id → owning step/job name; lets `logs` label each log file.
+  logSteps: Map<number, string>;
+}
+
 export async function getBuildTimeline(
   context: AzdoContext,
   cred: AuthCredential,
   buildId: number,
-): Promise<{ errors: PipelineRunError[]; stages: PipelineStageStatus[] }> {
+): Promise<BuildTimelineSummary> {
   const url = withApiVersion(
     new URL(`${orgProjectBase(context)}/_apis/build/builds/${buildId}/timeline`),
   );
@@ -228,21 +236,50 @@ export async function getBuildTimeline(
 
   const errors: PipelineRunError[] = [];
   const stages: PipelineStageStatus[] = [];
+  const jobs: { startTime?: string; status: PipelineStageStatus }[] = [];
+  const logSteps = new Map<number, string>();
   for (const record of records) {
     for (const issue of record.issues ?? []) {
       if (issue.type === 'error' && issue.message) {
         errors.push({ message: issue.message, source: record.name ?? null });
       }
     }
-    if (record.type === 'Stage' && record.name) {
-      stages.push({
-        name: record.name,
-        state: record.state ?? 'unknown',
-        result: record.result ?? null,
-      });
+    if (record.name && record.log?.id !== undefined) {
+      logSteps.set(record.log.id, record.name);
+    }
+    if (!record.name) continue;
+    const status: PipelineStageStatus = {
+      name: record.name,
+      state: record.state ?? 'unknown',
+      result: record.result ?? null,
+    };
+    if (record.type === 'Stage') {
+      stages.push(status);
+    } else if (record.type === 'Job') {
+      // Timeline records arrive unordered; sort jobs by start time below.
+      jobs.push({ startTime: record.startTime, status });
     }
   }
-  return { errors, stages };
+  // ISO timestamps compare lexicographically; jobs that never started go last.
+  jobs.sort((a, b) => {
+    if (a.startTime === b.startTime) return 0;
+    if (a.startTime === undefined) return 1;
+    if (b.startTime === undefined) return -1;
+    return a.startTime < b.startTime ? -1 : 1;
+  });
+  return { errors, stages, jobs: jobs.map((j) => j.status), logSteps };
+}
+
+async function listTestRuns(
+  context: AzdoContext,
+  cred: AuthCredential,
+  buildId: number,
+): Promise<AzdoTestRun[]> {
+  const url = withApiVersion(new URL(`${orgProjectBase(context)}/_apis/test/runs`));
+  url.searchParams.set('buildUri', `vstfs:///Build/Build/${buildId}`);
+  const response = await fetchWithErrors(url.toString(), { headers: authHeaders(cred) });
+  const data = await readJsonResponse<AzdoTestRunListResponse>(response);
+  return data.value;
 }
 
 export async function getTestSummary(
@@ -250,23 +287,24 @@ export async function getTestSummary(
   cred: AuthCredential,
   buildId: number,
 ): Promise<TestSummary> {
-  const url = withApiVersion(
-    new URL(`${orgProjectBase(context)}/_apis/test/ResultSummaryByBuild`),
-  );
-  url.searchParams.set('buildId', String(buildId));
-  const response = await fetchWithErrors(url.toString(), { headers: authHeaders(cred) });
-  const data = await readJsonResponse<AzdoTestResultSummary>(response);
-  const analysis = data.aggregatedResultsAnalysis;
-  const total = analysis?.totalTests ?? 0;
-  if (!analysis || total === 0) {
+  // Aggregated from per-run statistics on the stable test-runs list. The
+  // ResultSummaryByBuild endpoint is preview-only and some collections reject
+  // it ("can only be viewed in the Tests tab"), which made every run report
+  // tests as unavailable.
+  const testRuns = await listTestRuns(context, cred, buildId);
+  let total = 0;
+  let failed = 0;
+  for (const run of testRuns) {
+    const runTotal = run.totalTests ?? 0;
+    total += runTotal;
+    const passedOrSkipped =
+      (run.passedTests ?? 0) + (run.notApplicableTests ?? 0) + (run.incompleteTests ?? 0);
+    failed += Math.max(0, runTotal - passedOrSkipped);
+  }
+  if (total === 0) {
     return { present: false, total: 0, failed: 0, failedTests: [] };
   }
-  return {
-    present: true,
-    total,
-    failed: analysis.resultsByOutcome?.Failed?.count ?? 0,
-    failedTests: [],
-  };
+  return { present: true, total, failed, failedTests: [] };
 }
 
 // Caps the failing-test list so a catastrophic run doesn't flood the output.
@@ -278,14 +316,11 @@ export async function getFailedTests(
   buildId: number,
 ): Promise<FailedTest[]> {
   // Two-step Test Results API walk: build → its test runs → each run's
-  // Failed-outcome results. ResultSummaryByBuild only carries counts.
-  const runsUrl = withApiVersion(new URL(`${orgProjectBase(context)}/_apis/test/runs`));
-  runsUrl.searchParams.set('buildUri', `vstfs:///Build/Build/${buildId}`);
-  const runsResponse = await fetchWithErrors(runsUrl.toString(), { headers: authHeaders(cred) });
-  const runsData = await readJsonResponse<AzdoTestRunListResponse>(runsResponse);
+  // Failed-outcome results.
+  const testRuns = await listTestRuns(context, cred, buildId);
 
   const failed: FailedTest[] = [];
-  for (const testRun of runsData.value) {
+  for (const testRun of testRuns) {
     if (failed.length >= MAX_FAILED_TESTS) break;
     const resultsUrl = withApiVersion(
       new URL(`${orgProjectBase(context)}/_apis/test/runs/${testRun.id}/results`),
@@ -306,6 +341,12 @@ export async function getFailedTests(
   return failed;
 }
 
+function secondsBetween(start: string | undefined, finish: string | undefined): number | null {
+  if (!start || !finish) return null;
+  const ms = Date.parse(finish) - Date.parse(start);
+  return Number.isFinite(ms) ? Math.round(ms / 1000) : null;
+}
+
 export async function getRunDetail(
   context: AzdoContext,
   cred: AuthCredential,
@@ -315,11 +356,13 @@ export async function getRunDetail(
 
   let errors: PipelineRunError[] = [];
   let stages: PipelineStageStatus[] = [];
+  let jobs: PipelineStageStatus[] = [];
   let errorsAvailable = true;
   try {
     const timeline = await getBuildTimeline(context, cred, buildId);
     errors = timeline.errors;
     stages = timeline.stages;
+    jobs = timeline.jobs;
   } catch {
     errorsAvailable = false;
   }
@@ -344,14 +387,20 @@ export async function getRunDetail(
     name: build.buildNumber ?? null,
     state: mapBuildState(build.status),
     result: mapRunResult(build.result),
-    createdDate: build.startTime ?? null,
+    // createdDate is the queue time, matching the run-list mapping.
+    createdDate: build.queueTime ?? build.startTime ?? null,
+    startedDate: build.startTime ?? null,
     finishedDate: build.finishTime ?? null,
+    durationSeconds: secondsBetween(build.startTime, build.finishTime),
+    reason: build.reason ?? null,
+    requestedFor: build.requestedFor?.displayName ?? null,
     sourceBranch: build.sourceBranch ?? null,
     sourceCommit: build.sourceVersion ?? null,
     webUrl: build._links?.web?.href ?? null,
     errors,
     errorsAvailable,
     stages,
+    jobs,
     tests,
     testsAvailable,
   };
@@ -367,10 +416,19 @@ export async function getRunLogs(
   );
   const response = await fetchWithErrors(url.toString(), { headers: authHeaders(cred) });
   const data = await readJsonResponse<AzdoBuildLogListResponse>(response);
+  // Joining the timeline names each log after its step/job, so picking the
+  // right log id isn't guesswork. Degrade to unlabelled logs if it fails.
+  let logSteps = new Map<number, string>();
+  try {
+    logSteps = (await getBuildTimeline(context, cred, buildId)).logSteps;
+  } catch {
+    // log list is still useful without step names
+  }
   return data.value.map((log) => ({
     id: log.id,
     createdOn: log.createdOn ?? null,
     lineCount: log.lineCount ?? null,
+    step: logSteps.get(log.id) ?? null,
   }));
 }
 

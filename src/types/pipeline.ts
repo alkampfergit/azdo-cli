@@ -62,10 +62,19 @@ export interface TestSummary {
 }
 
 export interface PipelineRunDetail extends PipelineRunSummary {
+  // createdDate (inherited) is the queue time; these split out the start so
+  // queue-wait and run duration are first-class instead of computed by hand.
+  startedDate: string | null;
+  durationSeconds: number | null;
+  reason: string | null;
+  requestedFor: string | null;
   webUrl: string | null;
   errors: PipelineRunError[];
   errorsAvailable: boolean;
   stages: PipelineStageStatus[];
+  // Job-level records — YAML pipelines often report a single implicit stage,
+  // so jobs are the actionable breakdown.
+  jobs: PipelineStageStatus[];
   tests: TestSummary;
   testsAvailable: boolean;
 }
@@ -81,6 +90,8 @@ export interface PipelineLog {
   id: number;
   createdOn: string | null;
   lineCount: number | null;
+  // Timeline record (step/job) this log belongs to, when resolvable.
+  step: string | null;
 }
 
 export interface PipelineStartResult {
@@ -121,11 +132,13 @@ export interface AzdoBuild {
   buildNumber?: string;
   status?: string; // notStarted | inProgress | completed | ...
   result?: string; // succeeded | failed | canceled | partiallySucceeded
+  reason?: string; // manual | individualCI | batchedCI | pullRequest | schedule | ...
   queueTime?: string;
   startTime?: string;
   finishTime?: string;
   sourceBranch?: string;
   sourceVersion?: string;
+  requestedFor?: { displayName?: string; uniqueName?: string };
   _links?: { web?: { href?: string } };
 }
 
@@ -144,6 +157,8 @@ export interface AzdoTimelineRecord {
   name?: string;
   state?: string;
   result?: string;
+  startTime?: string;
+  log?: { id?: number };
   issues?: AzdoTimelineIssue[];
 }
 
@@ -151,9 +166,15 @@ export interface AzdoTimeline {
   records?: AzdoTimelineRecord[];
 }
 
-// Test Results API — used to list individual failing tests for a build.
+// Test Results API — used for the test summary and the failing-test list.
+// (The ResultSummaryByBuild endpoint is preview-only and some collections
+// refuse it; per-run statistics on the stable runs list cover the counts.)
 export interface AzdoTestRun {
   id: number;
+  totalTests?: number;
+  passedTests?: number;
+  notApplicableTests?: number;
+  incompleteTests?: number;
 }
 
 export interface AzdoTestRunListResponse {
@@ -170,15 +191,6 @@ export interface AzdoTestCaseResult {
 export interface AzdoTestResultListResponse {
   count?: number;
   value: AzdoTestCaseResult[];
-}
-
-export interface AzdoTestResultSummary {
-  aggregatedResultsAnalysis?: {
-    totalTests?: number;
-    resultsByOutcome?: {
-      Failed?: { count?: number };
-    };
-  };
 }
 
 export interface AzdoBuildLog {

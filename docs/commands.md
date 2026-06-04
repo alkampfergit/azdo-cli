@@ -176,13 +176,13 @@ azdo pipeline start 12 --branch develop --parameter env=staging
 - The exit-code contract makes the AI-agent loop scriptable: `azdo pipeline wait $RID && deploy || azdo pipeline get-run-detail $RID`
 
 **`azdo pipeline get-run-detail <run_id>`**
-- Composes the run's core (date, built commit, result, web link), the build timeline (errors + per-stage status), and the test summary
+- Composes the run's core (queue/start/finish times, computed duration, trigger reason, requestor, built commit, result, web link), the build timeline (errors + per-stage **and per-job** status — YAML pipelines often report a single implicit stage, so jobs are the actionable breakdown), and the test summary
 - Reports the failing-test count when tests ran, and shows **"no tests present"** distinctly from "0 failures"
 - When tests failed, lists the failing tests by name with the first line of each error message (capped at 50) — no need to download the full logs to see what broke
 - Degrades gracefully: a source that can't be retrieved is shown as "unavailable" rather than failing the command
 
 **`azdo pipeline logs <run_id>`**
-- Lists the run's logs; `--log-id <id>` prints a specific log's content to stdout
+- Lists the run's logs with the step/job each log belongs to (joined from the build timeline), so the right `--log-id` is no longer guesswork; `--log-id <id>` prints a specific log's content to stdout
 - With `--log-id`: `--tail <n>` prints only the last N lines, `--grep <pattern>` prints only lines matching a regular expression (grep applies first, then tail) — avoids dumping multi-thousand-line logs to find one error
 
 **`azdo pipeline start <def_id>`**

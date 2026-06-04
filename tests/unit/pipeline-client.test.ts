@@ -116,18 +116,22 @@ describe('pipeline-client', () => {
     expect(result).toEqual({ state: 'completed', result: 'failed' });
   });
 
-  it('getBuildTimeline extracts errors and stage statuses', async () => {
+  it('getBuildTimeline extracts errors, stages, jobs, and log→step mapping', async () => {
     mockFetchJson({
       records: [
         { type: 'Stage', name: 'Build', state: 'completed', result: 'succeeded', issues: [] },
         {
           type: 'Task',
           name: 'Compile',
+          log: { id: 7 },
           issues: [
             { type: 'error', message: 'TS1005: ; expected' },
             { type: 'warning', message: 'noisy' },
           ],
         },
+        // Jobs arrive unordered — sorted by startTime in the result.
+        { type: 'Job', name: 'integration-tests', state: 'completed', result: 'failed', startTime: '2026-06-03T10:02:00Z', log: { id: 9 } },
+        { type: 'Job', name: 'build', state: 'completed', result: 'succeeded', startTime: '2026-06-03T10:01:00Z', log: { id: 8 } },
         { type: 'Stage', name: 'Test', state: 'completed', result: 'failed' },
       ],
     });
@@ -137,13 +141,27 @@ describe('pipeline-client', () => {
       { name: 'Build', state: 'completed', result: 'succeeded' },
       { name: 'Test', state: 'completed', result: 'failed' },
     ]);
+    expect(result.jobs).toEqual([
+      { name: 'build', state: 'completed', result: 'succeeded' },
+      { name: 'integration-tests', state: 'completed', result: 'failed' },
+    ]);
+    expect(result.logSteps.get(7)).toBe('Compile');
+    expect(result.logSteps.get(8)).toBe('build');
   });
 
-  it('getTestSummary reports present counts and the "no tests" case', async () => {
-    mockFetchJson({ aggregatedResultsAnalysis: { totalTests: 10, resultsByOutcome: { Failed: { count: 3 } } } });
+  it('getTestSummary aggregates per-run statistics from the stable test-runs list', async () => {
+    // ResultSummaryByBuild is preview-only and rejected by some collections —
+    // counts come from the runs list instead.
+    const fetchSpy = mockFetchJson({
+      value: [
+        { id: 1, totalTests: 8, passedTests: 6, notApplicableTests: 1, incompleteTests: 0 },
+        { id: 2, totalTests: 2, passedTests: 0 },
+      ],
+    });
     expect(await getTestSummary(context, cred, 100)).toEqual({ present: true, total: 10, failed: 3, failedTests: [] });
+    expect(fetchSpy.mock.calls[0][0]).toContain(`buildUri=${encodeURIComponent('vstfs:///Build/Build/100')}`);
 
-    mockFetchJson({});
+    mockFetchJson({ value: [] });
     expect(await getTestSummary(context, cred, 100)).toEqual({ present: false, total: 0, failed: 0, failedTests: [] });
   });
 
@@ -186,10 +204,34 @@ describe('pipeline-client', () => {
     expect(result).toEqual({ id: 200, state: 'inProgress', webUrl: 'https://x/200' });
   });
 
-  it('getRunLogs maps the log list', async () => {
-    mockFetchJson({ value: [{ id: 1, createdOn: '2026-06-03T10:00:00Z', lineCount: 42 }] });
+  it('getRunLogs maps the log list and labels each log with its timeline step', async () => {
+    vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({ value: [{ id: 1, createdOn: '2026-06-03T10:00:00Z', lineCount: 42 }, { id: 2 }] }),
+          { status: 200 },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({ records: [{ type: 'Task', name: 'Run tests', log: { id: 1 } }] }),
+          { status: 200 },
+        ),
+      );
     expect(await getRunLogs(context, cred, 100)).toEqual([
-      { id: 1, createdOn: '2026-06-03T10:00:00Z', lineCount: 42 },
+      { id: 1, createdOn: '2026-06-03T10:00:00Z', lineCount: 42, step: 'Run tests' },
+      { id: 2, createdOn: null, lineCount: null, step: null },
+    ]);
+  });
+
+  it('getRunLogs degrades to unlabelled logs when the timeline fails', async () => {
+    vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ value: [{ id: 1 }] }), { status: 200 }),
+      )
+      .mockResolvedValueOnce(new Response(null, { status: 500 }));
+    expect(await getRunLogs(context, cred, 100)).toEqual([
+      { id: 1, createdOn: null, lineCount: null, step: null },
     ]);
   });
 

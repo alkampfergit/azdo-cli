@@ -4,6 +4,7 @@ import type {
   FailedTest,
   PipelineRunDetail,
   PipelineRunSummary,
+  PipelineStageStatus,
   PipelineWaitResult,
 } from '../types/pipeline.js';
 import {
@@ -355,14 +356,24 @@ function createPipelineWaitCommand(): Command {
 // pipeline get-run-detail <run_id>
 // ---------------------------------------------------------------------------
 
-function stageRows(detail: PipelineRunDetail): string[] {
-  if (!detail.errorsAvailable) {
+// Shared by the Stages and Jobs sections — both render timeline records.
+function timelineRows(items: PipelineStageStatus[], available: boolean): string[] {
+  if (!available) {
     return ['  unavailable'];
   }
-  if (detail.stages.length === 0) {
+  if (items.length === 0) {
     return ['  (none)'];
   }
-  return detail.stages.map((stage) => `  - ${stage.name} [${stage.result ?? stage.state}]`);
+  return items.map((item) => `  - ${item.name} [${item.result ?? item.state}]`);
+}
+
+function formatDuration(totalSeconds: number): string {
+  const h = Math.floor(totalSeconds / 3600);
+  const m = Math.floor((totalSeconds % 3600) / 60);
+  const s = totalSeconds % 60;
+  if (h > 0) return `${h}h${m}m${s}s`;
+  if (m > 0) return `${m}m${s}s`;
+  return `${s}s`;
 }
 
 function errorRows(detail: PipelineRunDetail): string[] {
@@ -403,14 +414,19 @@ function testRows(detail: PipelineRunDetail): string[] {
 function formatRunDetail(detail: PipelineRunDetail): string {
   const status = detail.result ? `${detail.state}/${detail.result}` : detail.state;
   const name = detail.name ? ` ${detail.name}` : '';
+  const duration = detail.durationSeconds == null ? '—' : formatDuration(detail.durationSeconds);
   return [
     `Run #${detail.id} [${status}]${name}`,
-    `Started: ${detail.createdDate ?? '—'}    Finished: ${detail.finishedDate ?? '—'}`,
+    `Queued: ${detail.createdDate ?? '—'}    Started: ${detail.startedDate ?? '—'}    Finished: ${detail.finishedDate ?? '—'}`,
+    `Duration: ${duration}    Reason: ${detail.reason ?? '—'}    Requested for: ${detail.requestedFor ?? '—'}`,
     `Branch: ${formatBranchName(detail.sourceBranch)}    Commit: ${detail.sourceCommit ?? 'unavailable'}`,
     ...(detail.webUrl ? [`Link: ${detail.webUrl}`] : []),
     '',
     'Stages:',
-    ...stageRows(detail),
+    ...timelineRows(detail.stages, detail.errorsAvailable),
+    '',
+    'Jobs:',
+    ...timelineRows(detail.jobs, detail.errorsAvailable),
     '',
     'Errors:',
     ...errorRows(detail),
@@ -553,6 +569,7 @@ function createPipelineLogsCommand(): Command {
           String(l.id),
           l.createdOn ?? '—',
           l.lineCount == null ? '' : `${l.lineCount} lines`,
+          l.step ?? '',
         ]);
         process.stdout.write(`${formatTable(rows, new Set([0]))}\n`);
       } catch (err) {

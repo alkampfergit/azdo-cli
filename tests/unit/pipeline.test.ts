@@ -194,13 +194,21 @@ describe('pipeline get-run-detail', () => {
     state: 'completed' as const,
     result: 'failed' as const,
     createdDate: '2026-06-03T10:00:00Z',
+    startedDate: '2026-06-03T10:00:30Z',
     finishedDate: '2026-06-03T10:05:00Z',
+    durationSeconds: 270,
+    reason: 'individualCI',
+    requestedFor: 'Gian Maria',
     sourceBranch: 'refs/heads/develop',
     sourceCommit: 'abc123',
     webUrl: 'https://x/100',
     errors: [{ message: 'boom', source: 'Compile' }],
     errorsAvailable: true,
     stages: [{ name: 'Build', state: 'completed', result: 'failed' }],
+    jobs: [
+      { name: 'build', state: 'completed', result: 'succeeded' },
+      { name: 'integration-tests', state: 'completed', result: 'failed' },
+    ],
   };
 
   it('shows errors and failing-test count', async () => {
@@ -209,6 +217,20 @@ describe('pipeline get-run-detail', () => {
     const out = getStdout();
     expect(out).toContain('boom');
     expect(out).toContain('2 failing of 10');
+  });
+
+  it('shows queue/start times, duration, reason, requestor, and per-job breakdown', async () => {
+    vi.mocked(getRunDetail).mockResolvedValue({ ...base, tests: { present: false, total: 0, failed: 0, failedTests: [] }, testsAvailable: true });
+    await run(['get-run-detail', '100']);
+    const out = getStdout();
+    expect(out).toContain('Queued: 2026-06-03T10:00:00Z');
+    expect(out).toContain('Started: 2026-06-03T10:00:30Z');
+    expect(out).toContain('Duration: 4m30s');
+    expect(out).toContain('Reason: individualCI');
+    expect(out).toContain('Requested for: Gian Maria');
+    expect(out).toContain('Jobs:');
+    expect(out).toContain('- build [succeeded]');
+    expect(out).toContain('- integration-tests [failed]');
   });
 
   it('lists failing tests with the first line of the error message', async () => {
@@ -247,10 +269,13 @@ describe('pipeline get-run-detail', () => {
 });
 
 describe('pipeline logs / start', () => {
-  it('lists logs', async () => {
-    vi.mocked(getRunLogs).mockResolvedValue([{ id: 1, createdOn: null, lineCount: 5 }]);
+  it('lists logs with their step names', async () => {
+    vi.mocked(getRunLogs).mockResolvedValue([{ id: 1, createdOn: null, lineCount: 5, step: 'Run tests' }]);
     await run(['logs', '100', '--json']);
-    expect(JSON.parse(getStdout())).toEqual([{ id: 1, createdOn: null, lineCount: 5 }]);
+    expect(JSON.parse(getStdout())).toEqual([{ id: 1, createdOn: null, lineCount: 5, step: 'Run tests' }]);
+
+    await run(['logs', '100']);
+    expect(getStdout()).toContain('Run tests');
   });
 
   it('--tail prints only the last N lines of a log', async () => {
