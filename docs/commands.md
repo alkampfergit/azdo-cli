@@ -155,10 +155,14 @@ azdo pipeline get-runs --commit abc123f    # which runs built this commit?
 azdo pipeline get-runs --pr 4664           # runs for a pull request
 azdo pipeline wait 3456                     # block until run 3456 finishes (exit code = result)
 azdo pipeline get-run-detail 3456          # date, commit, result, errors, failing tests, stages
-azdo pipeline logs 3456                     # list a run's logs
+azdo pipeline logs 3456                     # list a run's logs (with step names)
 azdo pipeline logs 3456 --log-id 7         # print a specific log
+azdo pipeline logs 3456 --step "Run tests" # print a log by step/job name
 azdo pipeline logs 3456 --log-id 7 --tail 50          # only the last 50 lines
 azdo pipeline logs 3456 --log-id 7 --grep 'error CS'  # only matching lines
+azdo pipeline logs 3456 --log-id 7 --grep Exception --context 5  # ±5 lines around matches
+azdo pipeline tests 3456                   # test summary + failing tests by name
+azdo pipeline tests 3456 --failed          # only the failing tests
 azdo pipeline start 12 --branch develop --parameter env=staging
 ```
 
@@ -183,7 +187,12 @@ azdo pipeline start 12 --branch develop --parameter env=staging
 
 **`azdo pipeline logs <run_id>`**
 - Lists the run's logs with the step/job each log belongs to (joined from the build timeline), so the right `--log-id` is no longer guesswork; `--log-id <id>` prints a specific log's content to stdout
-- With `--log-id`: `--tail <n>` prints only the last N lines, `--grep <pattern>` prints only lines matching a regular expression (grep applies first, then tail) — avoids dumping multi-thousand-line logs to find one error
+- `--step <name>` selects the log by step/job name (case-insensitive substring, exact match wins) — stable across runs even when skipped jobs shift the numeric log ids
+- With `--log-id`/`--step`: `--tail <n>` prints only the last N lines, `--grep <pattern>` prints only lines matching a regular expression, and `--grep … --context <n>` adds ±N surrounding lines per match (grep `-C` semantics, chunks separated by `--`) — multi-line stack traces come out whole
+
+**`azdo pipeline tests <run_id>`**
+- Prints the run's test summary plus the failing tests **by name with their error messages** (Test Runs API, capped at 50) — replaces log grepping for "which tests failed"
+- `--failed` prints only the failing tests; `--json` emits `{present, total, failed, failedTests}`
 
 **`azdo pipeline start <def_id>`**
 - Queues a new run and returns its id and link; `--branch <branch>` targets a branch (default: the pipeline's default), `--parameter key=value` (repeatable) passes template parameters

@@ -9,11 +9,13 @@ import type {
 } from '../types/pipeline.js';
 import {
   getBuildStatus,
+  getFailedTests,
   getPipelineDefinitions,
   getPipelineRuns,
   getRunDetail,
   getRunLog,
   getRunLogs,
+  getTestSummary,
   runPipeline,
 } from '../services/pipeline-client.js';
 import { requireAuthCredential } from '../services/auth.js';
@@ -472,16 +474,44 @@ function createPipelineGetRunDetailCommand(): Command {
 // pipeline logs <run_id>
 // ---------------------------------------------------------------------------
 
-// Applies --grep then --tail to a raw log payload. Returns the lines to print
-// (without a trailing newline); an empty array means "print nothing".
-function filterLogLines(content: string, grep: RegExp | undefined, tail: number | undefined): string[] {
+// grep -C semantics: every line within `context` lines of a match is included;
+// non-contiguous chunks are separated by a `--` line, like grep.
+function grepWithContext(lines: string[], grep: RegExp, context: number): string[] {
+  const include = new Set<number>();
+  lines.forEach((line, i) => {
+    if (grep.test(line)) {
+      for (let j = Math.max(0, i - context); j <= Math.min(lines.length - 1, i + context); j++) {
+        include.add(j);
+      }
+    }
+  });
+  const selected: string[] = [];
+  let prev = -1;
+  for (const i of [...include].sort((a, b) => a - b)) {
+    if (selected.length > 0 && i > prev + 1) {
+      selected.push('--');
+    }
+    selected.push(lines[i]);
+    prev = i;
+  }
+  return selected;
+}
+
+// Applies --grep (with optional --context) then --tail to a raw log payload.
+// Returns the lines to print; an empty array means "print nothing".
+function filterLogLines(
+  content: string,
+  grep: RegExp | undefined,
+  tail: number | undefined,
+  context: number,
+): string[] {
   let lines = content.split('\n');
   // A trailing newline yields one empty final element — not a real line.
   if (lines.at(-1) === '') {
     lines.pop();
   }
   if (grep) {
-    lines = lines.filter((line) => grep.test(line));
+    lines = context > 0 ? grepWithContext(lines, grep, context) : lines.filter((line) => grep.test(line));
   }
   if (tail !== undefined && lines.length > tail) {
     lines = lines.slice(-tail);
@@ -491,8 +521,10 @@ function filterLogLines(content: string, grep: RegExp | undefined, tail: number 
 
 interface LogsOptions extends PipelineCommonOptions {
   logId?: string;
+  step?: string;
   tail?: string;
   grep?: string;
+  context?: string;
 }
 
 function createPipelineLogsCommand(): Command {
@@ -503,8 +535,10 @@ function createPipelineLogsCommand(): Command {
     .option('--org <org>', 'Azure DevOps organization')
     .option('--project <project>', 'Azure DevOps project')
     .option('--log-id <id>', 'print the content of this log id')
-    .option('--tail <n>', 'with --log-id, print only the last N lines')
-    .option('--grep <pattern>', 'with --log-id, print only lines matching this regular expression')
+    .option('--step <name>', 'print the log of the step/job matching this name (case-insensitive substring)')
+    .option('--tail <n>', 'with --log-id/--step, print only the last N lines')
+    .option('--grep <pattern>', 'with --log-id/--step, print only lines matching this regular expression')
+    .option('--context <n>', 'with --grep, also print N lines around each match (grep -C)')
     .option('--json', 'output JSON')
     .action(async (runIdRaw: string, options: LogsOptions) => {
       validateOrgProjectPair(options);
@@ -513,8 +547,17 @@ function createPipelineLogsCommand(): Command {
         writeError(`Invalid run id "${runIdRaw}"; expected a positive integer.`);
         return;
       }
-      if ((options.tail !== undefined || options.grep !== undefined) && options.logId === undefined) {
-        writeError('--tail and --grep require --log-id.');
+      if (options.logId !== undefined && options.step !== undefined) {
+        writeError('Use either --log-id or --step, not both.');
+        return;
+      }
+      const selectsSingleLog = options.logId !== undefined || options.step !== undefined;
+      if ((options.tail !== undefined || options.grep !== undefined || options.context !== undefined) && !selectsSingleLog) {
+        writeError('--tail, --grep, and --context require --log-id or --step.');
+        return;
+      }
+      if (options.context !== undefined && options.grep === undefined) {
+        writeError('--context requires --grep.');
         return;
       }
       let tail: number | undefined;
@@ -525,6 +568,15 @@ function createPipelineLogsCommand(): Command {
           return;
         }
         tail = parsed;
+      }
+      let contextLines = 0;
+      if (options.context !== undefined) {
+        const parsed = parsePositiveId(options.context);
+        if (parsed === null) {
+          writeError(`Invalid --context "${options.context}"; expected a positive integer.`);
+          return;
+        }
+        contextLines = parsed;
       }
       let grep: RegExp | undefined;
       if (options.grep !== undefined) {
@@ -539,15 +591,38 @@ function createPipelineLogsCommand(): Command {
       try {
         const resolved = await resolvePipelineContext(options);
         context = resolved.context;
+        let logId: number | undefined;
         if (options.logId !== undefined) {
-          const logId = parsePositiveId(options.logId);
-          if (logId === null) {
+          const parsed = parsePositiveId(options.logId);
+          if (parsed === null) {
             writeError(`Invalid --log-id "${options.logId}"; expected a positive integer.`);
             return;
           }
+          logId = parsed;
+        } else if (options.step !== undefined) {
+          // Resolve the log id from the step/job name — ids shift when jobs
+          // are skipped, so names are the stable selector.
+          const allLogs = await getRunLogs(resolved.context, resolved.cred, runId);
+          const needle = options.step.toLowerCase();
+          const matches = allLogs.filter((l) => l.step?.toLowerCase().includes(needle));
+          const exact = matches.filter((l) => l.step?.toLowerCase() === needle);
+          const chosen = exact.length === 1 ? exact : matches;
+          if (chosen.length === 0) {
+            writeError(`No log matches step "${options.step}" in run ${runId}.`);
+            return;
+          }
+          if (chosen.length > 1) {
+            writeError(
+              `Step "${options.step}" matches multiple logs: ${chosen.map((l) => `${l.id} (${l.step})`).join(', ')}. Be more specific or use --log-id.`,
+            );
+            return;
+          }
+          logId = chosen[0].id;
+        }
+        if (logId !== undefined) {
           const content = await getRunLog(resolved.context, resolved.cred, runId, logId);
           if (grep !== undefined || tail !== undefined) {
-            const lines = filterLogLines(content, grep, tail);
+            const lines = filterLogLines(content, grep, tail, contextLines);
             if (lines.length > 0) {
               process.stdout.write(`${lines.join('\n')}\n`);
             }
@@ -572,6 +647,56 @@ function createPipelineLogsCommand(): Command {
           l.step ?? '',
         ]);
         process.stdout.write(`${formatTable(rows, new Set([0]))}\n`);
+      } catch (err) {
+        handlePipelineError(err, context);
+      }
+    });
+  return command;
+}
+
+// ---------------------------------------------------------------------------
+// pipeline tests <run_id>
+// ---------------------------------------------------------------------------
+
+function createPipelineTestsCommand(): Command {
+  const command = new Command('tests');
+  command
+    .description('Show a run\'s test results: summary plus failing tests by name (no log grepping needed)')
+    .argument('<run_id>', 'pipeline run id')
+    .option('--org <org>', 'Azure DevOps organization')
+    .option('--project <project>', 'Azure DevOps project')
+    .option('--failed', 'list only the failing tests')
+    .option('--json', 'output JSON')
+    .action(async (runIdRaw: string, options: PipelineCommonOptions & { failed?: boolean }) => {
+      validateOrgProjectPair(options);
+      const runId = parsePositiveId(runIdRaw);
+      if (runId === null) {
+        writeError(`Invalid run id "${runIdRaw}"; expected a positive integer.`);
+        return;
+      }
+      let context: AzdoContext | undefined;
+      try {
+        const resolved = await resolvePipelineContext(options);
+        context = resolved.context;
+        const summary = await getTestSummary(resolved.context, resolved.cred, runId);
+        const failedTests =
+          summary.failed > 0 ? await getFailedTests(resolved.context, resolved.cred, runId) : [];
+        if (options.json) {
+          process.stdout.write(`${JSON.stringify({ ...summary, failedTests }, null, 2)}\n`);
+          return;
+        }
+        if (!summary.present) {
+          process.stdout.write(`No test results published for run ${runId}.\n`);
+          return;
+        }
+        if (!options.failed) {
+          process.stdout.write(`Run #${runId}: ${summary.failed} failing of ${summary.total} tests\n`);
+        }
+        if (failedTests.length > 0) {
+          process.stdout.write(`${failedTests.map(failedTestRow).join('\n')}\n`);
+        } else if (options.failed) {
+          process.stdout.write('No failing tests.\n');
+        }
       } catch (err) {
         handlePipelineError(err, context);
       }
@@ -651,6 +776,7 @@ export function createPipelineCommand(): Command {
   command.addCommand(createPipelineWaitCommand());
   command.addCommand(createPipelineGetRunDetailCommand());
   command.addCommand(createPipelineLogsCommand());
+  command.addCommand(createPipelineTestsCommand());
   command.addCommand(createPipelineStartCommand());
   return command;
 }

@@ -9,6 +9,8 @@ vi.mock('../../src/services/pipeline-client.js', () => ({
   getRunDetail: vi.fn(),
   getRunLogs: vi.fn(),
   getRunLog: vi.fn(),
+  getTestSummary: vi.fn(),
+  getFailedTests: vi.fn(),
   runPipeline: vi.fn(),
 }));
 
@@ -22,11 +24,13 @@ vi.mock('../../src/services/context.js', () => ({
 
 import {
   getBuildStatus,
+  getFailedTests,
   getPipelineDefinitions,
   getPipelineRuns,
   getRunDetail,
   getRunLog,
   getRunLogs,
+  getTestSummary,
   runPipeline,
 } from '../../src/services/pipeline-client.js';
 import { requireAuthCredential } from '../../src/services/auth.js';
@@ -297,9 +301,9 @@ describe('pipeline logs / start', () => {
     expect(getExitCode()).toBe(0);
   });
 
-  it('rejects --tail/--grep without --log-id and invalid values', async () => {
+  it('rejects --tail/--grep without --log-id/--step and invalid values', async () => {
     await run(['logs', '100', '--tail', '5']);
-    expect(getStderr()).toContain('require --log-id');
+    expect(getStderr()).toContain('require --log-id or --step');
     expect(getExitCode()).toBe(1);
 
     await run(['logs', '100', '--log-id', '7', '--grep', '[unclosed']);
@@ -307,6 +311,43 @@ describe('pipeline logs / start', () => {
 
     await run(['logs', '100', '--log-id', '7', '--tail', 'zero']);
     expect(getStderr()).toContain('Invalid --tail');
+
+    await run(['logs', '100', '--log-id', '7', '--context', '3']);
+    expect(getStderr()).toContain('--context requires --grep');
+  });
+
+  it('--grep --context prints surrounding lines with grep-style separators', async () => {
+    vi.mocked(getRunLog).mockResolvedValue('a\nb\nERROR one\nc\nd\ne\nf\nERROR two\ng\n');
+    await run(['logs', '100', '--log-id', '7', '--grep', '^ERROR', '--context', '1']);
+    expect(getStdout()).toBe('b\nERROR one\nc\n--\nf\nERROR two\ng\n');
+  });
+
+  it('--step resolves the log id by step name', async () => {
+    vi.mocked(getRunLogs).mockResolvedValue([
+      { id: 24, createdOn: null, lineCount: 10, step: 'Run IN-PROCESS test for NET core' },
+      { id: 25, createdOn: null, lineCount: 5, step: 'Publish artifacts' },
+    ]);
+    vi.mocked(getRunLog).mockResolvedValue('the log content\n');
+    await run(['logs', '100', '--step', 'in-process']);
+    expect(vi.mocked(getRunLog)).toHaveBeenCalledWith(expect.anything(), expect.anything(), 100, 24);
+    expect(getStdout()).toBe('the log content\n');
+  });
+
+  it('--step errors on no match and on ambiguous matches', async () => {
+    vi.mocked(getRunLogs).mockResolvedValue([
+      { id: 1, createdOn: null, lineCount: 1, step: 'build' },
+      { id: 2, createdOn: null, lineCount: 1, step: 'build docs' },
+    ]);
+    await run(['logs', '100', '--step', 'nothing']);
+    expect(getStderr()).toContain('No log matches step');
+
+    await run(['logs', '100', '--step', 'buil']);
+    expect(getStderr()).toContain('matches multiple logs');
+
+    // An exact name wins even when it is a substring of another step.
+    vi.mocked(getRunLog).mockResolvedValue('x\n');
+    await run(['logs', '100', '--step', 'build']);
+    expect(vi.mocked(getRunLog)).toHaveBeenCalledWith(expect.anything(), expect.anything(), 100, 1);
   });
 
   it('start parses repeated --parameter and --branch', async () => {
@@ -325,5 +366,49 @@ describe('pipeline logs / start', () => {
     await run(['start', '5', '--parameter', 'novalue']);
     expect(getStderr()).toContain('Invalid --parameter');
     expect(getExitCode()).toBe(1);
+  });
+});
+
+describe('pipeline tests', () => {
+  it('prints summary and failing tests with messages', async () => {
+    vi.mocked(getTestSummary).mockResolvedValue({ present: true, total: 815, failed: 2, failedTests: [] });
+    vi.mocked(getFailedTests).mockResolvedValue([
+      { name: 'Suite.testX', errorMessage: 'expected 1 to be 2\nstack' },
+      { name: 'Suite.testY', errorMessage: null },
+    ]);
+    await run(['tests', '100']);
+    const out = getStdout();
+    expect(out).toContain('2 failing of 815');
+    expect(out).toContain('- Suite.testX: expected 1 to be 2');
+    expect(out).toContain('- Suite.testY');
+  });
+
+  it('--failed lists only failing tests, and reports none cleanly', async () => {
+    vi.mocked(getTestSummary).mockResolvedValue({ present: true, total: 10, failed: 1, failedTests: [] });
+    vi.mocked(getFailedTests).mockResolvedValue([{ name: 'Suite.testX', errorMessage: null }]);
+    await run(['tests', '100', '--failed']);
+    expect(getStdout()).toBe('  - Suite.testX\n');
+
+    vi.mocked(getTestSummary).mockResolvedValue({ present: true, total: 10, failed: 0, failedTests: [] });
+    await run(['tests', '100', '--failed']);
+    expect(getStdout()).toContain('No failing tests.');
+  });
+
+  it('reports when no test results are published', async () => {
+    vi.mocked(getTestSummary).mockResolvedValue({ present: false, total: 0, failed: 0, failedTests: [] });
+    await run(['tests', '100']);
+    expect(getStdout()).toContain('No test results published for run 100.');
+  });
+
+  it('--json emits the summary with the failing-test list', async () => {
+    vi.mocked(getTestSummary).mockResolvedValue({ present: true, total: 5, failed: 1, failedTests: [] });
+    vi.mocked(getFailedTests).mockResolvedValue([{ name: 't', errorMessage: 'boom' }]);
+    await run(['tests', '100', '--json']);
+    expect(JSON.parse(getStdout())).toEqual({
+      present: true,
+      total: 5,
+      failed: 1,
+      failedTests: [{ name: 't', errorMessage: 'boom' }],
+    });
   });
 });

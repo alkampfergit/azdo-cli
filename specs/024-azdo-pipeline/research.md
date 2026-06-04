@@ -25,18 +25,20 @@ definitions, --filter by name".
 
 ## R2 — Listing runs for a definition (US2)
 
-**Decision.** `GET .../_apis/pipelines/{pipelineId}/runs?api-version=7.1`
-returns runs (most-recent first) with `id`, `name`, `state`
-(`inProgress`/`completed`), `result` (`succeeded`/`failed`/`canceled`),
-`createdDate`, `finishedDate`. `--limit` caps the slice client-side; `--branch`
-filters on each run's source branch (from the run's `resources.repositories`
-`refName`). When the listing endpoint omits the branch, fall back to the run's
-detail; document the matching rule.
+**Decision (as implemented).** Runs are listed via the **Build API**
+`GET _apis/build/builds?definitions={id}&queryOrder=queueTimeDescending&$top={n}&api-version=7.1`
+(build id == run id for YAML pipelines). Chosen because the Pipelines runs
+*list* endpoint omits `resources.repositories`, so `sourceBranch` was always
+null and `--branch` filtering was useless; builds carry `sourceBranch` /
+`sourceVersion` directly and filter by branch **server-side** (`branchName`).
+`--pr <n>` maps to the PR merge ref `refs/pull/{n}/merge`; `--commit <sha>` is
+matched client-side over a 200-build window (the Build API has no
+`sourceVersion` query parameter).
 
-**Alternatives.** The Build API `GET _apis/build/builds?definitions={id}&branchName=...`
-supports server-side branch filtering. Considered as a fallback if the
-Pipelines runs endpoint proves insufficient for `--branch`; the Pipelines
-endpoint is preferred for consistency with the rest of the group.
+**Alternatives.** The Pipelines runs endpoint
+(`GET .../_apis/pipelines/{pipelineId}/runs`) was the original choice for
+consistency with the rest of the group, but was replaced after field use for
+the reasons above.
 
 ---
 

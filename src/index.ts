@@ -17,6 +17,18 @@ import { createCommentsCommand } from "./commands/comments.js";
 import { createDownloadAttachmentCommand } from "./commands/download-attachment.js";
 import { getUpdateNotice } from "./services/update-check.js";
 
+// Standard CLI behaviour for `azdo … | head`: when the downstream reader
+// closes the pipe early, swallow EPIPE and exit cleanly instead of dumping
+// an unhandled Socket error stack.
+function exitOnEpipe(err: NodeJS.ErrnoException): void {
+  if (err.code === "EPIPE") {
+    process.exit(0);
+  }
+  throw err;
+}
+process.stdout.on("error", exitOnEpipe);
+process.stderr.on("error", exitOnEpipe);
+
 const program = new Command();
 
 program.name("azdo").description("Azure DevOps CLI tool").version(version, "-v, --version");
