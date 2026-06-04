@@ -14,12 +14,12 @@ const context: AzdoContext = { org: 'test-org', project: 'test-project' };
 const cred: AuthCredential = { pat: 'test-pat', source: 'env', kind: 'pat' };
 
 function mockFetchJson(json: unknown) {
-  return vi.spyOn(globalThis, 'fetch').mockResolvedValue({
-    ok: true,
-    status: 200,
-    headers: new Headers({ 'content-type': 'application/json' }),
-    json: async () => json,
-  } as Response);
+  return vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+    new Response(JSON.stringify(json), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    }),
+  );
 }
 
 describe('pipeline-client', () => {
@@ -130,7 +130,7 @@ describe('pipeline-client', () => {
   });
 
   it('propagates AUTH_FAILED from fetchWithErrors', async () => {
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue({ ok: false, status: 401, headers: new Headers() } as Response);
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(null, { status: 401 }));
     await expect(getPipelineDefinitions(context, cred)).rejects.toThrow('AUTH_FAILED');
   });
 });
