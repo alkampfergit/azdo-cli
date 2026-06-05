@@ -58,7 +58,8 @@ describe('config set', () => {
       cmd.parse(['set', 'org', 'myorg', '--json'], { from: 'user' });
     });
     const parsed = JSON.parse(stdout.trim());
-    expect(parsed).toEqual({ key: 'org', value: 'myorg' });
+    expect(parsed).toMatchObject({ key: 'org', value: 'myorg' });
+    expect(parsed.scope).toBe('default');
   });
 
   it('sets fields with --json returns array', async () => {
@@ -110,7 +111,8 @@ describe('config get', () => {
       cmd.parse(['get', 'org', '--json'], { from: 'user' });
     });
     const parsed = JSON.parse(stdout.trim());
-    expect(parsed).toEqual({ key: 'org', value: null });
+    expect(parsed).toMatchObject({ key: 'org', value: null });
+    expect(parsed.scope).toBe('default');
   });
 
   it('returns fields as comma-separated in human mode', async () => {
@@ -164,7 +166,7 @@ describe('config list', () => {
     expect(stdout).toContain('myproject');
   });
 
-  it('shows JSON output with --json', async () => {
+  it('shows JSON output with --json as array with scope field', async () => {
     const { setConfigValue } = await import('../../src/services/config-store.js');
     setConfigValue('org', 'myorg');
 
@@ -173,8 +175,10 @@ describe('config list', () => {
     const { stdout } = captureOutput(() => {
       cmd.parse(['list', '--json'], { from: 'user' });
     });
-    const parsed = JSON.parse(stdout.trim());
-    expect(parsed.org).toBe('myorg');
+    const parsed = JSON.parse(stdout.trim()) as Array<{ scope: string; key: string; value: unknown }>;
+    const orgEntry = parsed.find((e) => e.key === 'org');
+    expect(orgEntry?.value).toBe('myorg');
+    expect(orgEntry?.scope).toBe('default');
   });
 
   it('shows fields as comma-separated in human mode', async () => {
@@ -212,14 +216,15 @@ describe('config unset', () => {
     expect(stdout).toContain('Unset "org"');
   });
 
-  it('returns JSON with --json', async () => {
+  it('returns JSON with --json including scope field', async () => {
     const { createConfigCommand } = await import('../../src/commands/config.js');
     const cmd = createConfigCommand();
     const { stdout } = captureOutput(() => {
       cmd.parse(['unset', 'project', '--json'], { from: 'user' });
     });
     const parsed = JSON.parse(stdout.trim());
-    expect(parsed).toEqual({ key: 'project', unset: true });
+    expect(parsed).toMatchObject({ key: 'project', unset: true });
+    expect(parsed.scope).toBe('default');
   });
 
   it('unknown key errors', async () => {
@@ -229,5 +234,108 @@ describe('config unset', () => {
       cmd.parse(['unset', 'badkey'], { from: 'user' });
     });
     expect(stderr).toContain('Unknown setting key "badkey"');
+  });
+});
+
+// ── T005: config CLI --org option (multi-org support #55) ────────────────────
+
+describe('config set --org', () => {
+  it('sets an org-scoped project value', async () => {
+    const { createConfigCommand } = await import('../../src/commands/config.js');
+    const cmd = createConfigCommand();
+    captureOutput(() => cmd.parse(['set', 'project', 'acme-proj', '--org', 'acme'], { from: 'user' }));
+    const { loadConfig } = await import('../../src/services/config-store.js');
+    const cfg = loadConfig();
+    expect(cfg.organizations?.['acme']?.project).toBe('acme-proj');
+  });
+
+  it('does not affect default scope when --org is given', async () => {
+    const { createConfigCommand } = await import('../../src/commands/config.js');
+    const cmd = createConfigCommand();
+    captureOutput(() => cmd.parse(['set', 'project', 'default-proj'], { from: 'user' }));
+    captureOutput(() => cmd.parse(['set', 'project', 'acme-proj', '--org', 'acme'], { from: 'user' }));
+    const { loadConfig } = await import('../../src/services/config-store.js');
+    const cfg = loadConfig();
+    expect(cfg.project).toBe('default-proj');
+    expect(cfg.organizations?.['acme']?.project).toBe('acme-proj');
+  });
+});
+
+describe('config get --org', () => {
+  it('reads from org scope when --org is given', async () => {
+    const { setOrgScopedValue } = await import('../../src/services/config-store.js');
+    setOrgScopedValue('acme', 'project', 'acme-proj');
+    const { createConfigCommand } = await import('../../src/commands/config.js');
+    const cmd = createConfigCommand();
+    const { stdout } = captureOutput(() => cmd.parse(['get', 'project', '--org', 'acme'], { from: 'user' }));
+    expect(stdout).toContain('acme-proj');
+  });
+});
+
+describe('config unset --org', () => {
+  it('removes key from org scope', async () => {
+    const { setOrgScopedValue, loadConfig } = await import('../../src/services/config-store.js');
+    setOrgScopedValue('acme', 'project', 'p');
+    const { createConfigCommand } = await import('../../src/commands/config.js');
+    const cmd = createConfigCommand();
+    captureOutput(() => cmd.parse(['unset', 'project', '--org', 'acme'], { from: 'user' }));
+    expect(loadConfig().organizations?.['acme']).toBeUndefined();
+  });
+});
+
+describe('config org-copy / org-move / org-delete', () => {
+  it('org-copy copies settings from default to named org', async () => {
+    const { saveConfig, loadConfig } = await import('../../src/services/config-store.js');
+    saveConfig({ project: 'default-proj' });
+    const { createConfigCommand } = await import('../../src/commands/config.js');
+    const cmd = createConfigCommand();
+    captureOutput(() => cmd.parse(['org-copy', 'default', 'acme'], { from: 'user' }));
+    expect(loadConfig().organizations?.['acme']?.project).toBe('default-proj');
+  });
+
+  it('org-move moves and removes source', async () => {
+    const { setOrgScopedValue, loadConfig } = await import('../../src/services/config-store.js');
+    setOrgScopedValue('acme', 'project', 'p');
+    const { createConfigCommand } = await import('../../src/commands/config.js');
+    const cmd = createConfigCommand();
+    captureOutput(() => cmd.parse(['org-move', 'acme', 'globex'], { from: 'user' }));
+    const cfg = loadConfig();
+    expect(cfg.organizations?.['acme']).toBeUndefined();
+    expect(cfg.organizations?.['globex']?.project).toBe('p');
+  });
+
+  it('org-delete removes the org scope', async () => {
+    const { setOrgScopedValue, loadConfig } = await import('../../src/services/config-store.js');
+    setOrgScopedValue('acme', 'project', 'p');
+    const { createConfigCommand } = await import('../../src/commands/config.js');
+    const cmd = createConfigCommand();
+    captureOutput(() => cmd.parse(['org-delete', 'acme'], { from: 'user' }));
+    expect(loadConfig().organizations?.['acme']).toBeUndefined();
+  });
+});
+
+describe('config list with scope', () => {
+  it('shows scope column in human-readable output for org-scoped entries', async () => {
+    const { setOrgScopedValue, saveConfig } = await import('../../src/services/config-store.js');
+    saveConfig({ project: 'default-proj' });
+    setOrgScopedValue('acme', 'project', 'acme-proj');
+    const { createConfigCommand } = await import('../../src/commands/config.js');
+    const cmd = createConfigCommand();
+    const { stdout } = captureOutput(() => cmd.parse(['list'], { from: 'user' }));
+    expect(stdout).toContain('acme');
+    expect(stdout).toContain('acme-proj');
+  });
+
+  it('includes scope field in --json output', async () => {
+    const { setOrgScopedValue, saveConfig } = await import('../../src/services/config-store.js');
+    saveConfig({ project: 'default-proj' });
+    setOrgScopedValue('acme', 'project', 'acme-proj');
+    const { createConfigCommand } = await import('../../src/commands/config.js');
+    const cmd = createConfigCommand();
+    const { stdout } = captureOutput(() => cmd.parse(['list', '--json'], { from: 'user' }));
+    const parsed = JSON.parse(stdout.trim());
+    const acmeEntry = (parsed as Array<{ scope: string; key: string; value: unknown }>)
+      .find((e) => e.scope === 'acme' && e.key === 'project');
+    expect(acmeEntry?.value).toBe('acme-proj');
   });
 });
