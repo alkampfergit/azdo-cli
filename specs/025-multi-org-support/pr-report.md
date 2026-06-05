@@ -10,18 +10,24 @@ Extends the Azure DevOps CLI to work reliably across multiple organizations: use
 
 ## What's New
 
-- **[`config-store.ts` — per-org scoping]**: [Placeholder — filled in step 11]
-- **[`config` CLI — org-scoped commands]**: [Placeholder — filled in step 11]
-- **[`azdo-client.ts` — TF51535 graceful degradation]**: [Placeholder — filled in step 11]
-- **[`git-remote.ts` — multi-remote discovery]**: [Placeholder — filled in step 11]
-- **[`remote-warning.ts` — credential-only trigger]**: [Placeholder — filled in step 11]
+- **`config-store.ts` — per-org scoping**: New `ScopedSettings` interface; `CliConfig` extended with `organizations` map; `resolveScopedConfig(org?)` performs per-key fallback (org value ?? default); `setOrgScopedValue`, `getOrgScopedValue`, `unsetOrgScopedValue`; `copyOrgScope`, `moveOrgScope`, `deleteOrgScope` with `--force` support.
+
+- **`config` CLI — org-scoped commands**: `config set/get/unset` gain `--org <name>` option; `config list` adds scope column in table output and structured `{ scope, key, value }` entries in `--json`; new subcommands `org-copy <from> <to> [--force]`, `org-move <from> <to> [--force]`, `org-delete <name>`.
+
+- **`azdo-client.ts` — TF51535 graceful degradation**: `getWorkItem()` catches 400+TF51535, fetches the org field list via new `getOrgFieldNames()`, partitions configured extra fields into existing/missing, warns once per missing field on stderr, retries with only the existing fields. Commands no longer abort on unrecognised field names.
+
+- **`git-remote.ts` — multi-remote discovery**: New `RemoteCandidate` type and `parseAllAzdoRemotes(output)` parse all remotes from `git remote -v`; `selectRemote(candidates)` chooses: prefers `origin`, falls back to single candidate or shared org/project, throws a clear ambiguity error listing remote names when multiple distinct orgs exist. `detectAzdoContext()` now enumerates all remotes (stderr suppressed) instead of only reading `origin`. `context.ts` uses `resolveScopedConfig(org)` for project lookup.
+
+- **`remote-warning.ts` — credential-only trigger**: `noticeCredentialBearingRemote(remoteName)` now accepts the actual remote name (default `'origin'`), templates it into the warning message, and only fires when the URL carries both username AND password (`user:token@`). Bare `user@` URLs are no longer flagged. `org-resolver.ts` error guidance no longer hardcodes "origin".
 
 ## Testing
 
-- **Unit**: [Placeholder — filled in step 11]
-- **Integration**: [Placeholder — filled in step 11]
+- **Unit**: 776 tests across 53 test files — all pass. New suites cover `resolveScopedConfig`, org-scoped CRUD, `parseAllAzdoRemotes`/`selectRemote`, TF51535 fallback, credential warning precision, and config CLI `--org` option.
+- **Integration**: New `tests/integration/config-org.test.ts` — 11 tests covering `config list` scope display, `org-copy/move/delete`, and `--force` collision handling.
+- **Gate**: `npm run test:unit && npm run lint && npm run build` — all pass (0 lint errors).
 
 ## Notes
 
 - No new runtime dependencies — existing TypeScript 5.x / commander.js / native `fetch` stack.
 - Backward-compatible config file: existing single-org configs continue to work unchanged as the default scope.
+- The pre-existing `pull-requests.test.ts` integration flakiness (undefined thread status from live AzDO API) is not introduced by this PR.
