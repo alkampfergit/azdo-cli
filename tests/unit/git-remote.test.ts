@@ -136,3 +136,109 @@ describe('parseAzdoRemote / parseRepoName — frozen parity (C-7, FR-007)', () =
     });
   }
 });
+
+// ── T016: multi-remote detection (multi-org support #55) ─────────────────────
+
+import { parseAllAzdoRemotes, selectRemote } from '../../src/services/git-remote.js';
+import type { RemoteCandidate } from '../../src/services/git-remote.js';
+
+describe('parseAllAzdoRemotes', () => {
+  it('parses a single AZDO remote from git remote -v output', () => {
+    const output = [
+      'origin\thttps://dev.azure.com/myorg/myproject/_git/myrepo (fetch)',
+      'origin\thttps://dev.azure.com/myorg/myproject/_git/myrepo (push)',
+    ].join('\n');
+    const candidates = parseAllAzdoRemotes(output);
+    expect(candidates).toHaveLength(1);
+    expect(candidates[0]).toMatchObject({ remoteName: 'origin', org: 'myorg', project: 'myproject', hasEmbeddedSecret: false });
+  });
+
+  it('parses multiple AZDO remotes with different names', () => {
+    const output = [
+      'origin\thttps://github.com/user/repo.git (fetch)',
+      'origin\thttps://github.com/user/repo.git (push)',
+      'azdo\thttps://dev.azure.com/myorg/myproject/_git/myrepo (fetch)',
+      'azdo\thttps://dev.azure.com/myorg/myproject/_git/myrepo (push)',
+    ].join('\n');
+    const candidates = parseAllAzdoRemotes(output);
+    expect(candidates).toHaveLength(1);
+    expect(candidates[0].remoteName).toBe('azdo');
+  });
+
+  it('sets hasEmbeddedSecret=true for user:token@ URLs', () => {
+    const output = 'azdo\thttps://user:token@dev.azure.com/myorg/myproject/_git/myrepo (fetch)\n';
+    const candidates = parseAllAzdoRemotes(output);
+    expect(candidates[0].hasEmbeddedSecret).toBe(true);
+  });
+
+  it('sets hasEmbeddedSecret=false for bare user@ URLs', () => {
+    const output = 'origin\thttps://user@dev.azure.com/myorg/myproject/_git/myrepo (fetch)\n';
+    const candidates = parseAllAzdoRemotes(output);
+    expect(candidates[0].hasEmbeddedSecret).toBe(false);
+  });
+
+  it('deduplicates: same remote appears only once (fetch + push lines)', () => {
+    const output = [
+      'azdo\thttps://dev.azure.com/myorg/myproject/_git/myrepo (fetch)',
+      'azdo\thttps://dev.azure.com/myorg/myproject/_git/myrepo (push)',
+    ].join('\n');
+    const candidates = parseAllAzdoRemotes(output);
+    expect(candidates).toHaveLength(1);
+  });
+
+  it('returns empty array when no AZDO remotes', () => {
+    const output = 'origin\thttps://github.com/user/repo.git (fetch)\n';
+    expect(parseAllAzdoRemotes(output)).toHaveLength(0);
+  });
+
+  it('returns empty array for empty output', () => {
+    expect(parseAllAzdoRemotes('')).toHaveLength(0);
+  });
+});
+
+describe('selectRemote', () => {
+  const makeCandidate = (remoteName: string, org = 'myorg', project = 'myproject'): RemoteCandidate => ({
+    remoteName, org, project, hasEmbeddedSecret: false,
+  });
+
+  it('selects origin when origin is among candidates', () => {
+    const candidates = [makeCandidate('azdo'), makeCandidate('origin')];
+    expect(selectRemote(candidates).remoteName).toBe('origin');
+  });
+
+  it('selects the single non-origin AZDO remote', () => {
+    const candidates = [makeCandidate('azdo')];
+    expect(selectRemote(candidates).remoteName).toBe('azdo');
+  });
+
+  it('selects first candidate when all share same org/project (no origin)', () => {
+    const candidates = [makeCandidate('upstream'), makeCandidate('fork')];
+    expect(selectRemote(candidates).remoteName).toBe('upstream');
+  });
+
+  it('throws ambiguity error when multiple distinct org/project and no origin', () => {
+    const candidates = [
+      makeCandidate('r1', 'org1', 'proj1'),
+      makeCandidate('r2', 'org2', 'proj2'),
+    ];
+    expect(() => selectRemote(candidates)).toThrow(/ambiguous|--org/i);
+  });
+
+  it('ambiguity error lists all remote names', () => {
+    const candidates = [
+      makeCandidate('alpha', 'org1', 'proj1'),
+      makeCandidate('beta', 'org2', 'proj2'),
+    ];
+    try {
+      selectRemote(candidates);
+    } catch (err) {
+      const msg = (err as Error).message;
+      expect(msg).toContain('alpha');
+      expect(msg).toContain('beta');
+    }
+  });
+
+  it('throws "provide --org and --project" guidance when no candidates', () => {
+    expect(() => selectRemote([])).toThrow(/--org/i);
+  });
+});

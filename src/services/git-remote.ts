@@ -29,11 +29,94 @@ const patterns: RegExp[] = [
 // credential, so it deliberately does not match here.
 const httpsUserinfo = /^https?:\/\/[^@/]+@/;
 
+// True only when the HTTPS userinfo contains BOTH a username AND a password/token
+// (`<user>:<token>@`). A bare `<user>@` prefix is not a credential — it only
+// identifies the account and never contains a secret.
+const httpsEmbeddedSecret = /^https?:\/\/[^:@/]+:[^@/]+@/;
+
+export interface RemoteCandidate {
+  remoteName: string;
+  org: string;
+  project: string;
+  hasEmbeddedSecret: boolean;
+}
+
+/**
+ * Parse the raw stdout of `git remote -v` (tab-delimited, may include fetch
+ * and push lines) and return one `RemoteCandidate` per distinct AZDO remote.
+ */
+export function parseAllAzdoRemotes(output: string): RemoteCandidate[] {
+  const seen = new Set<string>();
+  const results: RemoteCandidate[] = [];
+
+  for (const line of output.split('\n')) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+
+    // Format: "<name>\t<url> (fetch|push)"
+    const tabIdx = trimmed.indexOf('\t');
+    if (tabIdx === -1) continue;
+
+    const remoteName = trimmed.slice(0, tabIdx);
+    if (seen.has(remoteName)) continue;
+
+    // Strip the trailing " (fetch)" / " (push)" annotation
+    const afterTab = trimmed.slice(tabIdx + 1);
+    const urlEnd = afterTab.lastIndexOf(' (');
+    const url = urlEnd !== -1 ? afterTab.slice(0, urlEnd) : afterTab;
+
+    for (const pattern of patterns) {
+      const match = pattern.exec(url);
+      if (match) {
+        const project = match[2];
+        if (/^DefaultCollection$/i.test(project)) break;
+        seen.add(remoteName);
+        results.push({
+          remoteName,
+          org: match[1],
+          project,
+          hasEmbeddedSecret: httpsEmbeddedSecret.test(url),
+        });
+        break;
+      }
+    }
+  }
+
+  return results;
+}
+
+/**
+ * Choose a single `RemoteCandidate` from the list following four-case logic:
+ * 1. Empty list → throw (no AZDO remote found)
+ * 2. Contains `origin` → return `origin`
+ * 3. Single candidate → return it
+ * 4. Multiple candidates with same org/project → return first; otherwise throw ambiguity error
+ */
+export function selectRemote(candidates: RemoteCandidate[]): RemoteCandidate {
+  if (candidates.length === 0) {
+    throw new Error('No Azure DevOps remote found. Provide --org and --project explicitly.');
+  }
+
+  const origin = candidates.find((c) => c.remoteName === 'origin');
+  if (origin) return origin;
+
+  if (candidates.length === 1) return candidates[0];
+
+  const first = candidates[0];
+  const allSame = candidates.every((c) => c.org === first.org && c.project === first.project);
+  if (allSame) return first;
+
+  const names = candidates.map((c) => c.remoteName).join(', ');
+  throw new Error(
+    `Ambiguous Azure DevOps remotes (${names}). Provide --org and --project explicitly.`,
+  );
+}
+
 export function parseAzdoRemote(url: string): AzdoContext | null {
   for (const pattern of patterns) {
     const match = pattern.exec(url);
     if (match) {
-      if (httpsUserinfo.test(url)) {
+      if (httpsEmbeddedSecret.test(url)) {
         noticeCredentialBearingRemote();
       }
       const project = match[2];
@@ -48,26 +131,29 @@ export function parseAzdoRemote(url: string): AzdoContext | null {
 }
 
 export function detectAzdoContext(): AzdoContext {
-  let remoteUrl: string;
+  let remoteListOutput: string;
   try {
-    remoteUrl = execSync('git remote get-url origin', { encoding: 'utf-8' }).trim();
+    remoteListOutput = execSync('git remote -v', {
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+    }).trim();
   } catch {
     throw new Error('Not in a git repository. Provide --org and --project explicitly.');
   }
 
-  const context = parseAzdoRemote(remoteUrl);
-  if (!context || (!context.org && !context.project)) {
-    throw new Error('Git remote "origin" is not an Azure DevOps URL. Provide --org and --project explicitly.');
+  const candidates = parseAllAzdoRemotes(remoteListOutput);
+  const selected = selectRemote(candidates);
+  if (selected.hasEmbeddedSecret) {
+    noticeCredentialBearingRemote(selected.remoteName);
   }
-
-  return context;
+  return { org: selected.org, project: selected.project };
 }
 
 export function parseRepoName(url: string): string | null {
   for (const pattern of patterns) {
     const match = pattern.exec(url);
     if (match) {
-      if (httpsUserinfo.test(url)) {
+      if (httpsEmbeddedSecret.test(url)) {
         noticeCredentialBearingRemote();
       }
       return match[3];
