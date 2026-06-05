@@ -1,0 +1,20 @@
+{
+  "extraKnownMarketplaces": {
+    "microsoft-docs-marketplace": {
+      "source": {
+        "source": "github",
+        "repo": "microsoftdocs/mcp"
+      }
+    },
+    "context7-marketplace": {
+      "source": {
+        "source": "github",
+        "repo": "upstash/context7"
+      }
+    }
+  },
+  "enabledPlugins": {
+    "microsoft-docs@microsoft-docs-marketplace": true,
+    "context7-plugin@context7-marketplace": true
+  }
+}
