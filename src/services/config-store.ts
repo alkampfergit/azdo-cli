@@ -104,7 +104,7 @@ function validateKey(key: string): void {
 export function getConfigValue(key: string): string | string[] | boolean | undefined {
   validateKey(key);
   const config = loadConfig();
-  return config[key as keyof CliConfig];
+  return config[key as keyof CliConfig] as string | string[] | boolean | undefined;
 }
 
 export function setConfigValue(key: string, value: string): void {
