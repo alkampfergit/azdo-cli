@@ -15,7 +15,7 @@
 | `azdo list-fields <id>` | List all fields of a work item | `--json`, `--org`, `--project` |
 | `azdo pr <subcommand>` | Manage pull requests (current branch or by `--pr-number`) | `status`, `open`, `comments`, `comment-resolve`, `comment-reopen`, `--pr-number`, `--hide-resolved`, `--exclude-resolved`, `--code-related-only`, `--json`, `--org`, `--project` |
 | `azdo pipeline <subcommand>` | Inspect and operate Azure DevOps pipelines | `list`, `get-runs`, `wait`, `get-run-detail`, `logs`, `start`, `--filter`, `--limit`, `--branch`, `--timeout`, `--poll-interval`, `--log-id`, `--parameter`, `--json`, `--org`, `--project` |
-| `azdo config <subcommand>` | Manage saved settings | `set`, `get`, `list`, `unset`, `wizard`, `--json` |
+| `azdo config <subcommand>` | Manage saved settings | `set [--org]`, `get [--org]`, `unset [--org]`, `list`, `org-copy`, `org-move`, `org-delete`, `unset`, `wizard`, `--json` |
 | `azdo auth login` | Authenticate against an org — OAuth (Microsoft Entra) by default, or a PAT with `--use-pat` | `--org`, `--use-pat`, `--device-code`, `--client-id`, `--tenant-id`, `--scopes`, `--from-stdin`, `--no-browser` |
 | `azdo auth` | Legacy PAT-prompt entry point (back-compat alias of `azdo auth login --use-pat`) | `--org`, `--from-stdin`, `--no-browser` |
 | `azdo auth status` | Report stored credentials (kind `pat`/`oauth`, org, account/expiry, backend) — never the token | `--org`, `--json` |
@@ -273,14 +273,33 @@ Raw reference names (e.g. `System.Title`) are also accepted.
 ## Configuration
 
 ```bash
+# Default scope (applies to all orgs unless overridden)
 azdo config list
 azdo config wizard
 azdo config set markdown true
 azdo config set fields "System.Tags,Custom.Priority"
 azdo config get fields
 azdo config unset fields
-azdo config list --json
+azdo config list --json          # structured array with scope/key/value fields
+
+# Per-org overrides
+azdo config set project acme-proj --org acme
+azdo config get project --org acme
+azdo config unset project --org acme
+
+# Org scope management
+azdo config org-copy default acme       # copy default settings into org "acme"
+azdo config org-copy acme globex        # copy between orgs
+azdo config org-move acme globex        # move (removes source)
+azdo config org-delete acme             # delete org scope
+azdo config org-copy default acme --force   # overwrite on collision
 ```
+
+Resolution order for `get-item`, `set-state`, and other work item commands:
+1. `--org` / `--project` CLI flags
+2. Git remote (any Azure DevOps remote, not just `origin`)
+3. Org-scoped config (`organizations.<org>.project`)
+4. Default config (`project`)
 
 ## Update notifications
 
