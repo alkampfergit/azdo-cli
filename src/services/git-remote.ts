@@ -24,11 +24,6 @@ const patterns: RegExp[] = [
   /^[^@]+@vs-ssh\.visualstudio\.com:v3\/([^/]+)\/([^/]+)\/([^/]+?)(?:\.git)?$/,
 ];
 
-// True when an HTTPS URL carries a userinfo prefix (`<user>@` /
-// `<user>:<token>@`). SSH `user@host:` syntax is structural, not an embedded
-// credential, so it deliberately does not match here.
-const httpsUserinfo = /^https?:\/\/[^@/]+@/;
-
 // True only when the HTTPS userinfo contains BOTH a username AND a password/token
 // (`<user>:<token>@`). A bare `<user>@` prefix is not a credential — it only
 // identifies the account and never contains a secret.
