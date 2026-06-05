@@ -5,6 +5,12 @@
 **Status**: Draft
 **Input**: User description: "Multi-organization support fixes for the azdo CLI (GitHub issue #55): remote discovery for any Azure DevOps remote name, consistent embedded-credentials warning, graceful degradation for missing custom fields, per-organization configuration scoping with list/delete/move, suppress git noise outside git repositories"
 
+## Clarifications
+
+### Session 2026-06-05
+
+- Q: For list-valued keys such as `fields`, should an org-scoped value REPLACE the default list or MERGE with it? → A: Fully replace [owner: alkampfergit, 2026-06-05]
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Per-organization configuration (Priority: P1)
@@ -107,7 +113,7 @@ A user sees `azdo: warning: origin includes embedded credentials…` when workin
 **Per-organization configuration (US1)**
 
 - **FR-001**: The system MUST support configuration entries scoped to a single named organization in addition to the existing default (organization-independent) entries.
-- **FR-002**: When resolving a configuration key for a command, the system MUST use the org-scoped value when one exists for the target organization, otherwise the default value. Resolution is per key: an org-scoped configuration overrides only the keys it defines. [NEEDS CLARIFICATION: for list-valued keys such as `fields`, should an org-scoped value REPLACE the default list or MERGE with it? Replace is assumed unless stated otherwise.]
+- **FR-002**: When resolving a configuration key for a command, the system MUST use the org-scoped value when one exists for the target organization, otherwise the default value. Resolution is per key: an org-scoped configuration overrides only the keys it defines. For list-valued keys (e.g. `fields`) the org-scoped value FULLY REPLACES the default list for that organization — no merging or inheritance from the default list.
 - **FR-003**: Users MUST be able to create or update an org-scoped value by naming the organization at set time.
 - **FR-004**: Users MUST be able to list all configuration entries with their scope visible (default vs organization name), in both human-readable and JSON output.
 - **FR-005**: Users MUST be able to delete an org-scoped entry without affecting the default configuration.
