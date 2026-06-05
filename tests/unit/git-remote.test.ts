@@ -242,3 +242,43 @@ describe('selectRemote', () => {
     expect(() => selectRemote([])).toThrow(/--org/i);
   });
 });
+
+// ── T016b: gitConfigToRemoteLines (detectAzdoContext without subprocess) ─────
+import { gitConfigToRemoteLines } from '../../src/services/git-remote.js';
+
+describe('gitConfigToRemoteLines', () => {
+  it('produces parseAllAzdoRemotes-compatible output for a single remote', () => {
+    const config = `[core]\n\trepositoryformatversion = 0\n[remote "origin"]\n\turl = https://dev.azure.com/myorg/myproject/_git/myrepo\n\tfetch = +refs/heads/*:refs/remotes/origin/*\n`;
+    const lines = gitConfigToRemoteLines(config);
+    const candidates = parseAllAzdoRemotes(lines);
+    expect(candidates).toHaveLength(1);
+    expect(candidates[0]).toMatchObject({ remoteName: 'origin', org: 'myorg', project: 'myproject' });
+  });
+
+  it('emits one line per remote even when multiple remotes are present', () => {
+    const config = [
+      '[remote "origin"]',
+      '\turl = https://dev.azure.com/org1/proj1/_git/repo1',
+      '[remote "upstream"]',
+      '\turl = https://dev.azure.com/org2/proj2/_git/repo2',
+    ].join('\n');
+    const lines = gitConfigToRemoteLines(config);
+    expect(lines.split('\n').filter(Boolean)).toHaveLength(2);
+    const candidates = parseAllAzdoRemotes(lines);
+    expect(candidates).toHaveLength(2);
+    expect(candidates[0]).toMatchObject({ remoteName: 'origin', org: 'org1' });
+    expect(candidates[1]).toMatchObject({ remoteName: 'upstream', org: 'org2' });
+  });
+
+  it('skips non-remote sections without emitting lines', () => {
+    const config = '[core]\n\trepositoryformatversion = 0\n[branch "main"]\n\tremote = origin\n';
+    expect(gitConfigToRemoteLines(config)).toBe('');
+  });
+
+  it('only emits first url= for a remote with multiple url= entries', () => {
+    const config = '[remote "origin"]\n\turl = https://dev.azure.com/org1/proj1/_git/repo1\n\turl = https://dev.azure.com/org2/proj2/_git/repo2\n';
+    const lines = gitConfigToRemoteLines(config).split('\n').filter(Boolean);
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toContain('org1');
+  });
+});

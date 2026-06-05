@@ -1,4 +1,6 @@
 import { execSync } from 'node:child_process';
+import fs from 'node:fs';
+import path from 'node:path';
 import type { AzdoContext } from '../types/work-item.js';
 import { noticeCredentialBearingRemote } from './remote-warning.js';
 
@@ -125,18 +127,88 @@ export function parseAzdoRemote(url: string): AzdoContext | null {
   return null;
 }
 
+/**
+ * Locate the `.git/config` file for the current working directory by walking
+ * up the directory tree. Returns the config file contents, or throws if the
+ * cwd is not inside a git repository.
+ */
+function readGitConfigContent(): string {
+  const gitDirEnv = process.env.GIT_DIR;
+  if (gitDirEnv) {
+    return fs.readFileSync(path.join(gitDirEnv, 'config'), 'utf-8');
+  }
+
+  let dir = process.cwd();
+  for (;;) {
+    const gitPath = path.join(dir, '.git');
+    try {
+      const stat = fs.statSync(gitPath);
+      if (stat.isDirectory()) {
+        return fs.readFileSync(path.join(gitPath, 'config'), 'utf-8');
+      }
+      if (stat.isFile()) {
+        // Worktree / submodule: `.git` is a file with "gitdir: <path>"
+        const ref = fs.readFileSync(gitPath, 'utf-8');
+        const m = /^gitdir:\s*(.+)$/m.exec(ref);
+        if (m) {
+          return fs.readFileSync(path.join(path.resolve(dir, m[1].trim()), 'config'), 'utf-8');
+        }
+      }
+    } catch { /* .git not present here — keep walking */ }
+    const parent = path.dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+
+  throw new Error('Not in a git repository. Provide --org and --project explicitly.');
+}
+
+/**
+ * Parse `[remote "name"]` sections from a git config file content and return
+ * a `git remote -v`-compatible text block (one "<name>\t<url> (fetch)" line
+ * per remote) for use by `parseAllAzdoRemotes`.
+ *
+ * Exported for unit testing.
+ */
+export function gitConfigToRemoteLines(configContent: string): string {
+  const lines: string[] = [];
+  let currentRemote: string | null = null;
+  let emittedUrl = false;
+
+  for (const line of configContent.split('\n')) {
+    const sectionMatch = /^\[remote\s+"([^"]+)"\]/.exec(line);
+    if (sectionMatch) {
+      currentRemote = sectionMatch[1];
+      emittedUrl = false;
+      continue;
+    }
+    if (/^\[/.test(line)) {
+      currentRemote = null;
+      emittedUrl = false;
+      continue;
+    }
+    if (currentRemote && !emittedUrl) {
+      const urlMatch = /^\s+url\s*=\s*(.+)$/.exec(line);
+      if (urlMatch) {
+        lines.push(`${currentRemote}\t${urlMatch[1].trim()} (fetch)`);
+        emittedUrl = true;
+      }
+    }
+  }
+
+  return lines.join('\n');
+}
+
 export function detectAzdoContext(): AzdoContext {
-  let remoteListOutput: string;
+  let configContent: string;
   try {
-    remoteListOutput = execSync('git remote -v', {
-      encoding: 'utf-8',
-      stdio: ['pipe', 'pipe', 'pipe'],
-    }).trim();
+    configContent = readGitConfigContent();
   } catch {
     throw new Error('Not in a git repository. Provide --org and --project explicitly.');
   }
 
-  const candidates = parseAllAzdoRemotes(remoteListOutput);
+  const remoteLines = gitConfigToRemoteLines(configContent);
+  const candidates = parseAllAzdoRemotes(remoteLines);
   const selected = selectRemote(candidates);
   if (selected.hasEmbeddedSecret) {
     noticeCredentialBearingRemote(selected.remoteName);
