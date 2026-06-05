@@ -13,8 +13,8 @@
 
 ## Requirement Completeness
 
-- [ ] No [NEEDS CLARIFICATION] markers remain — **2 markers outstanding** (US5 warning trigger rule; FR-002 replace-vs-merge for list-valued keys). Routed to `/speckit-clarify` per the speckit-gh flow.
-- [x] Requirements are testable and unambiguous (except the 2 marked items)
+- [x] No [NEEDS CLARIFICATION] markers remain — both resolved in Clarifications Session 2026-06-05 (FR-002: fully replace; FR-016: warn only on embedded token).
+- [x] Requirements are testable and unambiguous
 - [x] Success criteria are measurable
 - [x] Success criteria are technology-agnostic (no implementation details)
 - [x] All acceptance scenarios are defined
@@ -31,4 +31,4 @@
 
 ## Notes
 
-- The two outstanding [NEEDS CLARIFICATION] markers are deliberate: both have multiple reasonable interpretations with different user-facing implications and are queued for the owner via `/speckit-clarify` on GitHub issue #55.
+- All checklist items pass. The two original [NEEDS CLARIFICATION] markers were answered by the owner on GitHub issue #55 (2026-06-05) and integrated into the spec.

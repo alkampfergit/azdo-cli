@@ -10,6 +10,7 @@
 ### Session 2026-06-05
 
 - Q: For list-valued keys such as `fields`, should an org-scoped value REPLACE the default list or MERGE with it? → A: Fully replace [owner: alkampfergit, 2026-06-05]
+- Q: When should the embedded-credentials warning fire — any userinfo, token-only, or config-suppressible? → A: Only when a password/token is embedded (`user:secret@`); bare `user@` is silent [owner: alkampfergit, 2026-06-05]
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -83,7 +84,7 @@ A user runs the CLI from a directory that is not a git repository, relying on de
 
 ### User Story 5 - Embedded-credentials warning is consistent and explainable (Priority: P3)
 
-A user sees `azdo: warning: origin includes embedded credentials…` when working against their secondary organization but not their primary one, and doesn't understand why. The warning fires when the remote URL embeds userinfo (e.g. `https://username@dev.azure.com/…`), which is how Azure DevOps formats clone URLs by default. The warning must be accurate (name the actual remote it refers to, which may not be `origin` once US3 lands) and must not misfire for URLs that embed only a username without a secret. [NEEDS CLARIFICATION: should the warning (a) keep firing for any userinfo including bare usernames, (b) fire only when a password/token is embedded (`user:secret@`), or (c) become suppressible via configuration — which combination?]
+A user sees `azdo: warning: origin includes embedded credentials…` when working against their secondary organization but not their primary one, and doesn't understand why. The warning fires when the remote URL embeds userinfo (e.g. `https://username@dev.azure.com/…`), which is how Azure DevOps formats clone URLs by default. The warning must be accurate (name the actual remote it refers to, which may not be `origin` once US3 lands) and must not misfire for URLs that embed only a username without a secret: it fires **only when a password/token is embedded** (`user:secret@`); a bare username (`user@` — Azure DevOps' default clone-URL format) is silent.
 
 **Why this priority**: Informational warning; behaviour is technically correct today but confusing in multi-org setups.
 
@@ -91,8 +92,8 @@ A user sees `azdo: warning: origin includes embedded credentials…` when workin
 
 **Acceptance Scenarios**:
 
-1. **Given** an Azure DevOps remote with embedded userinfo per the clarified rule, **When** the CLI uses it, **Then** the warning is emitted once per process, on the error stream, naming the remote actually used.
-2. **Given** a clean remote URL, **When** the CLI uses it, **Then** no warning is emitted.
+1. **Given** an Azure DevOps remote embedding a password/token (`user:secret@`), **When** the CLI uses it, **Then** the warning is emitted once per process, on the error stream, naming the remote actually used.
+2. **Given** a clean remote URL or one embedding only a bare username (`user@`), **When** the CLI uses it, **Then** no warning is emitted.
 
 ---
 
@@ -140,7 +141,7 @@ A user sees `azdo: warning: origin includes embedded credentials…` when workin
 
 **Embedded-credentials warning (US5)**
 
-- **FR-016**: The warning MUST reference the remote actually used for detection (not hard-code `origin`), fire at most once per process, target the error stream, and never leak any credential content. Trigger condition per the US5 clarification.
+- **FR-016**: The warning MUST fire only when the remote URL embeds a password/token (`user:secret@`) — a bare username (`user@`) MUST NOT trigger it. It MUST reference the remote actually used for detection (not hard-code `origin`), fire at most once per process, target the error stream, and never leak any credential content.
 
 ### Key Entities
 
