@@ -149,7 +149,7 @@ function readGitConfigContent(): string {
       if (stat.isFile()) {
         // Worktree / submodule: `.git` is a file with "gitdir: <path>"
         const ref = fs.readFileSync(gitPath, 'utf-8');
-        const m = /^gitdir:\s*(.+)$/m.exec(ref);
+        const m = /^gitdir:[ \t]*([^\r\n]+)/m.exec(ref);
         if (m) {
           return fs.readFileSync(path.join(path.resolve(dir, m[1].trim()), 'config'), 'utf-8');
         }
@@ -188,7 +188,7 @@ export function gitConfigToRemoteLines(configContent: string): string {
       continue;
     }
     if (currentRemote && !emittedUrl) {
-      const urlMatch = /^\s+url\s*=\s*(.+)$/.exec(line);
+      const urlMatch = /^[ \t]+url[ \t]*=[ \t]*([^\r\n]+)/.exec(line);
       if (urlMatch) {
         lines.push(`${currentRemote}\t${urlMatch[1].trim()} (fetch)`);
         emittedUrl = true;
