@@ -38,6 +38,31 @@ export interface RemoteCandidate {
   hasEmbeddedSecret: boolean;
 }
 
+function parseSingleRemoteLine(line: string): { remoteName: string; url: string } | null {
+  const trimmed = line.trim();
+  if (!trimmed) return null;
+  // Format: "<name>\t<url> (fetch|push)"
+  const tabIdx = trimmed.indexOf('\t');
+  if (tabIdx === -1) return null;
+  const remoteName = trimmed.slice(0, tabIdx);
+  // Strip the trailing " (fetch)" / " (push)" annotation
+  const afterTab = trimmed.slice(tabIdx + 1);
+  const urlEnd = afterTab.lastIndexOf(' (');
+  const url = urlEnd === -1 ? afterTab : afterTab.slice(0, urlEnd);
+  return { remoteName, url };
+}
+
+function matchAzdoRemote(remoteName: string, url: string): RemoteCandidate | null {
+  for (const pattern of patterns) {
+    const match = pattern.exec(url);
+    if (!match) continue;
+    const project = match[2];
+    if (/^DefaultCollection$/i.test(project)) return null;
+    return { remoteName, org: match[1], project, hasEmbeddedSecret: httpsEmbeddedSecret.test(url) };
+  }
+  return null;
+}
+
 /**
  * Parse the raw stdout of `git remote -v` (tab-delimited, may include fetch
  * and push lines) and return one `RemoteCandidate` per distinct AZDO remote.
@@ -47,35 +72,14 @@ export function parseAllAzdoRemotes(output: string): RemoteCandidate[] {
   const results: RemoteCandidate[] = [];
 
   for (const line of output.split('\n')) {
-    const trimmed = line.trim();
-    if (!trimmed) continue;
-
-    // Format: "<name>\t<url> (fetch|push)"
-    const tabIdx = trimmed.indexOf('\t');
-    if (tabIdx === -1) continue;
-
-    const remoteName = trimmed.slice(0, tabIdx);
+    const parsed = parseSingleRemoteLine(line);
+    if (!parsed) continue;
+    const { remoteName, url } = parsed;
     if (seen.has(remoteName)) continue;
-
-    // Strip the trailing " (fetch)" / " (push)" annotation
-    const afterTab = trimmed.slice(tabIdx + 1);
-    const urlEnd = afterTab.lastIndexOf(' (');
-    const url = urlEnd !== -1 ? afterTab.slice(0, urlEnd) : afterTab;
-
-    for (const pattern of patterns) {
-      const match = pattern.exec(url);
-      if (match) {
-        const project = match[2];
-        if (/^DefaultCollection$/i.test(project)) break;
-        seen.add(remoteName);
-        results.push({
-          remoteName,
-          org: match[1],
-          project,
-          hasEmbeddedSecret: httpsEmbeddedSecret.test(url),
-        });
-        break;
-      }
+    const candidate = matchAzdoRemote(remoteName, url);
+    if (candidate) {
+      seen.add(remoteName);
+      results.push(candidate);
     }
   }
 
@@ -182,7 +186,7 @@ export function gitConfigToRemoteLines(configContent: string): string {
       emittedUrl = false;
       continue;
     }
-    if (/^\[/.test(line)) {
+    if (line.startsWith('[')) {
       currentRemote = null;
       emittedUrl = false;
       continue;

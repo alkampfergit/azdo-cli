@@ -17,7 +17,6 @@ import {
   moveOrgScope,
   deleteOrgScope,
 } from '../../src/services/config-store.js';
-import type { CliConfig } from '../../src/types/work-item.js';
 
 let tmpDir: string;
 let configPath: string;
@@ -212,7 +211,7 @@ describe('unsetConfigValue', () => {
 
 describe('resolveScopedConfig', () => {
   it('returns top-level defaults when no org given', () => {
-    saveConfig({ project: 'myproj', fields: ['System.Tags'] } as CliConfig);
+    saveConfig({ project: 'myproj', fields: ['System.Tags'] });
     const result = resolveScopedConfig();
     expect(result.project).toBe('myproj');
     expect(result.fields).toEqual(['System.Tags']);
@@ -222,14 +221,14 @@ describe('resolveScopedConfig', () => {
     saveConfig({
       project: 'default-proj',
       organizations: { acme: { project: 'acme-proj', fields: ['Custom.Field'] } },
-    } as CliConfig);
+    });
     const result = resolveScopedConfig('acme');
     expect(result.project).toBe('acme-proj');
     expect(result.fields).toEqual(['Custom.Field']);
   });
 
   it('falls back to default values when org has no matching scope', () => {
-    saveConfig({ project: 'myproj' } as CliConfig);
+    saveConfig({ project: 'myproj' });
     const result = resolveScopedConfig('unknown-org');
     expect(result.project).toBe('myproj');
   });
@@ -238,7 +237,7 @@ describe('resolveScopedConfig', () => {
     saveConfig({
       project: 'default-proj',
       organizations: { acme: { project: 'acme-proj' } },
-    } as CliConfig);
+    });
     expect(resolveScopedConfig('ACME').project).toBe('acme-proj');
     expect(resolveScopedConfig('Acme').project).toBe('acme-proj');
   });
@@ -247,7 +246,7 @@ describe('resolveScopedConfig', () => {
     saveConfig({
       fields: ['System.Tags', 'Custom.Default'],
       organizations: { acme: { fields: ['Custom.OrgOnly'] } },
-    } as CliConfig);
+    });
     const result = resolveScopedConfig('acme');
     expect(result.fields).toEqual(['Custom.OrgOnly']);
     expect(result.fields).not.toContain('System.Tags');
@@ -257,19 +256,19 @@ describe('resolveScopedConfig', () => {
     saveConfig({
       fields: ['System.Tags'],
       organizations: { acme: { project: 'acme-proj' } },
-    } as CliConfig);
+    });
     const result = resolveScopedConfig('acme');
     expect(result.fields).toEqual(['System.Tags']);
   });
 
   it('reads pre-feature config (no organizations key) without error', () => {
-    saveConfig({ org: 'myorg', project: 'myproj' } as CliConfig);
+    saveConfig({ org: 'myorg', project: 'myproj' });
     const result = resolveScopedConfig('anyorg');
     expect(result.project).toBe('myproj');
   });
 
   it('includes org in the resolved result', () => {
-    saveConfig({ org: 'myorg' } as CliConfig);
+    saveConfig({ org: 'myorg' });
     const result = resolveScopedConfig('myorg');
     expect(result.org).toBe('myorg');
   });
@@ -303,7 +302,7 @@ describe('setOrgScopedValue / getOrgScopedValue / unsetOrgScopedValue', () => {
   });
 
   it('does not affect default-scope values when setting org scope', () => {
-    saveConfig({ project: 'default-proj' } as CliConfig);
+    saveConfig({ project: 'default-proj' });
     setOrgScopedValue('acme', 'project', 'acme-proj');
     expect(getConfigValue('project')).toBe('default-proj');
   });
@@ -311,7 +310,7 @@ describe('setOrgScopedValue / getOrgScopedValue / unsetOrgScopedValue', () => {
 
 describe('copyOrgScope / moveOrgScope / deleteOrgScope', () => {
   it('copyOrgScope copies from default scope to named org', () => {
-    saveConfig({ project: 'default-proj', fields: ['System.Tags'] } as CliConfig);
+    saveConfig({ project: 'default-proj', fields: ['System.Tags'] });
     copyOrgScope('default', 'acme');
     const cfg = loadConfig();
     expect(cfg.organizations?.['acme']?.project).toBe('default-proj');
@@ -327,13 +326,13 @@ describe('copyOrgScope / moveOrgScope / deleteOrgScope', () => {
 
   it('copyOrgScope throws on collision without force', () => {
     setOrgScopedValue('acme', 'project', 'existing');
-    saveConfig({ ...loadConfig(), project: 'default-proj' } as CliConfig);
+    saveConfig({ ...loadConfig(), project: 'default-proj' });
     expect(() => copyOrgScope('default', 'acme')).toThrow();
   });
 
   it('copyOrgScope with force=true overwrites on collision', () => {
     setOrgScopedValue('acme', 'project', 'old');
-    saveConfig({ ...loadConfig(), project: 'new-default' } as CliConfig);
+    saveConfig({ ...loadConfig(), project: 'new-default' });
     copyOrgScope('default', 'acme', true);
     expect(getOrgScopedValue('acme', 'project')).toBe('new-default');
   });

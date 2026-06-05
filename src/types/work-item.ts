@@ -1,3 +1,5 @@
+export type ConfigValue = string | string[] | boolean | undefined;
+
 export interface WorkItemAttachment {
   name: string;
   size: number;

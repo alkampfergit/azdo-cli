@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import type { CliConfig, ScopedSettings } from '../types/work-item.js';
+import type { CliConfig, ConfigValue, ScopedSettings } from '../types/work-item.js';
 
 export interface SettingDefinition {
   key: keyof CliConfig;
@@ -101,7 +101,7 @@ function validateKey(key: string): void {
   }
 }
 
-export function getConfigValue(key: string): string | string[] | boolean | undefined {
+export function getConfigValue(key: string): ConfigValue {
   validateKey(key);
   const config = loadConfig();
   return config[key as keyof CliConfig] as string | string[] | boolean | undefined;
@@ -189,7 +189,7 @@ export function setOrgScopedValue(org: string, key: string, value: string): void
   const updated = applyValueToScope(existing, key, value);
   saveConfig({
     ...config,
-    organizations: { ...(config.organizations ?? {}), [lc]: updated },
+    organizations: { ...config.organizations, [lc]: updated },
   });
 }
 
@@ -203,7 +203,7 @@ export function unsetOrgScopedValue(org: string, key: string): void {
   const { [key as keyof ScopedSettings]: _, ...rest } = scope;
   saveConfig({
     ...config,
-    organizations: { ...(config.organizations ?? {}), [lc]: rest },
+    organizations: { ...config.organizations, [lc]: rest },
   });
 }
 
@@ -248,7 +248,7 @@ export function copyOrgScope(from: string, to: string, force = false): void {
   saveConfig({
     ...config,
     organizations: {
-      ...(config.organizations ?? {}),
+      ...config.organizations,
       [toLc]: { ...dest, ...source },
     },
   });

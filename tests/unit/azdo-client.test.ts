@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
   addWorkItemComment,
   createWorkItem,
+  getOrgFieldNames,
   getWorkItem,
   listWorkItemComments,
   updateWorkItem,
@@ -442,8 +443,6 @@ describe('addWorkItemComment', () => {
 });
 
 // ── T012: TF51535 missing-field graceful degradation (multi-org support #55) ──
-
-import { getOrgFieldNames } from '../../src/services/azdo-client.js';
 
 describe('getWorkItem — TF51535 fallback', () => {
   const tf51535Body = {

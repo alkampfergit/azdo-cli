@@ -348,30 +348,57 @@ export async function getOrgFieldNames(
   return (data.value ?? []).map((f) => f.referenceName);
 }
 
+function buildCombinedDescription(fields: AzdoWorkItemResponse['fields']): string | null {
+  const parts: { label: string; value: string }[] = [];
+  if (fields['System.Description']) {
+    parts.push({ label: 'Description', value: fields['System.Description'] });
+  }
+  if (fields['Microsoft.VSTS.Common.AcceptanceCriteria']) {
+    parts.push({ label: 'Acceptance Criteria', value: fields['Microsoft.VSTS.Common.AcceptanceCriteria'] });
+  }
+  if (fields['Microsoft.VSTS.TCM.ReproSteps']) {
+    parts.push({ label: 'Repro Steps', value: fields['Microsoft.VSTS.TCM.ReproSteps'] });
+  }
+  if (parts.length === 0) return null;
+  if (parts.length === 1) return parts[0].value;
+  return parts.map((p) => `<h3>${p.label}</h3>${p.value}`).join('');
+}
+
+async function fetchWorkItemWithFallback(
+  context: AzdoContext,
+  id: number,
+  cred: AuthCredential,
+  normalizedExtraFields: string[],
+): Promise<{ data: AzdoWorkItemResponse; effectiveExtraFields: string[] }> {
+  try {
+    const data = await fetchWorkItemResponse(context, id, cred, {
+      fields: normalizeFieldList([...DEFAULT_FIELDS, ...normalizedExtraFields]),
+    });
+    return { data, effectiveExtraFields: normalizedExtraFields };
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (!msg.includes('TF51535')) throw err;
+    // One or more requested fields don't exist; fetch the org field list, partition, warn, retry.
+    const orgFields = new Set(await getOrgFieldNames(context, cred));
+    const missing = normalizedExtraFields.filter((f) => !orgFields.has(f));
+    const effectiveExtraFields = normalizedExtraFields.filter((f) => orgFields.has(f));
+    for (const f of missing) {
+      process.stderr.write(`Warning: field "${f}" does not exist in this org and will be skipped.\n`);
+    }
+    const data = await fetchWorkItemResponse(context, id, cred, {
+      fields: normalizeFieldList([...DEFAULT_FIELDS, ...effectiveExtraFields]),
+    });
+    return { data, effectiveExtraFields };
+  }
+}
+
 export async function getWorkItem(context: AzdoContext, id: number, cred: AuthCredential, extraFields?: string[]): Promise<WorkItem> {
   const normalizedExtraFields = extraFields ? normalizeFieldList(extraFields) : [];
   let effectiveExtraFields = normalizedExtraFields;
   let data: AzdoWorkItemResponse;
 
   if (normalizedExtraFields.length > 0) {
-    try {
-      data = await fetchWorkItemResponse(context, id, cred, {
-        fields: normalizeFieldList([...DEFAULT_FIELDS, ...normalizedExtraFields]),
-      });
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err);
-      if (!msg.includes('TF51535')) throw err;
-      // One or more requested fields don't exist; fetch the org field list, partition, warn, retry.
-      const orgFields = new Set(await getOrgFieldNames(context, cred));
-      const missing = normalizedExtraFields.filter((f) => !orgFields.has(f));
-      effectiveExtraFields = normalizedExtraFields.filter((f) => orgFields.has(f));
-      for (const f of missing) {
-        process.stderr.write(`Warning: field "${f}" does not exist in this org and will be skipped.\n`);
-      }
-      data = await fetchWorkItemResponse(context, id, cred, {
-        fields: normalizeFieldList([...DEFAULT_FIELDS, ...effectiveExtraFields]),
-      });
-    }
+    ({ data, effectiveExtraFields } = await fetchWorkItemWithFallback(context, id, cred, normalizedExtraFields));
   } else {
     data = await fetchWorkItemResponse(context, id, cred, { includeRelations: true });
   }
@@ -380,26 +407,6 @@ export async function getWorkItem(context: AzdoContext, id: number, cred: AuthCr
     ? await fetchWorkItemResponse(context, id, cred, { includeRelations: true })
     : data;
 
-  const descriptionParts: { label: string; value: string }[] = [];
-  if (data.fields['System.Description']) {
-    descriptionParts.push({ label: 'Description', value: data.fields['System.Description'] });
-  }
-  if (data.fields['Microsoft.VSTS.Common.AcceptanceCriteria']) {
-    descriptionParts.push({ label: 'Acceptance Criteria', value: data.fields['Microsoft.VSTS.Common.AcceptanceCriteria'] });
-  }
-  if (data.fields['Microsoft.VSTS.TCM.ReproSteps']) {
-    descriptionParts.push({ label: 'Repro Steps', value: data.fields['Microsoft.VSTS.TCM.ReproSteps'] });
-  }
-
-  let combinedDescription: string | null = null;
-  if (descriptionParts.length === 1) {
-    combinedDescription = descriptionParts.at(0)?.value ?? null;
-  } else if (descriptionParts.length > 1) {
-    combinedDescription = descriptionParts
-      .map((p) => `<h3>${p.label}</h3>${p.value}`)
-      .join('');
-  }
-
   return {
     id: data.id,
     rev: data.rev,
@@ -407,7 +414,7 @@ export async function getWorkItem(context: AzdoContext, id: number, cred: AuthCr
     state: data.fields['System.State'],
     type: data.fields['System.WorkItemType'],
     assignedTo: data.fields['System.AssignedTo']?.displayName ?? null,
-    description: combinedDescription,
+    description: buildCombinedDescription(data.fields),
     areaPath: data.fields['System.AreaPath'],
     iterationPath: data.fields['System.IterationPath'],
     url: data._links.html.href,

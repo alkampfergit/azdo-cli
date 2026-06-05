@@ -14,10 +14,10 @@ import {
   SETTINGS,
   type SettingDefinition,
 } from '../services/config-store.js';
-import type { CliConfig, ScopedSettings } from '../types/work-item.js';
+import type { CliConfig, ConfigValue } from '../types/work-item.js';
 
 function formatConfigValue(
-  value: string | string[] | boolean | undefined,
+  value: ConfigValue,
   unsetFallback = '',
 ): string | boolean {
   if (value === undefined) {
@@ -68,7 +68,7 @@ function writeConfigList(cfg: CliConfig): void {
   }
 
   for (const [orgName, scope] of Object.entries(cfg.organizations ?? {})) {
-    const orgScope = scope as ScopedSettings;
+    const orgScope = scope;
     const scopedSettings = (Object.entries(orgScope) as [string, unknown][]);
     for (const [k, v] of scopedSettings) {
       const value = formatConfigValue(v as string | string[] | boolean | undefined, '(not set)');

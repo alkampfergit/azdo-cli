@@ -1,5 +1,6 @@
 import { describe, it, expect, afterEach, vi } from 'vitest';
-import { parseAzdoRemote, parseRepoName } from '../../src/services/git-remote.js';
+import { parseAzdoRemote, parseRepoName, parseAllAzdoRemotes, selectRemote, gitConfigToRemoteLines } from '../../src/services/git-remote.js';
+import type { RemoteCandidate } from '../../src/services/git-remote.js';
 import { __resetForTests } from '../../src/services/remote-warning.js';
 import { FROZEN_BASELINE } from './fixtures/git-remote.cases.js';
 
@@ -139,9 +140,6 @@ describe('parseAzdoRemote / parseRepoName — frozen parity (C-7, FR-007)', () =
 
 // ── T016: multi-remote detection (multi-org support #55) ─────────────────────
 
-import { parseAllAzdoRemotes, selectRemote } from '../../src/services/git-remote.js';
-import type { RemoteCandidate } from '../../src/services/git-remote.js';
-
 describe('parseAllAzdoRemotes', () => {
   it('parses a single AZDO remote from git remote -v output', () => {
     const output = [
@@ -244,7 +242,6 @@ describe('selectRemote', () => {
 });
 
 // ── T016b: gitConfigToRemoteLines (detectAzdoContext without subprocess) ─────
-import { gitConfigToRemoteLines } from '../../src/services/git-remote.js';
 
 describe('gitConfigToRemoteLines', () => {
   it('produces parseAllAzdoRemotes-compatible output for a single remote', () => {
