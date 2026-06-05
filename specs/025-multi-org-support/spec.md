@@ -9,7 +9,7 @@
 
 ### User Story 1 - Per-organization configuration (Priority: P1)
 
-A user works with two Azure DevOps organizations: a primary one where custom fields (e.g. `Custom.BusinessDescription`) exist, and a secondary one where they do not. Today configuration is global, so settings tuned for the primary organization break commands against the secondary one. The user must be able to keep a **default configuration** that applies to every organization, and additionally create **organization-scoped configurations** that apply only to a named organization. The user can list all configurations together with the organization they belong to, delete a configuration, and move (re-scope) a configuration from one organization to another.
+A user works with two Azure DevOps organizations: a primary one where custom fields (e.g. `Custom.BusinessDescription`) exist, and a secondary one where they do not. Today configuration is global, so settings tuned for the primary organization break commands against the secondary one. The user must be able to keep a **default configuration** that applies to every organization, and additionally create **organization-scoped configurations** that apply only to a named organization. The user can list all configurations together with the organization they belong to, delete a configuration, move (re-scope) a configuration from one organization to another, and **copy** settings from an existing scope (the default or another organization) onto a named organization as a starting point.
 
 **Why this priority**: Explicitly called out as the "REAL IMPORTANT FEATURE" in the issue; it is the root fix that makes every other multi-org workflow viable.
 
@@ -22,7 +22,8 @@ A user works with two Azure DevOps organizations: a primary one where custom fie
 3. **Given** existing configurations, **When** the user lists configurations, **Then** each entry shows its scope (default or the organization name) alongside key and value.
 4. **Given** an org-scoped configuration, **When** the user deletes it, **Then** commands against that organization fall back to the default configuration.
 5. **Given** an org-scoped configuration for organization `acme`, **When** the user moves it to organization `globex`, **Then** it no longer applies to `acme` and now applies to `globex`.
-6. **Given** an existing pre-feature (global) configuration file, **When** the upgraded CLI runs, **Then** existing settings keep working unchanged as the default configuration (no manual migration).
+6. **Given** settings in an existing scope (default or organization `acme`), **When** the user copies them to organization `globex`, **Then** `globex` gets its own independent copy, the source scope is unchanged, and later edits to either scope do not affect the other.
+7. **Given** an existing pre-feature (global) configuration file, **When** the upgraded CLI runs, **Then** existing settings keep working unchanged as the default configuration (no manual migration).
 
 ---
 
@@ -111,6 +112,7 @@ A user sees `azdo: warning: origin includes embedded credentials…` when workin
 - **FR-004**: Users MUST be able to list all configuration entries with their scope visible (default vs organization name), in both human-readable and JSON output.
 - **FR-005**: Users MUST be able to delete an org-scoped entry without affecting the default configuration.
 - **FR-006**: Users MUST be able to move an org-scoped entry to a different organization in one operation.
+- **FR-006a**: Users MUST be able to copy settings from an existing scope (the default scope or another organization) onto a named organization in one operation; the source scope is left unchanged and the copy is independent thereafter. Copying onto an organization that already has settings for the same key(s) fails with a clear message unless the user explicitly confirms overwrite.
 - **FR-007**: Existing configuration files from previous releases MUST keep working unchanged as the default scope, with no manual migration step.
 
 **Missing custom fields (US2)**
@@ -137,7 +139,7 @@ A user sees `azdo: warning: origin includes embedded credentials…` when workin
 ### Key Entities
 
 - **Configuration scope**: either *default* (applies to all organizations) or a single *organization name*; each scope holds key/value settings (e.g. `fields`, `markdown`).
-- **Configuration entry**: key + value + scope; listable, deletable, movable between scopes.
+- **Configuration entry**: key + value + scope; listable, deletable, movable between scopes, and copyable from one scope to another.
 - **Azure DevOps remote**: a git remote whose URL parses to an organization/project pair; candidate input for context detection.
 
 ## Success Criteria *(mandatory)*
@@ -148,7 +150,7 @@ A user sees `azdo: warning: origin includes embedded credentials…` when workin
 - **SC-002**: A work-item read against an organization missing N configured custom fields produces the work item's content plus exactly N missing-field warnings and exits successfully (today: hard failure, no output).
 - **SC-003**: In a repository whose only Azure DevOps remote is not named `origin`, commands resolve org/project automatically with no extra flags (today: error).
 - **SC-004**: Running any command outside a git repository produces zero `fatal:` lines in the output.
-- **SC-005**: All configuration entries are visible in one listing with their scope, and an org-scoped entry can be created, moved, and deleted using only CLI commands (no manual file editing documented or required).
+- **SC-005**: All configuration entries are visible in one listing with their scope, and an org-scoped entry can be created, copied, moved, and deleted using only CLI commands (no manual file editing documented or required).
 - **SC-006**: Existing single-org users observe no behaviour change after upgrading without touching their configuration.
 
 ## Assumptions
