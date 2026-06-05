@@ -104,12 +104,16 @@ export function selectRemote(candidates: RemoteCandidate[]): RemoteCandidate {
   if (candidates.length === 1) return candidates[0];
 
   const first = candidates[0];
-  const allSame = candidates.every((c) => c.org === first.org && c.project === first.project);
+  const allSame = candidates.every(
+    (c) =>
+      c.org.toLowerCase() === first.org.toLowerCase() &&
+      c.project.toLowerCase() === first.project.toLowerCase(),
+  );
   if (allSame) return first;
 
-  const names = candidates.map((c) => c.remoteName).join(', ');
+  const lines = candidates.map((c) => `  ${c.remoteName.padEnd(8)} → ${c.org}/${c.project}`).join('\n');
   throw new Error(
-    `Ambiguous Azure DevOps remotes (${names}). Provide --org and --project explicitly.`,
+    `Multiple Azure DevOps remotes found with different org/project:\n${lines}\nUse --org/--project (or 'git remote rename <name> origin') to disambiguate.`,
   );
 }
 
@@ -237,7 +241,7 @@ export function parseRepoName(url: string): string | null {
 export function detectRepoName(): string {
   let remoteUrl: string;
   try {
-    remoteUrl = execSync('git remote get-url origin', { encoding: 'utf-8' }).trim();
+    remoteUrl = execSync('git remote get-url origin', { encoding: 'utf-8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
   } catch {
     throw new Error('Not in a git repository. Check that git remote "origin" exists and try again.');
   }
@@ -251,7 +255,7 @@ export function detectRepoName(): string {
 }
 
 export function getCurrentBranch(): string {
-  const branch = execSync('git rev-parse --abbrev-ref HEAD', { encoding: 'utf-8' }).trim();
+  const branch = execSync('git rev-parse --abbrev-ref HEAD', { encoding: 'utf-8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
   if (branch === 'HEAD') {
     throw new Error('Not on a named branch. Check out a named branch and try again.');
   }

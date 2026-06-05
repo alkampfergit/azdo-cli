@@ -379,11 +379,12 @@ async function fetchWorkItemWithFallback(
     const msg = err instanceof Error ? err.message : String(err);
     if (!msg.includes('TF51535')) throw err;
     // One or more requested fields don't exist; fetch the org field list, partition, warn, retry.
-    const orgFields = new Set(await getOrgFieldNames(context, cred));
-    const missing = normalizedExtraFields.filter((f) => !orgFields.has(f));
-    const effectiveExtraFields = normalizedExtraFields.filter((f) => orgFields.has(f));
+    const orgFieldNames = await getOrgFieldNames(context, cred);
+    const orgFieldsLower = new Set(orgFieldNames.map((n) => n.toLowerCase()));
+    const missing = normalizedExtraFields.filter((f) => !orgFieldsLower.has(f.toLowerCase()));
+    const effectiveExtraFields = normalizedExtraFields.filter((f) => orgFieldsLower.has(f.toLowerCase()));
     for (const f of missing) {
-      process.stderr.write(`Warning: field "${f}" does not exist in this org and will be skipped.\n`);
+      process.stderr.write(`azdo: warning: field '${f}' does not exist in organization '${context.org}' and was skipped\n`);
     }
     const data = await fetchWorkItemResponse(context, id, cred, {
       fields: normalizeFieldList([...DEFAULT_FIELDS, ...effectiveExtraFields]),

@@ -30,7 +30,7 @@ Organization secondary:
   fields    = System.Tags
 ```
 
-JSON: `{ "default": { ... }, "organizations": { "secondary": { ... } } }` (FR-004).
+JSON: array of `{"scope": "<name>", "key": "<key>", "value": <value>}` entries — one per setting (FR-004). Example: `[{"scope":"default","key":"org","value":"primary"},{"scope":"secondary","key":"project","value":"OtherProject"}]`.
 
 ## `azdo config org-copy <from> <to> [--force]`
 
@@ -44,7 +44,7 @@ JSON: `{ "default": { ... }, "organizations": { "secondary": { ... } } }` (FR-00
 
 ## `azdo config org-delete <name>`
 
-- Removes the scope; error (exit 1) if it does not exist.
+- Removes the scope; no-op (exit 0) if the scope does not exist (idempotent).
 
 ## Changed runtime behaviours (existing commands)
 
@@ -69,7 +69,7 @@ Multiple Azure DevOps remotes found with different org/project:
 Use --org/--project (or 'git remote rename <name> origin') to disambiguate.
 ```
 
-- No raw git stderr ever reaches the console (FR-015): all `execSync` git calls use `stdio: ['ignore','pipe','ignore']`.
+- No raw git stderr ever reaches the console (FR-015): all `execSync` git calls use `stdio: ['ignore','pipe','ignore']` to suppress git's own error output.
 
 ### Credentials warning
 

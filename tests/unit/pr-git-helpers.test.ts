@@ -41,7 +41,7 @@ describe('detectRepoName', () => {
   it('returns the repo name from origin', () => {
     vi.mocked(execSync).mockReturnValue('https://dev.azure.com/org/project/_git/repo-name\n' as never);
     expect(detectRepoName()).toBe('repo-name');
-    expect(execSync).toHaveBeenCalledWith('git remote get-url origin', { encoding: 'utf-8' });
+    expect(execSync).toHaveBeenCalledWith('git remote get-url origin', { encoding: 'utf-8', stdio: ['ignore', 'pipe', 'ignore'] });
   });
 
   it('throws an actionable error when git remote lookup fails', () => {
@@ -65,7 +65,7 @@ describe('getCurrentBranch', () => {
   it('returns the trimmed current branch name', () => {
     vi.mocked(execSync).mockReturnValue('feature/test-branch\n' as never);
     expect(getCurrentBranch()).toBe('feature/test-branch');
-    expect(execSync).toHaveBeenCalledWith('git rev-parse --abbrev-ref HEAD', { encoding: 'utf-8' });
+    expect(execSync).toHaveBeenCalledWith('git rev-parse --abbrev-ref HEAD', { encoding: 'utf-8', stdio: ['ignore', 'pipe', 'ignore'] });
   });
 
   it('throws for detached HEAD state', () => {
