@@ -37,12 +37,12 @@ function buildConfigListEntries(cfg: CliConfig): ConfigListEntry[] {
   const entries: ConfigListEntry[] = SETTINGS.map((s) => ({
     scope: 'default',
     key: s.key,
-    value: cfg[s.key] as string | string[] | boolean | undefined,
+    value: cfg[s.key] as ConfigValue,
   }));
 
   for (const [orgName, scope] of Object.entries(cfg.organizations ?? {})) {
     for (const [k, v] of Object.entries(scope as Record<string, unknown>)) {
-      entries.push({ scope: orgName, key: k, value: v as string | string[] | boolean | undefined });
+      entries.push({ scope: orgName, key: k, value: v as ConfigValue });
     }
   }
 
@@ -59,7 +59,7 @@ function writeConfigList(cfg: CliConfig): void {
   );
 
   for (const setting of SETTINGS) {
-    const raw = cfg[setting.key] as string | string[] | boolean | undefined;
+    const raw = cfg[setting.key] as ConfigValue;
     const value = formatConfigValue(raw, '(not set)');
     const marker = raw === undefined && setting.required ? ' *' : '';
     process.stdout.write(
@@ -71,7 +71,7 @@ function writeConfigList(cfg: CliConfig): void {
     const orgScope = scope;
     const scopedSettings = (Object.entries(orgScope) as [string, unknown][]);
     for (const [k, v] of scopedSettings) {
-      const value = formatConfigValue(v as string | string[] | boolean | undefined, '(not set)');
+      const value = formatConfigValue(v as ConfigValue, '(not set)');
       process.stdout.write(
         `${orgName.padEnd(scopeWidth)}${k.padEnd(keyWidth)}${String(value).padEnd(valueWidth)}\n`,
       );
@@ -97,7 +97,7 @@ async function promptForSetting(
   setting: SettingDefinition,
   ask: (prompt: string) => Promise<string>,
 ): Promise<void> {
-  const currentDisplay = String(formatConfigValue(cfg[setting.key] as string | string[] | boolean | undefined, ''));
+  const currentDisplay = String(formatConfigValue(cfg[setting.key] as ConfigValue, ''));
   const requiredTag = setting.required ? ' (required)' : ' (optional)';
   process.stderr.write(`${setting.description}${requiredTag}\n`);
   if (setting.example) {
