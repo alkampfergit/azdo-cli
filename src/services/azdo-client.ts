@@ -332,13 +332,50 @@ async function fetchWorkItemResponse(
   return (await response.json()) as AzdoWorkItemResponse;
 }
 
+export async function getOrgFieldNames(
+  context: AzdoContext,
+  cred: AuthCredential,
+): Promise<string[]> {
+  const url = new URL(
+    `https://dev.azure.com/${encodeURIComponent(context.org)}/_apis/wit/fields`,
+  );
+  url.searchParams.set('api-version', '7.1');
+  const response = await fetchWithErrors(url.toString(), { headers: authHeaders(cred) });
+  if (!response.ok) {
+    throw new Error(`HTTP_${response.status}`);
+  }
+  const data = (await response.json()) as { value?: Array<{ referenceName: string }> };
+  return (data.value ?? []).map((f) => f.referenceName);
+}
+
 export async function getWorkItem(context: AzdoContext, id: number, cred: AuthCredential, extraFields?: string[]): Promise<WorkItem> {
   const normalizedExtraFields = extraFields ? normalizeFieldList(extraFields) : [];
-  const data = normalizedExtraFields.length > 0
-    ? await fetchWorkItemResponse(context, id, cred, {
-      fields: normalizeFieldList([...DEFAULT_FIELDS, ...normalizedExtraFields]),
-    })
-    : await fetchWorkItemResponse(context, id, cred, { includeRelations: true });
+  let effectiveExtraFields = normalizedExtraFields;
+  let data: AzdoWorkItemResponse;
+
+  if (normalizedExtraFields.length > 0) {
+    try {
+      data = await fetchWorkItemResponse(context, id, cred, {
+        fields: normalizeFieldList([...DEFAULT_FIELDS, ...normalizedExtraFields]),
+      });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (!msg.includes('TF51535')) throw err;
+      // One or more requested fields don't exist; fetch the org field list, partition, warn, retry.
+      const orgFields = new Set(await getOrgFieldNames(context, cred));
+      const missing = normalizedExtraFields.filter((f) => !orgFields.has(f));
+      effectiveExtraFields = normalizedExtraFields.filter((f) => orgFields.has(f));
+      for (const f of missing) {
+        process.stderr.write(`Warning: field "${f}" does not exist in this org and will be skipped.\n`);
+      }
+      data = await fetchWorkItemResponse(context, id, cred, {
+        fields: normalizeFieldList([...DEFAULT_FIELDS, ...effectiveExtraFields]),
+      });
+    }
+  } else {
+    data = await fetchWorkItemResponse(context, id, cred, { includeRelations: true });
+  }
+
   const relationsData = normalizedExtraFields.length > 0
     ? await fetchWorkItemResponse(context, id, cred, { includeRelations: true })
     : data;
@@ -374,8 +411,8 @@ export async function getWorkItem(context: AzdoContext, id: number, cred: AuthCr
     areaPath: data.fields['System.AreaPath'],
     iterationPath: data.fields['System.IterationPath'],
     url: data._links.html.href,
-    extraFields: normalizedExtraFields.length > 0
-      ? buildExtraFields(data.fields, normalizedExtraFields)
+    extraFields: effectiveExtraFields.length > 0
+      ? buildExtraFields(data.fields, effectiveExtraFields)
       : null,
     attachments: extractAttachments(relationsData.relations),
   };

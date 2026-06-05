@@ -3,7 +3,7 @@ import type { AzdoContext, WorkItem, WorkItemAttachment } from '../types/work-it
 import { getWorkItem } from '../services/azdo-client.js';
 import { requireAuthCredential } from '../services/auth.js';
 import { resolveContext } from '../services/context.js';
-import { loadConfig } from '../services/config-store.js';
+import { resolveScopedConfig } from '../services/config-store.js';
 import { toMarkdown } from '../services/md-convert.js';
 import { parseWorkItemId, validateOrgProjectPair, handleCommandError } from '../services/command-helpers.js';
 import {
@@ -215,13 +215,14 @@ export function createGetItemCommand(): Command {
           context = resolveContext(options);
           const credential = await requireAuthCredential(context.org);
 
+          const scopedCfg = resolveScopedConfig(context.org);
           const fieldsList = options.fields === undefined
-            ? parseRequestedFields(loadConfig().fields)
+            ? parseRequestedFields(scopedCfg.fields)
             : parseRequestedFields(options.fields);
 
           const workItem = await getWorkItem(context, id, credential, fieldsList);
 
-          const markdownEnabled = options.markdown ?? loadConfig().markdown ?? false;
+          const markdownEnabled = options.markdown ?? scopedCfg.markdown ?? false;
           const output = formatWorkItem(workItem, options.short ?? false, markdownEnabled);
           process.stdout.write(output + '\n');
 
