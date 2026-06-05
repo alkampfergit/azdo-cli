@@ -30,7 +30,7 @@ function formatConfigValue(
 interface ConfigListEntry {
   scope: string;
   key: string;
-  value: string | string[] | boolean | undefined;
+  value: ConfigValue;
 }
 
 function buildConfigListEntries(cfg: CliConfig): ConfigListEntry[] {
