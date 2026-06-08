@@ -39,7 +39,7 @@ describe('detectRepoName', () => {
   });
 
   it('returns the repo name from origin', () => {
-    vi.mocked(execFileSync).mockReturnValue('https://dev.azure.com/org/project/_git/repo-name\n' as never);
+    vi.mocked(execFileSync).mockReturnValue('https://dev.azure.com/org/project/_git/repo-name\n');
     expect(detectRepoName()).toBe('repo-name');
     expect(execFileSync).toHaveBeenCalledWith(
       expect.any(String),
@@ -56,7 +56,7 @@ describe('detectRepoName', () => {
   });
 
   it('throws an actionable error for non-Azure DevOps remotes', () => {
-    vi.mocked(execFileSync).mockReturnValue('https://github.com/org/repo.git\n' as never);
+    vi.mocked(execFileSync).mockReturnValue('https://github.com/org/repo.git\n');
     expect(() => detectRepoName()).toThrow('Git remote "origin" is not an Azure DevOps URL');
   });
 });
@@ -67,7 +67,7 @@ describe('getCurrentBranch', () => {
   });
 
   it('returns the trimmed current branch name', () => {
-    vi.mocked(execFileSync).mockReturnValue('feature/test-branch\n' as never);
+    vi.mocked(execFileSync).mockReturnValue('feature/test-branch\n');
     expect(getCurrentBranch()).toBe('feature/test-branch');
     expect(execFileSync).toHaveBeenCalledWith(
       expect.any(String),
@@ -77,7 +77,7 @@ describe('getCurrentBranch', () => {
   });
 
   it('throws for detached HEAD state', () => {
-    vi.mocked(execFileSync).mockReturnValue('HEAD\n' as never);
+    vi.mocked(execFileSync).mockReturnValue('HEAD\n');
     expect(() => getCurrentBranch()).toThrow('Not on a named branch. Check out a named branch and try again.');
   });
 });

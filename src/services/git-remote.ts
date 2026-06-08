@@ -9,7 +9,7 @@ import { noticeCredentialBearingRemote } from './remote-warning.js';
 const GIT_BINARY = (() => {
   const known =
     process.platform === 'win32'
-      ? ['C:\\Program Files\\Git\\bin\\git.exe', 'C:\\Program Files (x86)\\Git\\bin\\git.exe']
+      ? [String.raw`C:\Program Files\Git\bin\git.exe`, String.raw`C:\Program Files (x86)\Git\bin\git.exe`]
       : ['/usr/bin/git', '/usr/local/bin/git', '/opt/homebrew/bin/git'];
   return (
     known.find((p) => {
