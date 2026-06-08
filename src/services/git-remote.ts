@@ -1,8 +1,27 @@
-import { execSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import type { AzdoContext } from '../types/work-item.js';
 import { noticeCredentialBearingRemote } from './remote-warning.js';
+
+// Resolve git binary to an absolute path at startup so call sites do not rely on PATH (S4036).
+// Falls back to 'git' only when none of the well-known locations respond to --version.
+const GIT_BINARY = (() => {
+  const known =
+    process.platform === 'win32'
+      ? ['C:\\Program Files\\Git\\bin\\git.exe', 'C:\\Program Files (x86)\\Git\\bin\\git.exe']
+      : ['/usr/bin/git', '/usr/local/bin/git', '/opt/homebrew/bin/git'];
+  return (
+    known.find((p) => {
+      try {
+        execFileSync(p, ['--version'], { stdio: 'ignore' });
+        return true;
+      } catch {
+        return false;
+      }
+    }) ?? 'git'
+  );
+})();
 
 // Each HTTPS pattern tolerates an OPTIONAL `(?:[^@/]+@)?` userinfo prefix
 // (`<user>@` or `<user>:<token>@`) between the scheme and the host, and an
@@ -241,7 +260,7 @@ export function parseRepoName(url: string): string | null {
 export function detectRepoName(): string {
   let remoteUrl: string;
   try {
-    remoteUrl = execSync('git remote get-url origin', { encoding: 'utf-8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+    remoteUrl = execFileSync(GIT_BINARY, ['remote', 'get-url', 'origin'], { encoding: 'utf-8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
   } catch {
     throw new Error('Not in a git repository. Check that git remote "origin" exists and try again.');
   }
@@ -255,7 +274,7 @@ export function detectRepoName(): string {
 }
 
 export function getCurrentBranch(): string {
-  const branch = execSync('git rev-parse --abbrev-ref HEAD', { encoding: 'utf-8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+  const branch = execFileSync(GIT_BINARY, ['rev-parse', '--abbrev-ref', 'HEAD'], { encoding: 'utf-8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
   if (branch === 'HEAD') {
     throw new Error('Not on a named branch. Check out a named branch and try again.');
   }

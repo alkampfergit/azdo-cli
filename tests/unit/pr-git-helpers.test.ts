@@ -1,10 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('node:child_process', () => ({
-  execSync: vi.fn(),
+  execFileSync: vi.fn(),
 }));
 
-import { execSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import { detectRepoName, getCurrentBranch, parseRepoName } from '../../src/services/git-remote.js';
 
 describe('parseRepoName', () => {
@@ -35,41 +35,49 @@ describe('parseRepoName', () => {
 
 describe('detectRepoName', () => {
   beforeEach(() => {
-    vi.mocked(execSync).mockReset();
+    vi.mocked(execFileSync).mockReset();
   });
 
   it('returns the repo name from origin', () => {
-    vi.mocked(execSync).mockReturnValue('https://dev.azure.com/org/project/_git/repo-name\n' as never);
+    vi.mocked(execFileSync).mockReturnValue('https://dev.azure.com/org/project/_git/repo-name\n' as never);
     expect(detectRepoName()).toBe('repo-name');
-    expect(execSync).toHaveBeenCalledWith('git remote get-url origin', { encoding: 'utf-8', stdio: ['ignore', 'pipe', 'ignore'] });
+    expect(execFileSync).toHaveBeenCalledWith(
+      expect.any(String),
+      ['remote', 'get-url', 'origin'],
+      { encoding: 'utf-8', stdio: ['ignore', 'pipe', 'ignore'] }
+    );
   });
 
   it('throws an actionable error when git remote lookup fails', () => {
-    vi.mocked(execSync).mockImplementation(() => {
+    vi.mocked(execFileSync).mockImplementation(() => {
       throw new Error('fatal');
     });
     expect(() => detectRepoName()).toThrow('Not in a git repository');
   });
 
   it('throws an actionable error for non-Azure DevOps remotes', () => {
-    vi.mocked(execSync).mockReturnValue('https://github.com/org/repo.git\n' as never);
+    vi.mocked(execFileSync).mockReturnValue('https://github.com/org/repo.git\n' as never);
     expect(() => detectRepoName()).toThrow('Git remote "origin" is not an Azure DevOps URL');
   });
 });
 
 describe('getCurrentBranch', () => {
   beforeEach(() => {
-    vi.mocked(execSync).mockReset();
+    vi.mocked(execFileSync).mockReset();
   });
 
   it('returns the trimmed current branch name', () => {
-    vi.mocked(execSync).mockReturnValue('feature/test-branch\n' as never);
+    vi.mocked(execFileSync).mockReturnValue('feature/test-branch\n' as never);
     expect(getCurrentBranch()).toBe('feature/test-branch');
-    expect(execSync).toHaveBeenCalledWith('git rev-parse --abbrev-ref HEAD', { encoding: 'utf-8', stdio: ['ignore', 'pipe', 'ignore'] });
+    expect(execFileSync).toHaveBeenCalledWith(
+      expect.any(String),
+      ['rev-parse', '--abbrev-ref', 'HEAD'],
+      { encoding: 'utf-8', stdio: ['ignore', 'pipe', 'ignore'] }
+    );
   });
 
   it('throws for detached HEAD state', () => {
-    vi.mocked(execSync).mockReturnValue('HEAD\n' as never);
+    vi.mocked(execFileSync).mockReturnValue('HEAD\n' as never);
     expect(() => getCurrentBranch()).toThrow('Not on a named branch. Check out a named branch and try again.');
   });
 });

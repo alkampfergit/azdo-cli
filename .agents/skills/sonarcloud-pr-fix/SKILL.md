@@ -37,12 +37,21 @@ Find the SonarCloud issues attached to the current branch's pull request, apply 
    - Extract the PR number from the response.
    - If there is no open PR, stop and tell the user.
 
-4. Query SonarCloud for PR issues.
-   - Preferred issue query:
+4. Query SonarCloud for PR issues AND security hotspots (two separate APIs).
+   - Regular issues (bugs, vulnerabilities, code smells):
      - `curl -fsSL "https://sonarcloud.io/api/issues/search?componentKeys=<projectKey>&pullRequest=<prNumber>&ps=100"`
+   - Security hotspots (NOT returned by issues/search — requires a separate call):
+     - `curl -fsSL "https://sonarcloud.io/api/hotspots/search?projectKey=<projectKey>&pullRequest=<prNumber>&ps=100"`
    - Also check PR status when needed:
      - `curl -fsSL "https://sonarcloud.io/api/project_pull_requests/list?project=<projectKey>"`
    - Summarize findings by file, rule, and line before editing.
+   - For hotspots, the fix strategy is to remove or isolate the risky pattern —
+     do NOT mark as "reviewed/safe" unless the code genuinely has no risk:
+     - `PATH` manipulation (`S4036`) → replace `execSync('binary ...')` with
+       `execFileSync(absoluteResolvedPath, args)` where the binary is found at
+       startup by probing well-known absolute paths.
+     - Hard-coded credentials → move to environment variables.
+     - Unsafe `eval` / dynamic code → replace with a safe alternative.
 
 5. Inspect the affected code and nearby tests.
    - Read only the files touched by SonarCloud plus relevant tests.
