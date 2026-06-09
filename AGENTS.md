@@ -120,6 +120,8 @@ bd close <id>         # Complete work
 - TypeScript 5.x (strict mode) + commander.js (existing), native `fetch` (existing), `node:child_process` `execSync` for `git remote get-url origin` and `git rev-parse --abbrev-ref HEAD` (existing). No new runtime deps. (019-fix-pr-command)
 - TypeScript 5.x (strict mode) + commander.js (CLI, existing), native `fetch` (existing, via `downloadAttachment`), `node:fs/promises` + `node:path` + `node:os` (built-in, file/temp-dir I/O), **`jimp` (new — pure-JS image resize/encode)** (021-download-markdown-images)
 - Local filesystem — image files written to OS temp dir by default or a `--images-path` directory (021-download-markdown-images)
+- TypeScript 5.x (`strict: true`) on Node.js LTS (18+) + commander.js (CLI), native `fetch` (HTTP), `node:child_process` execSync (git), `node:fs`/`node:path`/`node:os` (config I/O) — all existing; **no new dependencies** (025-multi-org-support)
+- JSON file at `~/.azdo/config.json` (existing; extended with an `organizations` map) (025-multi-org-support)
 
 ## Recent Changes
 - 019-fix-pr-command: `azdo pr` now recognises HTTPS remotes with a `<user>[:<token>]@` userinfo prefix and an optional `.git` suffix (one-time, sanitised stderr credential warning; host allow-list unchanged). The single-PR commands (`pr comments` / `comment-resolve` / `comment-reopen`) document the branch→PR auto-detection rule in `--help` and fail cleanly on zero/multi-match; `pr status` stays a multi-PR list (decision A). No new runtime deps.

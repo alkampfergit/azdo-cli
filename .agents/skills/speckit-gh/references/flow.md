@@ -278,9 +278,51 @@ Blocks until every required check is terminal. Do NOT replace with a
 polling loop.
 
 - All pass → step 13.
-- Any fail → `gh run view <run-id> --log-failed`, fix on the feature
-  branch, commit, push, re-enter `--watch`. Loop until green. Post a
-  `speckit:status` per iteration with the failure and the fix.
+- Any fail → diagnose which check(s) failed and follow the specific path:
+
+  ### SonarCloud Code Analysis fails — auto-fix, no user prompt required
+
+  When `gh pr checks` shows `SonarCloud Code Analysis` as `fail`, proceed
+  immediately without waiting for the user:
+
+  1. **Query both issues and security hotspots** for this PR:
+
+     ```bash
+     # Regular issues (bugs, vulnerabilities, code smells)
+     curl -s "https://sonarcloud.io/api/issues/search?componentKeys=<projectKey>&pullRequest=<pr>&statuses=OPEN,CONFIRMED&ps=50"
+
+     # Security hotspots (separate API — NOT returned by issues/search)
+     curl -s "https://sonarcloud.io/api/hotspots/search?projectKey=<projectKey>&pullRequest=<pr>&ps=50"
+     ```
+
+     The project key for this repo is `alkampfergit_azdo-cli`.
+
+  2. **Invoke the `sonarcloud-pr-fix` skill** — it applies code fixes, runs
+     local verification, and pushes the branch.
+
+  3. **Security hotspots specifically**: fix the underlying code concern —
+     do NOT mark a hotspot as "reviewed/safe" unless the code genuinely
+     contains no risk. Common hotspot patterns and their fixes:
+     - `PATH` manipulation (`S4036`) → replace `execSync('cmd')` with
+       `execFileSync(absoluteBinaryPath, args)` where the binary path is
+       resolved to a fixed, well-known location at startup.
+     - Unsafe `eval` / `Function` → remove or replace with a safe
+       alternative.
+     - Hard-coded credentials → move to environment variables.
+
+  4. **Commit and push** on the feature branch (the `sonarcloud-pr-fix`
+     skill does this).
+
+  5. **Post a `speckit:status`** naming the SonarCloud issues found and the
+     fix applied (file, rule, line, one-line description of the change).
+
+  6. **Re-enter `--watch`**. Loop until `SonarCloud Code Analysis` passes.
+
+  ### Any other CI failure
+
+  `gh run view <run-id> --log-failed`, fix on the feature branch, commit,
+  push, re-enter `--watch`. Loop until green. Post a `speckit:status` per
+  iteration with the failure and the fix.
 
 Before every post after a blocking call, re-read the PR thread and
 process new owner comments first — see

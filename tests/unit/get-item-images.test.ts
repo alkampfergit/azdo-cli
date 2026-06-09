@@ -13,7 +13,10 @@ vi.mock('../../src/services/azdo-client.js', () => ({
 }));
 vi.mock('../../src/services/auth.js', () => ({ requireAuthCredential: vi.fn() }));
 vi.mock('../../src/services/context.js', () => ({ resolveContext: vi.fn() }));
-vi.mock('../../src/services/config-store.js', () => ({ loadConfig: vi.fn(() => ({})) }));
+vi.mock('../../src/services/config-store.js', () => ({
+  loadConfig: vi.fn(() => ({})),
+  resolveScopedConfig: vi.fn(() => ({})),
+}));
 
 import { getWorkItem, downloadAttachment } from '../../src/services/azdo-client.js';
 import { requireAuthCredential } from '../../src/services/auth.js';

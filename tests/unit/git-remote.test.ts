@@ -1,5 +1,6 @@
 import { describe, it, expect, afterEach, vi } from 'vitest';
-import { parseAzdoRemote, parseRepoName } from '../../src/services/git-remote.js';
+import { parseAzdoRemote, parseRepoName, parseAllAzdoRemotes, selectRemote, gitConfigToRemoteLines } from '../../src/services/git-remote.js';
+import type { RemoteCandidate } from '../../src/services/git-remote.js';
 import { __resetForTests } from '../../src/services/remote-warning.js';
 import { FROZEN_BASELINE } from './fixtures/git-remote.cases.js';
 
@@ -135,4 +136,146 @@ describe('parseAzdoRemote / parseRepoName — frozen parity (C-7, FR-007)', () =
       expect(parseRepoName(c.url)).toBe(c.repo);
     });
   }
+});
+
+// ── T016: multi-remote detection (multi-org support #55) ─────────────────────
+
+describe('parseAllAzdoRemotes', () => {
+  it('parses a single AZDO remote from git remote -v output', () => {
+    const output = [
+      'origin\thttps://dev.azure.com/myorg/myproject/_git/myrepo (fetch)',
+      'origin\thttps://dev.azure.com/myorg/myproject/_git/myrepo (push)',
+    ].join('\n');
+    const candidates = parseAllAzdoRemotes(output);
+    expect(candidates).toHaveLength(1);
+    expect(candidates[0]).toMatchObject({ remoteName: 'origin', org: 'myorg', project: 'myproject', hasEmbeddedSecret: false });
+  });
+
+  it('parses multiple AZDO remotes with different names', () => {
+    const output = [
+      'origin\thttps://github.com/user/repo.git (fetch)',
+      'origin\thttps://github.com/user/repo.git (push)',
+      'azdo\thttps://dev.azure.com/myorg/myproject/_git/myrepo (fetch)',
+      'azdo\thttps://dev.azure.com/myorg/myproject/_git/myrepo (push)',
+    ].join('\n');
+    const candidates = parseAllAzdoRemotes(output);
+    expect(candidates).toHaveLength(1);
+    expect(candidates[0].remoteName).toBe('azdo');
+  });
+
+  it('sets hasEmbeddedSecret=true for user:token@ URLs', () => {
+    const output = 'azdo\thttps://user:token@dev.azure.com/myorg/myproject/_git/myrepo (fetch)\n';
+    const candidates = parseAllAzdoRemotes(output);
+    expect(candidates[0].hasEmbeddedSecret).toBe(true);
+  });
+
+  it('sets hasEmbeddedSecret=false for bare user@ URLs', () => {
+    const output = 'origin\thttps://user@dev.azure.com/myorg/myproject/_git/myrepo (fetch)\n';
+    const candidates = parseAllAzdoRemotes(output);
+    expect(candidates[0].hasEmbeddedSecret).toBe(false);
+  });
+
+  it('deduplicates: same remote appears only once (fetch + push lines)', () => {
+    const output = [
+      'azdo\thttps://dev.azure.com/myorg/myproject/_git/myrepo (fetch)',
+      'azdo\thttps://dev.azure.com/myorg/myproject/_git/myrepo (push)',
+    ].join('\n');
+    const candidates = parseAllAzdoRemotes(output);
+    expect(candidates).toHaveLength(1);
+  });
+
+  it('returns empty array when no AZDO remotes', () => {
+    const output = 'origin\thttps://github.com/user/repo.git (fetch)\n';
+    expect(parseAllAzdoRemotes(output)).toHaveLength(0);
+  });
+
+  it('returns empty array for empty output', () => {
+    expect(parseAllAzdoRemotes('')).toHaveLength(0);
+  });
+});
+
+describe('selectRemote', () => {
+  const makeCandidate = (remoteName: string, org = 'myorg', project = 'myproject'): RemoteCandidate => ({
+    remoteName, org, project, hasEmbeddedSecret: false,
+  });
+
+  it('selects origin when origin is among candidates', () => {
+    const candidates = [makeCandidate('azdo'), makeCandidate('origin')];
+    expect(selectRemote(candidates).remoteName).toBe('origin');
+  });
+
+  it('selects the single non-origin AZDO remote', () => {
+    const candidates = [makeCandidate('azdo')];
+    expect(selectRemote(candidates).remoteName).toBe('azdo');
+  });
+
+  it('selects first candidate when all share same org/project (no origin)', () => {
+    const candidates = [makeCandidate('upstream'), makeCandidate('fork')];
+    expect(selectRemote(candidates).remoteName).toBe('upstream');
+  });
+
+  it('throws ambiguity error when multiple distinct org/project and no origin', () => {
+    const candidates = [
+      makeCandidate('r1', 'org1', 'proj1'),
+      makeCandidate('r2', 'org2', 'proj2'),
+    ];
+    expect(() => selectRemote(candidates)).toThrow(/ambiguous|--org/i);
+  });
+
+  it('ambiguity error lists all remote names', () => {
+    const candidates = [
+      makeCandidate('alpha', 'org1', 'proj1'),
+      makeCandidate('beta', 'org2', 'proj2'),
+    ];
+    try {
+      selectRemote(candidates);
+    } catch (err) {
+      const msg = (err as Error).message;
+      expect(msg).toContain('alpha');
+      expect(msg).toContain('beta');
+    }
+  });
+
+  it('throws "provide --org and --project" guidance when no candidates', () => {
+    expect(() => selectRemote([])).toThrow(/--org/i);
+  });
+});
+
+// ── T016b: gitConfigToRemoteLines (detectAzdoContext without subprocess) ─────
+
+describe('gitConfigToRemoteLines', () => {
+  it('produces parseAllAzdoRemotes-compatible output for a single remote', () => {
+    const config = `[core]\n\trepositoryformatversion = 0\n[remote "origin"]\n\turl = https://dev.azure.com/myorg/myproject/_git/myrepo\n\tfetch = +refs/heads/*:refs/remotes/origin/*\n`;
+    const lines = gitConfigToRemoteLines(config);
+    const candidates = parseAllAzdoRemotes(lines);
+    expect(candidates).toHaveLength(1);
+    expect(candidates[0]).toMatchObject({ remoteName: 'origin', org: 'myorg', project: 'myproject' });
+  });
+
+  it('emits one line per remote even when multiple remotes are present', () => {
+    const config = [
+      '[remote "origin"]',
+      '\turl = https://dev.azure.com/org1/proj1/_git/repo1',
+      '[remote "upstream"]',
+      '\turl = https://dev.azure.com/org2/proj2/_git/repo2',
+    ].join('\n');
+    const lines = gitConfigToRemoteLines(config);
+    expect(lines.split('\n').filter(Boolean)).toHaveLength(2);
+    const candidates = parseAllAzdoRemotes(lines);
+    expect(candidates).toHaveLength(2);
+    expect(candidates[0]).toMatchObject({ remoteName: 'origin', org: 'org1' });
+    expect(candidates[1]).toMatchObject({ remoteName: 'upstream', org: 'org2' });
+  });
+
+  it('skips non-remote sections without emitting lines', () => {
+    const config = '[core]\n\trepositoryformatversion = 0\n[branch "main"]\n\tremote = origin\n';
+    expect(gitConfigToRemoteLines(config)).toBe('');
+  });
+
+  it('only emits first url= for a remote with multiple url= entries', () => {
+    const config = '[remote "origin"]\n\turl = https://dev.azure.com/org1/proj1/_git/repo1\n\turl = https://dev.azure.com/org2/proj2/_git/repo2\n';
+    const lines = gitConfigToRemoteLines(config).split('\n').filter(Boolean);
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toContain('org1');
+  });
 });

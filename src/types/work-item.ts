@@ -1,3 +1,5 @@
+export type ConfigValue = string | string[] | boolean | undefined;
+
 export interface WorkItemAttachment {
   name: string;
   size: number;
@@ -34,11 +36,15 @@ export interface AuthCredential {
   accountId?: string;
 }
 
-export interface CliConfig {
-  org?: string;
+export interface ScopedSettings {
   project?: string;
   fields?: string[];
   markdown?: boolean;
+}
+
+export interface CliConfig extends ScopedSettings {
+  org?: string;
+  organizations?: Record<string, ScopedSettings>;
 }
 
 export interface JsonPatchOperation {

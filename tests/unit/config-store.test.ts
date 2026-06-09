@@ -9,6 +9,13 @@ import {
   getConfigValue,
   setConfigValue,
   unsetConfigValue,
+  resolveScopedConfig,
+  setOrgScopedValue,
+  getOrgScopedValue,
+  unsetOrgScopedValue,
+  copyOrgScope,
+  moveOrgScope,
+  deleteOrgScope,
 } from '../../src/services/config-store.js';
 
 let tmpDir: string;
@@ -197,5 +204,154 @@ describe('unsetConfigValue', () => {
     expect(() => unsetConfigValue('foo')).toThrow(
       'Unknown setting key "foo"',
     );
+  });
+});
+
+// ── T004: scope resolution (multi-org support #55) ───────────────────────────
+
+describe('resolveScopedConfig', () => {
+  it('returns top-level defaults when no org given', () => {
+    saveConfig({ project: 'myproj', fields: ['System.Tags'] });
+    const result = resolveScopedConfig();
+    expect(result.project).toBe('myproj');
+    expect(result.fields).toEqual(['System.Tags']);
+  });
+
+  it('returns org-scoped values when org has a scope', () => {
+    saveConfig({
+      project: 'default-proj',
+      organizations: { acme: { project: 'acme-proj', fields: ['Custom.Field'] } },
+    });
+    const result = resolveScopedConfig('acme');
+    expect(result.project).toBe('acme-proj');
+    expect(result.fields).toEqual(['Custom.Field']);
+  });
+
+  it('falls back to default values when org has no matching scope', () => {
+    saveConfig({ project: 'myproj' });
+    const result = resolveScopedConfig('unknown-org');
+    expect(result.project).toBe('myproj');
+  });
+
+  it('resolves org names case-insensitively', () => {
+    saveConfig({
+      project: 'default-proj',
+      organizations: { acme: { project: 'acme-proj' } },
+    });
+    expect(resolveScopedConfig('ACME').project).toBe('acme-proj');
+    expect(resolveScopedConfig('Acme').project).toBe('acme-proj');
+  });
+
+  it('org scope fully replaces default fields list (no merge)', () => {
+    saveConfig({
+      fields: ['System.Tags', 'Custom.Default'],
+      organizations: { acme: { fields: ['Custom.OrgOnly'] } },
+    });
+    const result = resolveScopedConfig('acme');
+    expect(result.fields).toEqual(['Custom.OrgOnly']);
+    expect(result.fields).not.toContain('System.Tags');
+  });
+
+  it('falls back to default fields when org scope defines no fields key', () => {
+    saveConfig({
+      fields: ['System.Tags'],
+      organizations: { acme: { project: 'acme-proj' } },
+    });
+    const result = resolveScopedConfig('acme');
+    expect(result.fields).toEqual(['System.Tags']);
+  });
+
+  it('reads pre-feature config (no organizations key) without error', () => {
+    saveConfig({ org: 'myorg', project: 'myproj' });
+    const result = resolveScopedConfig('anyorg');
+    expect(result.project).toBe('myproj');
+  });
+
+  it('includes org in the resolved result', () => {
+    saveConfig({ org: 'myorg' });
+    const result = resolveScopedConfig('myorg');
+    expect(result.org).toBe('myorg');
+  });
+});
+
+describe('setOrgScopedValue / getOrgScopedValue / unsetOrgScopedValue', () => {
+  it('sets and reads an org-scoped string value', () => {
+    setOrgScopedValue('acme', 'project', 'acme-proj');
+    expect(getOrgScopedValue('acme', 'project')).toBe('acme-proj');
+  });
+
+  it('org key is normalised to lowercase on set', () => {
+    setOrgScopedValue('ACME', 'project', 'p');
+    expect(getOrgScopedValue('acme', 'project')).toBe('p');
+  });
+
+  it('sets org-scoped fields as array', () => {
+    setOrgScopedValue('acme', 'fields', 'Custom.A,Custom.B');
+    expect(getOrgScopedValue('acme', 'fields')).toEqual(['Custom.A', 'Custom.B']);
+  });
+
+  it('unset removes key from org scope and removes empty scope', () => {
+    setOrgScopedValue('acme', 'project', 'p');
+    unsetOrgScopedValue('acme', 'project');
+    const cfg = loadConfig();
+    expect(cfg.organizations?.['acme']).toBeUndefined();
+  });
+
+  it('throws if "org" is used as a scoped key', () => {
+    expect(() => setOrgScopedValue('acme', 'org', 'val')).toThrow();
+  });
+
+  it('does not affect default-scope values when setting org scope', () => {
+    saveConfig({ project: 'default-proj' });
+    setOrgScopedValue('acme', 'project', 'acme-proj');
+    expect(getConfigValue('project')).toBe('default-proj');
+  });
+});
+
+describe('copyOrgScope / moveOrgScope / deleteOrgScope', () => {
+  it('copyOrgScope copies from default scope to named org', () => {
+    saveConfig({ project: 'default-proj', fields: ['System.Tags'] });
+    copyOrgScope('default', 'acme');
+    const cfg = loadConfig();
+    expect(cfg.organizations?.['acme']?.project).toBe('default-proj');
+    expect(cfg.project).toBe('default-proj'); // source unchanged
+  });
+
+  it('copyOrgScope from one org to another', () => {
+    setOrgScopedValue('acme', 'project', 'acme-proj');
+    copyOrgScope('acme', 'globex');
+    expect(getOrgScopedValue('globex', 'project')).toBe('acme-proj');
+    expect(getOrgScopedValue('acme', 'project')).toBe('acme-proj'); // source unchanged
+  });
+
+  it('copyOrgScope throws on collision without force', () => {
+    setOrgScopedValue('acme', 'project', 'existing');
+    saveConfig({ ...loadConfig(), project: 'default-proj' });
+    expect(() => copyOrgScope('default', 'acme')).toThrow();
+  });
+
+  it('copyOrgScope with force=true overwrites on collision', () => {
+    setOrgScopedValue('acme', 'project', 'old');
+    saveConfig({ ...loadConfig(), project: 'new-default' });
+    copyOrgScope('default', 'acme', true);
+    expect(getOrgScopedValue('acme', 'project')).toBe('new-default');
+  });
+
+  it('moveOrgScope moves org scope and removes source', () => {
+    setOrgScopedValue('acme', 'project', 'p');
+    moveOrgScope('acme', 'globex');
+    const cfg = loadConfig();
+    expect(cfg.organizations?.['acme']).toBeUndefined();
+    expect(cfg.organizations?.['globex']?.project).toBe('p');
+  });
+
+  it('deleteOrgScope removes the org scope', () => {
+    setOrgScopedValue('acme', 'project', 'p');
+    deleteOrgScope('acme');
+    expect(loadConfig().organizations?.['acme']).toBeUndefined();
+  });
+
+  it('deleteOrgScope is idempotent for non-existent org', () => {
+    expect(() => deleteOrgScope('nonexistent')).not.toThrow();
   });
 });

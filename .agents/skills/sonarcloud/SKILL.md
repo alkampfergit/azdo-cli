@@ -209,12 +209,91 @@ SonarCloud flags duplicated blocks (usually 10+ lines of identical or near-ident
 | S3358 | Nested ternary operations | Extract to if/else or helper function |
 | S3776 | Cognitive complexity too high | Extract helper functions |
 | S1481 | Unused local variable | Remove it |
+| S3863 | Same module imported multiple times | Merge all imports from that module into one statement at top of file |
+| S4323 | Repeated union type should be a type alias | Create `export type MyAlias = A \| B \| C` in types file, replace every inline union |
+| S4325 | Unnecessary type assertion (`as T`) | Remove the `as T` cast — TypeScript already infers the correct type |
 | S6551 | Avoid String() on object types | Use explicit toString() or template literal |
+| S6557 | Use `String#startsWith` / `#endsWith` | Replace `str.indexOf('x') === 0` or `/^x/.test(str)` with `str.startsWith('x')` |
 | S6606 | Ternary instead of nullish coalescing | Use `??` operator |
-| S7735 | Unexpected negated condition | Flip condition or use `??` |
+| S7735 | Unexpected negated condition | Flip the condition: `a !== b ? x : y` → `a === b ? y : x` |
+| S7744 | Spreading a useless empty object `{}` | `...(x ?? {})` → `...x` (spreading `undefined` is a no-op in JS/TS) |
 | S7780 | Backslash escaping in strings | Use `String.raw` tagged template |
 | typescript:S107 | Too many parameters | Use options object |
 | Duplication | Code blocks repeated | Extract shared helper |
+
+## Mechanical (auto-applicable) fix recipes
+
+These rules have deterministic one-line or mechanical fixes. Apply them directly
+without requiring design decisions:
+
+### S3863 — Duplicate imports
+```typescript
+// Before (multiple import statements for same module):
+import { A, B } from './foo.js';
+// ... code ...
+import { C } from './foo.js';           // <-- flagged
+import type { T } from './foo.js';      // <-- flagged
+
+// After (single consolidated import at top of file):
+import { A, B, C } from './foo.js';
+import type { T } from './foo.js';
+```
+
+### S4323 — Inline union → type alias
+```typescript
+// Before (same union repeated in two or more places):
+export function getConfigValue(key: string): string | string[] | boolean | undefined { ... }
+function formatValue(v: string | string[] | boolean | undefined): string { ... }
+
+// After (define once, use everywhere):
+// In types file:
+export type ConfigValue = string | string[] | boolean | undefined;
+// In callers:
+export function getConfigValue(key: string): ConfigValue { ... }
+function formatValue(v: ConfigValue): string { ... }
+```
+
+### S4325 — Unnecessary assertion
+```typescript
+// Before:
+const orgScope = scope as ScopedSettings;   // scope is already ScopedSettings
+// After:
+const orgScope = scope;
+```
+Remove the cast; if TypeScript then complains downstream, that downstream code
+needs its own fix (a genuine cast, narrowing, or type annotation).
+
+### S6557 — Use startsWith / endsWith
+```typescript
+// Before:
+if (/^\[/.test(line)) { ... }
+// After:
+if (line.startsWith('[')) { ... }
+```
+
+### S7735 — Flip negated condition
+```typescript
+// Before:
+const url = urlEnd !== -1 ? str.slice(0, urlEnd) : str;
+// After:
+const url = urlEnd === -1 ? str : str.slice(0, urlEnd);
+```
+
+### S7744 — Remove useless `?? {}`  spread
+```typescript
+// Before:
+organizations: { ...(config.organizations ?? {}), [key]: value }
+// After:
+organizations: { ...config.organizations, [key]: value }
+// Rationale: { ...undefined } === {} in JavaScript; the ?? {} fallback is redundant
+```
+
+### S3776 — Reduce cognitive complexity
+Extract nested logic into named private helpers:
+1. Identify the innermost high-complexity block (deeply nested or large catch body).
+2. Extract it into a private function with a descriptive name.
+3. The outer function calls the helper — complexity drops by at least the nesting penalty.
+4. Repeat until the complexity score is ≤ 15.
 
 ---
 
