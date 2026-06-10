@@ -1,7 +1,6 @@
 import { Command } from 'commander';
 import { requireAuthCredential } from '../services/auth.js';
 import { resolveContext } from '../services/context.js';
-import { resolveScopedConfig } from '../services/config-store.js';
 import {
   getWorkItemRelationTypes,
   addWorkItemRelation,
@@ -75,9 +74,8 @@ export function createRelationsCommand(): Command {
     .option('--project <project>', 'Azure DevOps project')
     .action(async (opts: { json?: boolean; org?: string; project?: string }) => {
       try {
-        const config = await resolveScopedConfig({ org: opts.org, project: opts.project });
-        const context = resolveContext(config, opts);
-        const cred = await requireAuthCredential(context);
+        const context = resolveContext(opts);
+        const cred = await requireAuthCredential(context.org);
         const types = await getWorkItemRelationTypes(context, cred);
         if (opts.json) {
           process.stdout.write(JSON.stringify(types, null, 2) + '\n');
@@ -104,9 +102,8 @@ export function createRelationsCommand(): Command {
         process.exit(1);
       }
       try {
-        const config = await resolveScopedConfig({ org: opts.org, project: opts.project });
-        const context = resolveContext(config, opts);
-        const cred = await requireAuthCredential(context);
+        const context = resolveContext(opts);
+        const cred = await requireAuthCredential(context.org);
         const result = await addWorkItemRelation(context, cred, type, id1, id2);
         if (opts.json) {
           process.stdout.write(JSON.stringify(result, null, 2) + '\n');
@@ -135,9 +132,8 @@ export function createRelationsCommand(): Command {
         process.exit(1);
       }
       try {
-        const config = await resolveScopedConfig({ org: opts.org, project: opts.project });
-        const context = resolveContext(config, opts);
-        const cred = await requireAuthCredential(context);
+        const context = resolveContext(opts);
+        const cred = await requireAuthCredential(context.org);
         const result = await removeWorkItemRelation(context, cred, type, id1, id2);
         if (opts.json) {
           process.stdout.write(JSON.stringify(result, null, 2) + '\n');
@@ -165,9 +161,8 @@ export function createRelationsCommand(): Command {
         process.exit(1);
       }
       try {
-        const config = await resolveScopedConfig({ org: opts.org, project: opts.project });
-        const context = resolveContext(config, opts);
-        const cred = await requireAuthCredential(context);
+        const context = resolveContext(opts);
+        const cred = await requireAuthCredential(context.org);
         const result = await listWorkItemRelations(context, cred, id);
         if (opts.json) {
           process.stdout.write(JSON.stringify(result, null, 2) + '\n');
