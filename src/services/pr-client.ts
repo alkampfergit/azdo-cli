@@ -228,7 +228,7 @@ function mapThread(thread: AzdoThread): ActiveCommentThread | null {
 
   return {
     id: thread.id,
-    status: thread.status,
+    status: thread.status ?? 'unknown',
     threadContext: thread.threadContext?.filePath ?? null,
     comments,
   };
@@ -240,7 +240,7 @@ function toActiveCommentThread(thread: AzdoThread): ActiveCommentThread {
   // the PATCH call returns so callers can confirm the new status.
   return {
     id: thread.id,
-    status: thread.status,
+    status: thread.status ?? 'unknown',
     threadContext: thread.threadContext?.filePath ?? null,
     comments: thread.comments
       .map(mapComment)

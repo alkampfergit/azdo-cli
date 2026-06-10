@@ -123,7 +123,7 @@ export interface AzdoThreadListResponse {
 
 export interface AzdoThread {
   id: number;
-  status: string;
+  status?: string;
   threadContext?: {
     filePath?: string;
   };
