@@ -16,12 +16,10 @@ import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import {
   getPullRequestById,
   getPullRequestBuilds,
-  getPullRequestPolicyEvaluations,
   getPullRequestThreads,
   isThreadResolved,
   listPullRequests,
   patchThreadStatus,
-  resolveProjectId,
 } from '../../src/services/pr-client.js';
 import {
   AZDO_PAT,
@@ -297,22 +295,26 @@ describe.skipIf(!AZDO_PR_ID_WITH_BUILDS || SKIP_PR)('getPullRequestBuilds', () =
     }
   });
 
-  it('throws NOT_FOUND for a nonexistent PR', async () => {
-    await expect(getPullRequestBuilds(context, pat, 9999999)).rejects.toThrow();
+  it('returns an empty array for a nonexistent PR (Builds API does not 404 on missing filter)', async () => {
+    // The Builds API is a filter query — a PR id with no matching builds returns []
+    // rather than a 404, unlike the Git PR APIs.
+    const result = await getPullRequestBuilds(context, pat, 9999999);
+    expect(Array.isArray(result)).toBe(true);
+    expect(result).toHaveLength(0);
   });
 
   it('throws for a bad PAT', async () => {
     await expect(getPullRequestBuilds(context, 'invalid-pat-value', prId)).rejects.toThrow();
   });
 
-  it('policy evaluations also resolve for the same PR (US3 JSON parity)', async () => {
-    const projectId = await resolveProjectId(context, pat);
-    const policyChecks = await getPullRequestPolicyEvaluations(context, pat, projectId, prId);
+  it('build checks have source=build and isBlocking=null (US3 JSON parity)', async () => {
+    // Verifies the JSON output shape for build-source checks independently of
+    // policy evaluations (which return 400 for closed PRs).
     const buildChecks = await getPullRequestBuilds(context, pat, prId);
-    const allChecks = [...policyChecks, ...buildChecks];
-    expect(allChecks.length).toBeGreaterThan(0);
-    const buildEntry = allChecks.find((c) => c.source === 'build');
+    expect(buildChecks.length).toBeGreaterThan(0);
+    const buildEntry = buildChecks.find((c) => c.source === 'build');
     expect(buildEntry).toBeDefined();
     expect(buildEntry?.isBlocking).toBeNull();
+    expect('isBlocking' in buildEntry!).toBe(true);
   });
 });
