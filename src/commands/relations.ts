@@ -1,4 +1,5 @@
 import { Command } from 'commander';
+import type { AzdoContext, AuthCredential } from '../types/work-item.js';
 import { requireAuthCredential } from '../services/auth.js';
 import { resolveContext } from '../services/context.js';
 import {
@@ -8,6 +9,25 @@ import {
   listWorkItemRelations,
 } from '../services/relations-client.js';
 import type { WorkItemRelationType, WorkItemRelation } from '../types/relations.js';
+
+// ---------------------------------------------------------------------------
+// Shared types and helpers
+// ---------------------------------------------------------------------------
+
+type CommonOpts = { json?: boolean; org?: string; project?: string };
+
+function addCommonOptions(cmd: Command): Command {
+  return cmd
+    .option('--json', 'Output as JSON')
+    .option('--org <org>', 'Azure DevOps organization')
+    .option('--project <project>', 'Azure DevOps project');
+}
+
+async function resolveCredentials(opts: CommonOpts): Promise<{ context: AzdoContext; cred: AuthCredential }> {
+  const context = resolveContext(opts);
+  const cred = await requireAuthCredential(context.org);
+  return { context, cred };
+}
 
 // ---------------------------------------------------------------------------
 // Formatters
@@ -58,6 +78,15 @@ function handleRelationError(err: unknown, id1?: number): never {
   process.exit(1);
 }
 
+function parsePositiveInt(value: string, label: string): number {
+  const n = Number(value);
+  if (!Number.isInteger(n) || n <= 0) {
+    process.stderr.write(`Error: ${label} must be a positive integer.\n`);
+    process.exit(1);
+  }
+  return n;
+}
+
 // ---------------------------------------------------------------------------
 // Command factory
 // ---------------------------------------------------------------------------
@@ -66,113 +95,85 @@ export function createRelationsCommand(): Command {
   const relations = new Command('relations').description('Manage work item relations');
 
   // ── types ──────────────────────────────────────────────────────────────
-  relations
-    .command('types')
-    .description('List all available work item relation types')
-    .option('--json', 'Output as JSON')
-    .option('--org <org>', 'Azure DevOps organization')
-    .option('--project <project>', 'Azure DevOps project')
-    .action(async (opts: { json?: boolean; org?: string; project?: string }) => {
-      try {
-        const context = resolveContext(opts);
-        const cred = await requireAuthCredential(context.org);
-        const types = await getWorkItemRelationTypes(context, cred);
-        if (opts.json) {
-          process.stdout.write(JSON.stringify(types, null, 2) + '\n');
-        } else {
-          process.stdout.write(formatRelationTypes(types) + '\n');
-        }
-      } catch (err) {
-        handleRelationError(err);
+  addCommonOptions(
+    relations.command('types').description('List all available work item relation types'),
+  ).action(async (opts: CommonOpts) => {
+    try {
+      const { context, cred } = await resolveCredentials(opts);
+      const types = await getWorkItemRelationTypes(context, cred);
+      if (opts.json) {
+        process.stdout.write(JSON.stringify(types, null, 2) + '\n');
+      } else {
+        process.stdout.write(formatRelationTypes(types) + '\n');
       }
-    });
+    } catch (err) {
+      handleRelationError(err);
+    }
+  });
 
   // ── add ────────────────────────────────────────────────────────────────
-  relations
-    .command('add <type> <id1> <id2>')
-    .description('Add a directed relation from work item <id1> to <id2>')
-    .option('--json', 'Output result as JSON')
-    .option('--org <org>', 'Azure DevOps organization')
-    .option('--project <project>', 'Azure DevOps project')
-    .action(async (type: string, id1Str: string, id2Str: string, opts: { json?: boolean; org?: string; project?: string }) => {
-      const id1 = Number(id1Str);
-      const id2 = Number(id2Str);
-      if (!Number.isInteger(id1) || id1 <= 0 || !Number.isInteger(id2) || id2 <= 0) {
-        process.stderr.write('Error: id1 and id2 must be positive integers.\n');
-        process.exit(1);
+  addCommonOptions(
+    relations
+      .command('add <type> <id1> <id2>')
+      .description('Add a directed relation from work item <id1> to <id2>'),
+  ).action(async (type: string, id1Str: string, id2Str: string, opts: CommonOpts) => {
+    const id1 = parsePositiveInt(id1Str, 'id1');
+    const id2 = parsePositiveInt(id2Str, 'id2');
+    try {
+      const { context, cred } = await resolveCredentials(opts);
+      const result = await addWorkItemRelation(context, cred, type, id1, id2);
+      if (opts.json) {
+        process.stdout.write(JSON.stringify(result, null, 2) + '\n');
+      } else if (result.status === 'already_exists') {
+        process.stdout.write(`Relation already exists: #${id1} --[${result.type}]--> #${id2}\n`);
+      } else {
+        process.stdout.write(`Added relation: #${id1} --[${result.type}]--> #${id2}\n`);
       }
-      try {
-        const context = resolveContext(opts);
-        const cred = await requireAuthCredential(context.org);
-        const result = await addWorkItemRelation(context, cred, type, id1, id2);
-        if (opts.json) {
-          process.stdout.write(JSON.stringify(result, null, 2) + '\n');
-        } else if (result.status === 'already_exists') {
-          process.stdout.write(`Relation already exists: #${id1} --[${result.type}]--> #${id2}\n`);
-        } else {
-          process.stdout.write(`Added relation: #${id1} --[${result.type}]--> #${id2}\n`);
-        }
-      } catch (err) {
-        handleRelationError(err, id1);
-      }
-    });
+    } catch (err) {
+      handleRelationError(err, id1);
+    }
+  });
 
   // ── remove ─────────────────────────────────────────────────────────────
-  relations
-    .command('remove <type> <id1> <id2>')
-    .description('Remove a directed relation of <type> from work item <id1> to <id2>')
-    .option('--json', 'Output result as JSON')
-    .option('--org <org>', 'Azure DevOps organization')
-    .option('--project <project>', 'Azure DevOps project')
-    .action(async (type: string, id1Str: string, id2Str: string, opts: { json?: boolean; org?: string; project?: string }) => {
-      const id1 = Number(id1Str);
-      const id2 = Number(id2Str);
-      if (!Number.isInteger(id1) || id1 <= 0 || !Number.isInteger(id2) || id2 <= 0) {
-        process.stderr.write('Error: id1 and id2 must be positive integers.\n');
-        process.exit(1);
+  addCommonOptions(
+    relations
+      .command('remove <type> <id1> <id2>')
+      .description('Remove a directed relation of <type> from work item <id1> to <id2>'),
+  ).action(async (type: string, id1Str: string, id2Str: string, opts: CommonOpts) => {
+    const id1 = parsePositiveInt(id1Str, 'id1');
+    const id2 = parsePositiveInt(id2Str, 'id2');
+    try {
+      const { context, cred } = await resolveCredentials(opts);
+      const result = await removeWorkItemRelation(context, cred, type, id1, id2);
+      if (opts.json) {
+        process.stdout.write(JSON.stringify(result, null, 2) + '\n');
+      } else if (result.status === 'not_found') {
+        process.stdout.write(`No relation of type '${result.type}' found between #${id1} and #${id2}\n`);
+      } else {
+        process.stdout.write(`Removed relation: #${id1} --[${result.type}]--> #${id2}\n`);
       }
-      try {
-        const context = resolveContext(opts);
-        const cred = await requireAuthCredential(context.org);
-        const result = await removeWorkItemRelation(context, cred, type, id1, id2);
-        if (opts.json) {
-          process.stdout.write(JSON.stringify(result, null, 2) + '\n');
-        } else if (result.status === 'not_found') {
-          process.stdout.write(`No relation of type '${result.type}' found between #${id1} and #${id2}\n`);
-        } else {
-          process.stdout.write(`Removed relation: #${id1} --[${result.type}]--> #${id2}\n`);
-        }
-      } catch (err) {
-        handleRelationError(err, id1);
-      }
-    });
+    } catch (err) {
+      handleRelationError(err, id1);
+    }
+  });
 
   // ── list ───────────────────────────────────────────────────────────────
-  relations
-    .command('list <id>')
-    .description('List all work item link relations on a work item')
-    .option('--json', 'Output as JSON')
-    .option('--org <org>', 'Azure DevOps organization')
-    .option('--project <project>', 'Azure DevOps project')
-    .action(async (idStr: string, opts: { json?: boolean; org?: string; project?: string }) => {
-      const id = Number(idStr);
-      if (!Number.isInteger(id) || id <= 0) {
-        process.stderr.write('Error: id must be a positive integer.\n');
-        process.exit(1);
+  addCommonOptions(
+    relations.command('list <id>').description('List all work item link relations on a work item'),
+  ).action(async (idStr: string, opts: CommonOpts) => {
+    const id = parsePositiveInt(idStr, 'id');
+    try {
+      const { context, cred } = await resolveCredentials(opts);
+      const result = await listWorkItemRelations(context, cred, id);
+      if (opts.json) {
+        process.stdout.write(JSON.stringify(result, null, 2) + '\n');
+      } else {
+        process.stdout.write(formatRelationsList(result.workItemId, result.relations) + '\n');
       }
-      try {
-        const context = resolveContext(opts);
-        const cred = await requireAuthCredential(context.org);
-        const result = await listWorkItemRelations(context, cred, id);
-        if (opts.json) {
-          process.stdout.write(JSON.stringify(result, null, 2) + '\n');
-        } else {
-          process.stdout.write(formatRelationsList(result.workItemId, result.relations) + '\n');
-        }
-      } catch (err) {
-        handleRelationError(err, id);
-      }
-    });
+    } catch (err) {
+      handleRelationError(err, id);
+    }
+  });
 
   return relations;
 }
