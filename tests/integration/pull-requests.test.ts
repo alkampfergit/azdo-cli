@@ -15,6 +15,7 @@
 import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import {
   getPullRequestById,
+  getPullRequestBuilds,
   getPullRequestThreads,
   isThreadResolved,
   listPullRequests,
@@ -24,6 +25,7 @@ import {
   AZDO_PAT,
   AZDO_REPO,
   AZDO_PR_ID,
+  AZDO_PR_ID_WITH_BUILDS,
   SKIP_PR,
   makeContext,
 } from './helpers/integration-utils.js';
@@ -258,9 +260,61 @@ describe.skipIf(SKIP_PR)('pull-requests integration', () => {
       }
 
       if (mutationFailed) {
-        // eslint-disable-next-line no-console
+         
         console.warn(`[integration] thread #${subject.id} on PR #${prId} rejected a state change (likely locked); skipping round-trip assertions.`);
       }
     });
+  });
+});
+
+describe.skipIf(!AZDO_PR_ID_WITH_BUILDS || SKIP_PR)('getPullRequestBuilds', () => {
+  const context = makeContext();
+  const pat = AZDO_PAT;
+  const prId = AZDO_PR_ID_WITH_BUILDS!;
+
+  it('returns an array of checks for a PR with builds', async () => {
+    const checks = await getPullRequestBuilds(context, pat, prId);
+    expect(Array.isArray(checks)).toBe(true);
+    expect(checks.length).toBeGreaterThan(0);
+    for (const check of checks) {
+      expect(typeof check.id).toBe('number');
+      expect(typeof check.state).toBe('string');
+      expect(typeof check.name).toBe('string');
+      expect(check.source).toBe('build');
+      expect(check.isBlocking).toBeNull();
+    }
+  });
+
+  it('returns checks with source=build in JSON-serialisable shape', async () => {
+    const checks = await getPullRequestBuilds(context, pat, prId);
+    expect(checks.length).toBeGreaterThan(0);
+    const buildSourceChecks = checks.filter((c) => c.source === 'build');
+    expect(buildSourceChecks.length).toBeGreaterThan(0);
+    for (const check of buildSourceChecks) {
+      expect('isBlocking' in check).toBe(true);
+    }
+  });
+
+  it('returns an empty array for a nonexistent PR (Builds API does not 404 on missing filter)', async () => {
+    // The Builds API is a filter query — a PR id with no matching builds returns []
+    // rather than a 404, unlike the Git PR APIs.
+    const result = await getPullRequestBuilds(context, pat, 9999999);
+    expect(Array.isArray(result)).toBe(true);
+    expect(result).toHaveLength(0);
+  });
+
+  it('throws for a bad PAT', async () => {
+    await expect(getPullRequestBuilds(context, 'invalid-pat-value', prId)).rejects.toThrow();
+  });
+
+  it('build checks have source=build and isBlocking=null (US3 JSON parity)', async () => {
+    // Verifies the JSON output shape for build-source checks independently of
+    // policy evaluations (which return 400 for closed PRs).
+    const buildChecks = await getPullRequestBuilds(context, pat, prId);
+    expect(buildChecks.length).toBeGreaterThan(0);
+    const buildEntry = buildChecks.find((c) => c.source === 'build');
+    expect(buildEntry).toBeDefined();
+    expect(buildEntry?.isBlocking).toBeNull();
+    expect('isBlocking' in buildEntry!).toBe(true);
   });
 });

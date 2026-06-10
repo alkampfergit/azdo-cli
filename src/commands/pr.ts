@@ -15,6 +15,7 @@ import {
   getPullRequestThreads,
   getPullRequestChecks,
   getPullRequestPolicyEvaluations,
+  getPullRequestBuilds,
   resolveProjectId,
   getPullRequestById,
   isThreadResolved,
@@ -150,7 +151,8 @@ function formatPullRequestChecks(checks: PullRequestCheck[], checksError?: strin
 
   const lines = ['Checks:'];
   for (const check of checks) {
-    lines.push(`- [${check.state}] ${check.name}`);
+    const optionalTag = check.isBlocking === false ? ' [optional]' : '';
+    lines.push(`- [${check.state}] ${check.name}${optionalTag}`);
     if ((check.state === 'failed' || check.state === 'error') && check.description) {
       lines.push(`  Detail: ${check.description}`);
     }
@@ -226,6 +228,14 @@ async function buildPullRequestStatusEntry(
     }
   }
 
+  let buildChecks: PullRequestCheck[] = [];
+  let buildsOk = true;
+  try {
+    buildChecks = await getPullRequestBuilds(context, cred, pullRequest.id);
+  } catch {
+    buildsOk = false;
+  }
+
   let codeCommentCounts: CodeCommentCounts;
   try {
     const threads = await getPullRequestThreads(context, repo, cred, pullRequest.id);
@@ -234,11 +244,12 @@ async function buildPullRequestStatusEntry(
     codeCommentCounts = { open: 0, closed: 0 };
   }
 
-  const checks = [...statusChecks, ...policyChecks];
+  const checks = [...statusChecks, ...policyChecks, ...buildChecks];
   // Only report a retrieval failure when we have nothing to show AND a source
   // actually failed — otherwise real (possibly partial) results are shown, and
   // a genuine empty result still reads as "none reported" (FR-002).
-  const checksError = checks.length === 0 && (!statusOk || !policyOk) ? 'Azure DevOps request failed' : null;
+  const checksError =
+    checks.length === 0 && (!statusOk || !policyOk || !buildsOk) ? 'Azure DevOps request failed' : null;
 
   return {
     ...pullRequest,

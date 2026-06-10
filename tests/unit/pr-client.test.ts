@@ -537,10 +537,10 @@ describe('pr-client', () => {
         'artifactId=vstfs%3A%2F%2F%2FCodeReview%2FCodeReviewId%2Fproj-guid%2F12',
       );
       expect(result).toEqual([
-        { id: 10, state: 'succeeded', name: 'Build validation', description: null, targetUrl: null, createdBy: null, createdAt: null, updatedAt: null, source: 'policy' },
-        { id: 11, state: 'failed', name: 'Required reviewers', description: null, targetUrl: null, createdBy: null, createdAt: null, updatedAt: null, source: 'policy' },
-        { id: 12, state: 'pending', name: 'Status', description: null, targetUrl: null, createdBy: null, createdAt: null, updatedAt: null, source: 'policy' },
-        { id: 13, state: 'pending', name: 'Queued policy', description: null, targetUrl: null, createdBy: null, createdAt: null, updatedAt: null, source: 'policy' },
+        { id: 10, state: 'succeeded', name: 'Build validation', description: null, targetUrl: null, createdBy: null, createdAt: null, updatedAt: null, source: 'policy', isBlocking: null },
+        { id: 11, state: 'failed', name: 'Required reviewers', description: null, targetUrl: null, createdBy: null, createdAt: null, updatedAt: null, source: 'policy', isBlocking: null },
+        { id: 12, state: 'pending', name: 'Status', description: null, targetUrl: null, createdBy: null, createdAt: null, updatedAt: null, source: 'policy', isBlocking: null },
+        { id: 13, state: 'pending', name: 'Queued policy', description: null, targetUrl: null, createdBy: null, createdAt: null, updatedAt: null, source: 'policy', isBlocking: null },
       ]);
     });
   });

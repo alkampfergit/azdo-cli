@@ -6,6 +6,7 @@ vi.mock('../../src/services/pr-client.js', () => ({
   listPullRequests: vi.fn(),
   getPullRequestChecks: vi.fn(),
   getPullRequestPolicyEvaluations: vi.fn(),
+  getPullRequestBuilds: vi.fn(),
   resolveProjectId: vi.fn(),
   getPullRequestThreads: vi.fn(),
   isThreadResolved: (status: string) =>
@@ -26,6 +27,7 @@ vi.mock('../../src/services/context.js', () => ({
 }));
 
 import {
+  getPullRequestBuilds,
   getPullRequestChecks,
   getPullRequestPolicyEvaluations,
   getPullRequestThreads,
@@ -81,6 +83,7 @@ beforeEach(() => {
   vi.mocked(getPullRequestChecks).mockResolvedValue([]);
   vi.mocked(resolveProjectId).mockResolvedValue('project-guid');
   vi.mocked(getPullRequestPolicyEvaluations).mockResolvedValue([]);
+  vi.mocked(getPullRequestBuilds).mockResolvedValue([]);
   vi.mocked(getPullRequestThreads).mockResolvedValue([]);
 });
 

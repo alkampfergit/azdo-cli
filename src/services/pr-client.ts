@@ -1,5 +1,6 @@
 import type { AuthCredential, AzdoContext } from '../types/work-item.js';
 import { authHeaders, fetchWithErrors } from './azdo-client.js';
+import type { AzdoBuild, AzdoBuildListResponse } from '../types/pipeline.js';
 import type {
   ActiveCommentThread,
   ActivePullRequestComment,
@@ -65,6 +66,17 @@ function buildPolicyEvaluationsUrl(context: AzdoContext, projectId: string, prId
   // The PR is identified to the policy engine by a CodeReview artifact id that
   // embeds the project GUID and the pull request id.
   url.searchParams.set('artifactId', `vstfs:///CodeReview/CodeReviewId/${projectId}/${prId}`);
+  return url;
+}
+
+function buildPullRequestBuildsUrl(context: AzdoContext, prId: number): URL {
+  const url = new URL(
+    `https://dev.azure.com/${encodeURIComponent(context.org)}/${encodeURIComponent(context.project)}/_apis/build/builds`,
+  );
+  url.searchParams.set('branchName', `refs/pull/${prId}/merge`);
+  url.searchParams.set('queryOrder', 'queueTimeDescending');
+  url.searchParams.set('$top', '50');
+  url.searchParams.set('api-version', '7.1');
   return url;
 }
 
@@ -140,6 +152,23 @@ function mapPolicyEvaluationState(status: string | undefined): string | null {
   }
 }
 
+function mapBuildToCheckState(build: AzdoBuild): string {
+  if (build.status !== 'completed') {
+    return 'pending';
+  }
+  switch (build.result) {
+    case 'succeeded':
+    case 'partiallySucceeded':
+      return 'succeeded';
+    case 'failed':
+      return 'failed';
+    case 'canceled':
+      return 'error';
+    default:
+      return 'pending';
+  }
+}
+
 function mapPolicyEvaluationName(evaluation: AzdoPolicyEvaluation): string {
   const display =
     evaluation.configuration?.settings?.displayName?.trim() ||
@@ -166,6 +195,7 @@ function mapPolicyEvaluationCheck(evaluation: AzdoPolicyEvaluation): PullRequest
     createdAt: null,
     updatedAt: null,
     source: 'policy',
+    isBlocking: evaluation.configuration?.isBlocking ?? null,
   };
 }
 
@@ -198,7 +228,7 @@ function mapThread(thread: AzdoThread): ActiveCommentThread | null {
 
   return {
     id: thread.id,
-    status: thread.status,
+    status: thread.status ?? 'unknown',
     threadContext: thread.threadContext?.filePath ?? null,
     comments,
   };
@@ -210,7 +240,7 @@ function toActiveCommentThread(thread: AzdoThread): ActiveCommentThread {
   // the PATCH call returns so callers can confirm the new status.
   return {
     id: thread.id,
-    status: thread.status,
+    status: thread.status ?? 'unknown',
     threadContext: thread.threadContext?.filePath ?? null,
     comments: thread.comments
       .map(mapComment)
@@ -351,6 +381,30 @@ export async function getPullRequestPolicyEvaluations(
   return data.value
     .map(mapPolicyEvaluationCheck)
     .filter((check): check is PullRequestCheck => check !== null);
+}
+
+export async function getPullRequestBuilds(
+  context: AzdoContext,
+  cred: AuthCredential,
+  prId: number,
+): Promise<PullRequestCheck[]> {
+  const response = await fetchWithErrors(buildPullRequestBuildsUrl(context, prId).toString(), {
+    headers: authHeaders(cred),
+  });
+  const data = await readJsonResponse<AzdoBuildListResponse>(response);
+
+  return data.value.map((build) => ({
+    id: build.id,
+    state: mapBuildToCheckState(build),
+    name: build.definition?.name ?? `Build #${build.id}`,
+    description: null,
+    targetUrl: build._links?.web?.href ?? null,
+    createdBy: null,
+    createdAt: build.queueTime ?? null,
+    updatedAt: build.finishTime ?? null,
+    source: 'build' as const,
+    isBlocking: null,
+  }));
 }
 
 export async function openPullRequest(

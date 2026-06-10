@@ -64,6 +64,9 @@ export const AZDO_ORG = (process.env.AZDO_ORG ?? '').trim();
 export const AZDO_PROJECT = (process.env.AZDO_PROJECT ?? '').trim();
 export const AZDO_REPO = (process.env.AZDO_REPO ?? '').trim();
 export const AZDO_PR_ID = process.env.AZDO_PR_ID ? Number(process.env.AZDO_PR_ID.trim()) : null;
+export const AZDO_PR_ID_WITH_BUILDS = process.env.AZDO_PR_ID_WITH_BUILDS
+  ? Number(process.env.AZDO_PR_ID_WITH_BUILDS.trim())
+  : null;
 export const AZDO_ATTACHMENT_ITEM_ID = Number(process.env.AZDO_ATTACHMENT_ITEM_ID ?? '39835');
 export const AZDO_ATTACHMENT_FILENAME = (process.env.AZDO_ATTACHMENT_FILENAME ?? '_profile.png').trim();
 /** Work item whose System.Description contains an embedded image (for image-download tests). */
