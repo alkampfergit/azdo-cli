@@ -58,7 +58,7 @@ numbers "also on JSON". Enables downstream automation.
 **Independent Test**: Run `azdo pr comments --json`. For a code-anchored
 thread with a known line number, the thread object in the JSON output must
 contain a numeric `line` field with the correct value. For a general thread
-the field must be absent or `null`.
+the field must be `null` (field is always present for a stable JSON shape).
 
 **Acceptance Scenarios**:
 
@@ -138,6 +138,14 @@ the field must be absent or `null`.
   feature branch.
 - **SC-005**: No change to the output of any command other than
   `azdo pr comments` (and its JSON variant).
+
+---
+
+## Clarifications
+
+### Session 2026-06-10
+
+- Q: US2 Independent Test stated "absent or null" for the `line` field on general threads — should it always be present as `null`? → A: Always present as `null` (consistent with FR-004, FR-005, and acceptance scenario 2 — stable JSON shape).
 
 ---
 
