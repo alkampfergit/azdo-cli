@@ -18,11 +18,15 @@ export interface PullRequestCheck {
   createdBy: string | null;
   createdAt: string | null;
   updatedAt: string | null;
-  // Where this check came from: the Pull Request Status API (`status`) or a
-  // branch policy evaluation (`policy`). Branch-policy build validations are
-  // the green checks the Azure DevOps UI shows; they are NOT returned by the
-  // statuses endpoint, so both sources are merged for `pr status`.
-  source?: 'status' | 'policy';
+  // Where this check came from: the Pull Request Status API (`status`), a
+  // branch policy evaluation (`policy`), or the Builds API (`build`).
+  // Branch-policy build validations are the green checks the Azure DevOps UI
+  // shows; they are NOT returned by the statuses endpoint, so all three sources
+  // are merged for `pr status`.
+  source?: 'status' | 'policy' | 'build';
+  // Whether this check is a blocking (required) policy. True = required,
+  // false = optional, null/undefined = unknown (status and build sources).
+  isBlocking?: boolean | null;
 }
 
 // Open/closed counts of code-anchored (file/line) comment threads on a PR.

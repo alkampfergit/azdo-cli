@@ -10,15 +10,19 @@
 
 ## What's New
 
-<!-- Filled in by /speckit-implement after all tasks complete -->
-
-- **[PLACEHOLDER]**: [What was added or changed and why]
+- **Builds API as third check source** (`src/services/pr-client.ts`): New `getPullRequestBuilds()` function queries `GET /_apis/build/builds?branchName=refs/pull/{prId}/merge` to retrieve all pipeline runs on a PR's synthetic merge ref — the same data the Azure DevOps UI shows. Results appear alongside the existing Status and Policy Evaluations sources.
+- **`checksError` condition updated** (`src/commands/pr.ts`): The "unable to retrieve" error now fires only when all three sources fail and nothing was collected. Previously it fired when only two sources failed, suppressing valid results from a third source that didn't yet exist.
+- **`[optional]` tag for non-blocking policy checks** (`src/commands/pr.ts`): Human output appends ` [optional]` to check lines where the policy evaluation has `isBlocking === false`. Required checks and build-source checks are unchanged.
+- **`isBlocking` field on `PullRequestCheck`** (`src/types/pull-request.ts`): New optional `isBlocking?: boolean | null` field. Policy-source checks carry `true`/`false`; build-source and status-source checks carry `null`.
+- **`source: 'build'` union member** (`src/types/pull-request.ts`): Extended the `source` discriminator so consumers can identify build-API-origin checks in JSON output.
+- **`definition.name` on `AzdoBuild`** (`src/types/pipeline.ts`): Added to the existing type so the build's pipeline definition name can be used as the check display name.
 
 ## Testing
 
-<!-- Filled in by /speckit-implement after all tasks complete -->
-
-- **[PLACEHOLDER]**: [Test type and coverage]
+- **Unit: `pr-client.test.ts`** — Updated `getPullRequestPolicyEvaluations` snapshot to include the new `isBlocking` field.
+- **Unit: `pr-status.test.ts`** — Added `getPullRequestBuilds` to the mock factory and `beforeEach` default (returns `[]`), ensuring existing status command tests are unaffected.
+- **Integration: `pull-requests.test.ts`** — New `describe('getPullRequestBuilds')` block (5 tests) guarded by `AZDO_PR_ID_WITH_BUILDS`. Asserts shape, `source === 'build'`, `isBlocking === null`, error handling for bad PAT, and JSON parity with combined policy+build checks. Run with `AZDO_PR_ID_WITH_BUILDS=65 npm run test:integration`.
+- **Build & lint**: `npm run build` (tsc strict), `npm run lint` (ESLint 0 errors), `npm test` (883 passing, 1 pre-existing integration failure unrelated to this change).
 
 ## Notes
 

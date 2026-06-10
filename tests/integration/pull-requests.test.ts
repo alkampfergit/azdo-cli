@@ -15,15 +15,19 @@
 import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import {
   getPullRequestById,
+  getPullRequestBuilds,
+  getPullRequestPolicyEvaluations,
   getPullRequestThreads,
   isThreadResolved,
   listPullRequests,
   patchThreadStatus,
+  resolveProjectId,
 } from '../../src/services/pr-client.js';
 import {
   AZDO_PAT,
   AZDO_REPO,
   AZDO_PR_ID,
+  AZDO_PR_ID_WITH_BUILDS,
   SKIP_PR,
   makeContext,
 } from './helpers/integration-utils.js';
@@ -258,9 +262,57 @@ describe.skipIf(SKIP_PR)('pull-requests integration', () => {
       }
 
       if (mutationFailed) {
-        // eslint-disable-next-line no-console
+         
         console.warn(`[integration] thread #${subject.id} on PR #${prId} rejected a state change (likely locked); skipping round-trip assertions.`);
       }
     });
+  });
+});
+
+describe.skipIf(!AZDO_PR_ID_WITH_BUILDS || SKIP_PR)('getPullRequestBuilds', () => {
+  const context = makeContext();
+  const pat = AZDO_PAT;
+  const prId = AZDO_PR_ID_WITH_BUILDS!;
+
+  it('returns an array of checks for a PR with builds', async () => {
+    const checks = await getPullRequestBuilds(context, pat, prId);
+    expect(Array.isArray(checks)).toBe(true);
+    expect(checks.length).toBeGreaterThan(0);
+    for (const check of checks) {
+      expect(typeof check.id).toBe('number');
+      expect(typeof check.state).toBe('string');
+      expect(typeof check.name).toBe('string');
+      expect(check.source).toBe('build');
+      expect(check.isBlocking).toBeNull();
+    }
+  });
+
+  it('returns checks with source=build in JSON-serialisable shape', async () => {
+    const checks = await getPullRequestBuilds(context, pat, prId);
+    expect(checks.length).toBeGreaterThan(0);
+    const buildSourceChecks = checks.filter((c) => c.source === 'build');
+    expect(buildSourceChecks.length).toBeGreaterThan(0);
+    for (const check of buildSourceChecks) {
+      expect('isBlocking' in check).toBe(true);
+    }
+  });
+
+  it('throws NOT_FOUND for a nonexistent PR', async () => {
+    await expect(getPullRequestBuilds(context, pat, 9999999)).rejects.toThrow();
+  });
+
+  it('throws for a bad PAT', async () => {
+    await expect(getPullRequestBuilds(context, 'invalid-pat-value', prId)).rejects.toThrow();
+  });
+
+  it('policy evaluations also resolve for the same PR (US3 JSON parity)', async () => {
+    const projectId = await resolveProjectId(context, pat);
+    const policyChecks = await getPullRequestPolicyEvaluations(context, pat, projectId, prId);
+    const buildChecks = await getPullRequestBuilds(context, pat, prId);
+    const allChecks = [...policyChecks, ...buildChecks];
+    expect(allChecks.length).toBeGreaterThan(0);
+    const buildEntry = allChecks.find((c) => c.source === 'build');
+    expect(buildEntry).toBeDefined();
+    expect(buildEntry?.isBlocking).toBeNull();
   });
 });

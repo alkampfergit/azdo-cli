@@ -24,9 +24,9 @@
 
 **⚠️ CRITICAL**: All user story implementation tasks depend on these type definitions.
 
-- [ ] T001 Add `definition?: { id?: number; name?: string }` to `AzdoBuild` interface in `src/types/pipeline.ts` (current definition only has `id`)
-- [ ] T002 [P] Add `isBlocking?: boolean | null` field and extend `source` union to `'status' | 'policy' | 'build'` in `PullRequestCheck` interface in `src/types/pull-request.ts`
-- [ ] T003 [P] Add integration-test env var `AZDO_PR_ID_WITH_BUILDS` to `tests/integration/helpers/integration-utils.ts` (export as `number | null`, same pattern as existing `AZDO_PR_ID`)
+- [x] T001 Add `definition?: { id?: number; name?: string }` to `AzdoBuild` interface in `src/types/pipeline.ts` (current definition only has `id`)
+- [x] T002 [P] Add `isBlocking?: boolean | null` field and extend `source` union to `'status' | 'policy' | 'build'` in `PullRequestCheck` interface in `src/types/pull-request.ts`
+- [x] T003 [P] Add integration-test env var `AZDO_PR_ID_WITH_BUILDS` to `tests/integration/helpers/integration-utils.ts` (export as `number | null`, same pattern as existing `AZDO_PR_ID`)
 
 **Checkpoint**: Types compile cleanly (`npm run build` passes). Foundation ready.
 
@@ -40,11 +40,11 @@
 
 ### Implementation for User Story 1
 
-- [ ] T004 [P] [US1] Add private URL helper `buildPullRequestBuildsUrl(context, prId)` in `src/services/pr-client.ts` — builds `GET /_apis/build/builds?branchName=refs/pull/{prId}/merge&queryOrder=queueTimeDescending&$top=50&api-version=7.1`
-- [ ] T005 [P] [US1] Add private state mapper `mapBuildToCheckState(build: AzdoBuild): string` in `src/services/pr-client.ts` — maps `status`+`result` pairs to `'pending' | 'succeeded' | 'failed' | 'error'` per the state table in `data-model.md`
-- [ ] T006 [US1] Implement `getPullRequestBuilds(context, cred, prId)` in `src/services/pr-client.ts` — calls the builds URL, imports `AzdoBuildListResponse` from `../types/pipeline.js`, maps each build to `PullRequestCheck` with `source: 'build'` and `isBlocking: null`
-- [ ] T007 [US1] Update `buildPullRequestStatusEntry` in `src/commands/pr.ts` — add third `buildChecks` source: call `getPullRequestBuilds`, set `buildsOk`, include `buildChecks` in the merged `checks` array; update `checksError` condition to `checks.length === 0 && (!statusOk || !policyOk || !buildsOk)`
-- [ ] T008 [P] [US1] Add integration test suite `describe('getPullRequestBuilds')` in `tests/integration/pull-requests.test.ts` — guarded by `AZDO_PR_ID_WITH_BUILDS`; asserts: returns array, each entry has `id`, `state`, `name`, `source === 'build'`; throws `NOT_FOUND` for nonexistent PR; throws `AUTH_FAILED` for bad PAT
+- [x] T004 [P] [US1] Add private URL helper `buildPullRequestBuildsUrl(context, prId)` in `src/services/pr-client.ts` — builds `GET /_apis/build/builds?branchName=refs/pull/{prId}/merge&queryOrder=queueTimeDescending&$top=50&api-version=7.1`
+- [x] T005 [P] [US1] Add private state mapper `mapBuildToCheckState(build: AzdoBuild): string` in `src/services/pr-client.ts` — maps `status`+`result` pairs to `'pending' | 'succeeded' | 'failed' | 'error'` per the state table in `data-model.md`
+- [x] T006 [US1] Implement `getPullRequestBuilds(context, cred, prId)` in `src/services/pr-client.ts` — calls the builds URL, imports `AzdoBuildListResponse` from `../types/pipeline.js`, maps each build to `PullRequestCheck` with `source: 'build'` and `isBlocking: null`
+- [x] T007 [US1] Update `buildPullRequestStatusEntry` in `src/commands/pr.ts` — add third `buildChecks` source: call `getPullRequestBuilds`, set `buildsOk`, include `buildChecks` in the merged `checks` array; update `checksError` condition to `checks.length === 0 && (!statusOk || !policyOk || !buildsOk)`
+- [x] T008 [P] [US1] Add integration test suite `describe('getPullRequestBuilds')` in `tests/integration/pull-requests.test.ts` — guarded by `AZDO_PR_ID_WITH_BUILDS`; asserts: returns array, each entry has `id`, `state`, `name`, `source === 'build'`; throws `NOT_FOUND` for nonexistent PR; throws `AUTH_FAILED` for bad PAT
 
 **Checkpoint**: `azdo pr status` on PR #65 shows at least one check entry. `npm run test:integration` passes (with `AZDO_PR_ID_WITH_BUILDS=65`).
 
@@ -58,8 +58,8 @@
 
 ### Implementation for User Story 2
 
-- [ ] T009 [P] [US2] Update `mapPolicyEvaluationCheck` in `src/services/pr-client.ts` — set `isBlocking: evaluation.configuration?.isBlocking ?? null` on the returned `PullRequestCheck`
-- [ ] T010 [US2] Update `formatPullRequestChecks` in `src/commands/pr.ts` — append ` [optional]` to the check line when `check.isBlocking === false`; no change for `true` or `null`/`undefined`
+- [x] T009 [P] [US2] Update `mapPolicyEvaluationCheck` in `src/services/pr-client.ts` — set `isBlocking: evaluation.configuration?.isBlocking ?? null` on the returned `PullRequestCheck`
+- [x] T010 [US2] Update `formatPullRequestChecks` in `src/commands/pr.ts` — append ` [optional]` to the check line when `check.isBlocking === false`; no change for `true` or `null`/`undefined`
 
 **Checkpoint**: `azdo pr status` human output shows `[optional]` for non-blocking policy checks; format is unchanged for required checks and build-source checks.
 
@@ -75,7 +75,7 @@
 
 *US3 is largely delivered by US1+US2 type changes (build checks are already in the array, `isBlocking` and `source` are on the type). The only task is to confirm JSON output is correct and add integration coverage.*
 
-- [ ] T011 [P] [US3] Add assertion to the existing `AZDO_PR_ID_WITH_BUILDS` integration test: when run with `--json`, the result's `checks` array includes at least one entry with `source === 'build'` and an `isBlocking` field present (in `tests/integration/pull-requests.test.ts`)
+- [x] T011 [P] [US3] Add assertion to the existing `AZDO_PR_ID_WITH_BUILDS` integration test: when run with `--json`, the result's `checks` array includes at least one entry with `source === 'build'` and an `isBlocking` field present (in `tests/integration/pull-requests.test.ts`)
 
 **Checkpoint**: `azdo pr status --json` output verified to include build-source check data.
 
@@ -83,8 +83,8 @@
 
 ## Phase 6: Polish & Cross-Cutting Concerns
 
-- [ ] T012 Run full verification: `npm run lint && npm test && npm run build` — all must pass with zero errors and zero warnings
-- [ ] T013 [P] Review and update `README.md` to note that `azdo pr status` now shows pipeline build checks alongside policy checks (constitution requirement: README must reflect implemented functionality before merge)
+- [x] T012 Run full verification: `npm run lint && npm test && npm run build` — all must pass with zero errors and zero warnings
+- [x] T013 [P] Review and update `README.md` to note that `azdo pr status` now shows pipeline build checks alongside policy checks (constitution requirement: README must reflect implemented functionality before merge)
 
 ---
 

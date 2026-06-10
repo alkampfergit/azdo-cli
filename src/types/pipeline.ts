@@ -138,6 +138,7 @@ export interface AzdoBuild {
   finishTime?: string;
   sourceBranch?: string;
   sourceVersion?: string;
+  definition?: { id?: number; name?: string };
   requestedFor?: { displayName?: string; uniqueName?: string };
   _links?: { web?: { href?: string } };
 }
