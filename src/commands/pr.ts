@@ -271,9 +271,8 @@ function formatThreads(prId: number, title: string, threads: ActiveCommentThread
   const lines = [`Comment threads for pull request #${prId}: ${title}`];
 
   for (const thread of threads) {
-    const location = thread.threadContext
-      ? `${thread.threadContext}${thread.line !== null ? `:${thread.line}` : ''}`
-      : '(general)';
+    const lineSuffix = thread.line === null ? '' : `:${thread.line}`;
+    const location = thread.threadContext ? `${thread.threadContext}${lineSuffix}` : '(general)';
     lines.push('', `Thread #${thread.id} [${threadStatusLabel(thread.status)}] ${location}`);
     for (const comment of thread.comments) {
       lines.push(`  ${comment.author ?? 'Unknown'}: ${comment.content}`);
