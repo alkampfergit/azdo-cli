@@ -52,24 +52,28 @@ const codeActive = {
   id: 1,
   status: 'active',
   threadContext: 'src/app.ts',
+  line: null,
   comments: [comment('please rename this')],
 };
 const codeResolved = {
   id: 2,
   status: 'fixed',
   threadContext: 'src/util.ts',
+  line: null,
   comments: [comment('fixed already')],
 };
 const generalActive = {
   id: 3,
   status: 'active',
   threadContext: null,
+  line: null,
   comments: [comment('overall LGTM discussion')],
 };
 const generalResolved = {
   id: 4,
   status: 'closed',
   threadContext: null,
+  line: null,
   comments: [comment('closed discussion')],
 };
 

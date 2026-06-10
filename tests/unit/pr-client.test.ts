@@ -594,6 +594,7 @@ describe('pr-client', () => {
           id: 1,
           status: 'active',
           threadContext: '/src/file.ts',
+          line: null,
           comments: [
             {
               id: 10,
@@ -607,6 +608,7 @@ describe('pr-client', () => {
           id: 2,
           status: 'closed',
           threadContext: null,
+          line: null,
           comments: [
             {
               id: 12,
@@ -620,6 +622,7 @@ describe('pr-client', () => {
           id: 3,
           status: 'pending',
           threadContext: null,
+          line: null,
           comments: [
             {
               id: 13,
@@ -630,6 +633,94 @@ describe('pr-client', () => {
           ],
         },
       ]);
+    });
+
+    it('extracts line from rightFileStart when present', async () => {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          value: [
+            {
+              id: 10,
+              status: 'active',
+              threadContext: {
+                filePath: '/src/foo.ts',
+                rightFileStart: { line: 42, offset: 1 },
+                rightFileEnd: { line: 42, offset: 13 },
+              },
+              comments: [{ id: 1, author: { displayName: 'Alice' }, content: 'fix this', publishedDate: null }],
+            },
+          ],
+        }),
+      } as Response);
+
+      const result = await getPullRequestThreads(context, 'repo-name', 'pat', 42);
+      expect(result[0].line).toBe(42);
+    });
+
+    it('falls back to leftFileStart when rightFileStart is absent', async () => {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          value: [
+            {
+              id: 11,
+              status: 'active',
+              threadContext: {
+                filePath: '/src/foo.ts',
+                leftFileStart: { line: 7, offset: 3 },
+              },
+              comments: [{ id: 1, author: { displayName: 'Alice' }, content: 'old line', publishedDate: null }],
+            },
+          ],
+        }),
+      } as Response);
+
+      const result = await getPullRequestThreads(context, 'repo-name', 'pat', 42);
+      expect(result[0].line).toBe(7);
+    });
+
+    it('returns null line when threadContext has filePath but no position fields', async () => {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          value: [
+            {
+              id: 12,
+              status: 'active',
+              threadContext: { filePath: '/src/foo.ts' },
+              comments: [{ id: 1, author: { displayName: 'Alice' }, content: 'no pos', publishedDate: null }],
+            },
+          ],
+        }),
+      } as Response);
+
+      const result = await getPullRequestThreads(context, 'repo-name', 'pat', 42);
+      expect(result[0].threadContext).toBe('/src/foo.ts');
+      expect(result[0].line).toBeNull();
+    });
+
+    it('returns null line for general threads (no threadContext)', async () => {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          value: [
+            {
+              id: 13,
+              status: 'active',
+              comments: [{ id: 1, author: { displayName: 'Bob' }, content: 'general', publishedDate: null }],
+            },
+          ],
+        }),
+      } as Response);
+
+      const result = await getPullRequestThreads(context, 'repo-name', 'pat', 42);
+      expect(result[0].threadContext).toBeNull();
+      expect(result[0].line).toBeNull();
     });
   });
 });

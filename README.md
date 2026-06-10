@@ -54,7 +54,7 @@ azdo comments list 12345
 azdo comments add 12345 "Investigating the root cause now."
 
 # PR comment threads — list, filter, target by number, resolve or reopen
-azdo pr comments                        # active-branch PR
+azdo pr comments                        # active-branch PR; code-anchored threads show file:line
 azdo pr comments --pr-number 64         # any PR by number (skips branch lookup)
 azdo pr comments --pr-number 64 --hide-resolved      # or --exclude-resolved (alias)
 azdo pr comments --code-related-only    # only file/line-anchored threads

@@ -19,7 +19,7 @@ Phase 4 verifies JSON output (US2 — implementation is automatic once foundatio
 **Purpose**: No new project infrastructure is needed — all files already exist. This phase
 confirms the starting state.
 
-- [ ] T001 Verify starting state: run `npm run lint && npm test && npm run build` from repo root and confirm all pass before any changes
+- [x] T001 Verify starting state: run `npm run lint && npm test && npm run build` from repo root and confirm all pass before any changes
 
 ---
 
@@ -30,16 +30,16 @@ both user stories.
 
 **⚠️ CRITICAL**: US1 and US2 implementation cannot begin until this phase is complete.
 
-- [ ] T002 Add `CommentPosition` interface (`{ line: number; offset: number }`) in `src/types/pull-request.ts` just before `AzdoThread`; do NOT export it (internal ADO detail)
-- [ ] T003 Expand `AzdoThread.threadContext` in `src/types/pull-request.ts` to include `rightFileStart?: CommentPosition`, `rightFileEnd?: CommentPosition`, `leftFileStart?: CommentPosition`, `leftFileEnd?: CommentPosition` alongside the existing `filePath?: string`
-- [ ] T004 Add `line: number | null` field to `ActiveCommentThread` in `src/types/pull-request.ts` after the `threadContext` field
-- [ ] T005 Update `mapThread()` in `src/services/pr-client.ts`: extract `line = thread.threadContext?.rightFileStart?.line ?? thread.threadContext?.leftFileStart?.line ?? null` and include it in the returned object
-- [ ] T006 Update `toActiveCommentThread()` in `src/services/pr-client.ts` with the same `line` extraction (mirrors T005)
-- [ ] T007 [P] Update all `ActiveCommentThread` fixtures in `tests/unit/pr-client.test.ts` to add `line: null` (TypeScript strict mode will require it)
-- [ ] T008 [P] Update all `ActiveCommentThread` fixtures in `tests/unit/pr-comments.test.ts` to add `line: null`
-- [ ] T009 [P] Update all `ActiveCommentThread` fixtures in `tests/unit/pr-comments-filters.test.ts` to add `line: null`
-- [ ] T010 [P] Update all `ActiveCommentThread` fixtures in `tests/unit/pr-comment-state.test.ts` to add `line: null`
-- [ ] T011 [P] Update all `ActiveCommentThread` fixtures in `tests/unit/pr-status.test.ts` to add `line: null`
+- [x] T002 Add `CommentPosition` interface (`{ line: number; offset: number }`) in `src/types/pull-request.ts` just before `AzdoThread`; do NOT export it (internal ADO detail)
+- [x] T003 Expand `AzdoThread.threadContext` in `src/types/pull-request.ts` to include `rightFileStart?: CommentPosition`, `rightFileEnd?: CommentPosition`, `leftFileStart?: CommentPosition`, `leftFileEnd?: CommentPosition` alongside the existing `filePath?: string`
+- [x] T004 Add `line: number | null` field to `ActiveCommentThread` in `src/types/pull-request.ts` after the `threadContext` field
+- [x] T005 Update `mapThread()` in `src/services/pr-client.ts`: extract `line = thread.threadContext?.rightFileStart?.line ?? thread.threadContext?.leftFileStart?.line ?? null` and include it in the returned object
+- [x] T006 Update `toActiveCommentThread()` in `src/services/pr-client.ts` with the same `line` extraction (mirrors T005)
+- [x] T007 [P] Update all `ActiveCommentThread` fixtures in `tests/unit/pr-client.test.ts` to add `line: null` (TypeScript strict mode will require it)
+- [x] T008 [P] Update all `ActiveCommentThread` fixtures in `tests/unit/pr-comments.test.ts` to add `line: null`
+- [x] T009 [P] Update all `ActiveCommentThread` fixtures in `tests/unit/pr-comments-filters.test.ts` to add `line: null`
+- [x] T010 [P] Update all `ActiveCommentThread` fixtures in `tests/unit/pr-comment-state.test.ts` to add `line: null`
+- [x] T011 [P] Update all `ActiveCommentThread` fixtures in `tests/unit/pr-status.test.ts` to add `line: null`
 
 **Checkpoint**: `npm run lint && npm test && npm run build` must pass after T011 before proceeding.
 
@@ -54,18 +54,18 @@ code-anchored threads. Each such thread's header must include `:<line>` suffix.
 
 ### Tests for User Story 1
 
-- [ ] T012 [US1] Add 4 new test cases to `tests/unit/pr-client.test.ts` for `mapThread()` line extraction:
+- [x] T012 [US1] Add 4 new test cases to `tests/unit/pr-client.test.ts` for `mapThread()` line extraction:
   - Case A: `rightFileStart: { line: 42, offset: 1 }` → `line: 42`
   - Case B: `rightFileStart` absent, `leftFileStart: { line: 7, offset: 3 }` → `line: 7`
   - Case C: `threadContext` present (filePath only), no position fields → `line: null`
   - Case D: `threadContext` absent (general thread) → `line: null`
-- [ ] T013 [US1] Add assertions to `tests/unit/pr-comments.test.ts` that the formatted output for a code-anchored thread with `line: 42` contains the string `:42`
-- [ ] T014 [US1] Add assertion to `tests/unit/pr-comments.test.ts` that a code-anchored thread with `line: null` shows only the file path (no colon suffix)
-- [ ] T015 [US1] Add assertion to `tests/unit/pr-comments.test.ts` that a general thread (`threadContext: null`, `line: null`) shows `(general)` (unchanged)
+- [x] T013 [US1] Add assertions to `tests/unit/pr-comments.test.ts` that the formatted output for a code-anchored thread with `line: 42` contains the string `:42`
+- [x] T014 [US1] Add assertion to `tests/unit/pr-comments.test.ts` that a code-anchored thread with `line: null` shows only the file path (no colon suffix)
+- [x] T015 [US1] Add assertion to `tests/unit/pr-comments.test.ts` that a general thread (`threadContext: null`, `line: null`) shows `(general)` (unchanged)
 
 ### Implementation for User Story 1
 
-- [ ] T016 [US1] Update `formatThreads()` in `src/commands/pr.ts` (line ~274): replace the thread header expression with a `location` variable that appends `:<line>` when `thread.line !== null`, falls back to just `thread.threadContext` when line is null, and uses `(general)` when `threadContext` is null
+- [x] T016 [US1] Update `formatThreads()` in `src/commands/pr.ts` (line ~274): replace the thread header expression with a `location` variable that appends `:<line>` when `thread.line !== null`, falls back to just `thread.threadContext` when line is null, and uses `(general)` when `threadContext` is null
 
 **Checkpoint**: US1 complete — `npm test` passes and human-readable output includes `:N` on code-anchored threads.
 
@@ -80,11 +80,11 @@ a `line` field: integer for code-anchored threads with known position, `null` ot
 
 ### Tests for User Story 2
 
-- [ ] T017 [US2] Add a `--json` output test to `tests/unit/pr-comments.test.ts`: verify that the serialised JSON for a thread with `line: 42` contains `"line":42` and for a general thread contains `"line":null`
+- [x] T017 [US2] Add a `--json` output test to `tests/unit/pr-comments.test.ts`: verify that the serialised JSON for a thread with `line: 42` contains `"line":42` and for a general thread contains `"line":null`
 
 ### Implementation for User Story 2
 
-- [ ] T018 [US2] Confirm no formatter change is needed for JSON output — `line` is automatically included because `ActiveCommentThread` now carries it and the JSON serialiser outputs all fields; add a code comment in `src/commands/pr.ts` near the JSON output path noting that `line` is structural (from T004)
+- [x] T018 [US2] Confirm no formatter change is needed for JSON output — `line` is automatically included because `ActiveCommentThread` now carries it and the JSON serialiser outputs all fields; add a code comment in `src/commands/pr.ts` near the JSON output path noting that `line` is structural (from T004)
 
 **Checkpoint**: US2 complete — JSON output verified in tests.
 
@@ -94,8 +94,8 @@ a `line` field: integer for code-anchored threads with known position, `null` ot
 
 **Purpose**: Finalise non-functional requirements before PR.
 
-- [ ] T019 Review `README.md` and update `azdo pr comments` command documentation to note that thread headers now show the line number (constitution requires README review before merge)
-- [ ] T020 Run full verification: `npm run lint && npm test && npm run build` and confirm all pass with zero errors
+- [x] T019 Review `README.md` and update `azdo pr comments` command documentation to note that thread headers now show the line number (constitution requires README review before merge)
+- [x] T020 Run full verification: `npm run lint && npm test && npm run build` and confirm all pass with zero errors
 
 ---
 

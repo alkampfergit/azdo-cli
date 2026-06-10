@@ -237,10 +237,10 @@ describe('pr status command', () => {
   it('prints open/closed counts of code-anchored comments, excluding general threads', async () => {
     vi.mocked(listPullRequests).mockResolvedValue([makePullRequest({ title: 'Test PR', status: 'active' })]);
     vi.mocked(getPullRequestThreads).mockResolvedValue([
-      { id: 1, status: 'active', threadContext: 'src/a.ts', comments: [] },
-      { id: 2, status: 'active', threadContext: 'src/b.ts', comments: [] },
-      { id: 3, status: 'fixed', threadContext: 'src/c.ts', comments: [] },
-      { id: 4, status: 'active', threadContext: null, comments: [] }, // general — excluded
+      { id: 1, status: 'active', threadContext: 'src/a.ts', line: null, comments: [] },
+      { id: 2, status: 'active', threadContext: 'src/b.ts', line: null, comments: [] },
+      { id: 3, status: 'fixed', threadContext: 'src/c.ts', line: null, comments: [] },
+      { id: 4, status: 'active', threadContext: null, line: null, comments: [] }, // general — excluded
     ]);
 
     await run([]);
@@ -251,7 +251,7 @@ describe('pr status command', () => {
   it('reports zero code-comment counts when there are no code-anchored threads', async () => {
     vi.mocked(listPullRequests).mockResolvedValue([makePullRequest({ title: 'Test PR', status: 'active' })]);
     vi.mocked(getPullRequestThreads).mockResolvedValue([
-      { id: 4, status: 'active', threadContext: null, comments: [] },
+      { id: 4, status: 'active', threadContext: null, line: null, comments: [] },
     ]);
 
     await run([]);

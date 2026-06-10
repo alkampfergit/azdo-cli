@@ -87,6 +87,7 @@ export interface ActiveCommentThread {
   id: number;
   status: string;
   threadContext: string | null;
+  line: number | null;
   comments: ActivePullRequestComment[];
 }
 
@@ -121,11 +122,20 @@ export interface AzdoThreadListResponse {
   value: AzdoThread[];
 }
 
+interface CommentPosition {
+  line: number;
+  offset: number;
+}
+
 export interface AzdoThread {
   id: number;
   status?: string;
   threadContext?: {
     filePath?: string;
+    rightFileStart?: CommentPosition;
+    rightFileEnd?: CommentPosition;
+    leftFileStart?: CommentPosition;
+    leftFileEnd?: CommentPosition;
   };
   comments: AzdoComment[];
 }
