@@ -68,6 +68,14 @@ azdo pipeline get-runs 12 --branch develop --limit 1
 azdo pipeline wait 3456                     # blocks; exit 0 success / non-zero failure / 124 timeout
 azdo pipeline get-run-detail 3456           # errors, failing tests, per-stage status
 azdo pipeline start 12 --branch develop --parameter env=staging
+
+# Work item relations — types, add, remove, list
+azdo relations types                        # list all relation types (Child, Parent, Related, ...)
+azdo relations types --json                 # machine-readable JSON array
+azdo relations add child 1000 2000          # make #2000 a child of #1000 (idempotent)
+azdo relations remove child 1000 2000       # remove the child relation
+azdo relations list 1000                    # show all relations on work item #1000
+azdo relations list 1000 --json             # JSON: { workItemId, relations: [...] }
 ```
 
 ## Documentation

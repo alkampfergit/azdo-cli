@@ -64,6 +64,15 @@ export const AZDO_ORG = (process.env.AZDO_ORG ?? '').trim();
 export const AZDO_PROJECT = (process.env.AZDO_PROJECT ?? '').trim();
 export const AZDO_REPO = (process.env.AZDO_REPO ?? '').trim();
 export const AZDO_PR_ID = process.env.AZDO_PR_ID ? Number(process.env.AZDO_PR_ID.trim()) : null;
+export const AZDO_WI_WITH_RELATIONS = process.env.AZDO_WI_WITH_RELATIONS
+  ? Number(process.env.AZDO_WI_WITH_RELATIONS.trim())
+  : null;
+export const AZDO_WI_RELATION_SOURCE = process.env.AZDO_WI_RELATION_SOURCE
+  ? Number(process.env.AZDO_WI_RELATION_SOURCE.trim())
+  : null;
+export const AZDO_WI_RELATION_TARGET = process.env.AZDO_WI_RELATION_TARGET
+  ? Number(process.env.AZDO_WI_RELATION_TARGET.trim())
+  : null;
 export const AZDO_PR_ID_WITH_BUILDS = process.env.AZDO_PR_ID_WITH_BUILDS
   ? Number(process.env.AZDO_PR_ID_WITH_BUILDS.trim())
   : null;

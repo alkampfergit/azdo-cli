@@ -15,6 +15,7 @@ import { createPrCommand } from "./commands/pr.js";
 import { createPipelineCommand } from "./commands/pipeline.js";
 import { createCommentsCommand } from "./commands/comments.js";
 import { createDownloadAttachmentCommand } from "./commands/download-attachment.js";
+import { createRelationsCommand } from "./commands/relations.js";
 import { getUpdateNotice } from "./services/update-check.js";
 
 // Standard CLI behaviour for `azdo … | head`: when the downstream reader
@@ -50,6 +51,7 @@ program.addCommand(createPrCommand());
 program.addCommand(createPipelineCommand());
 program.addCommand(createCommentsCommand());
 program.addCommand(createDownloadAttachmentCommand());
+program.addCommand(createRelationsCommand());
 
 program.showHelpAfterError();
 
