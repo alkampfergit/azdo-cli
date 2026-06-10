@@ -123,6 +123,7 @@ bd close <id>         # Complete work
 - TypeScript 5.x (`strict: true`) on Node.js LTS (18+) + commander.js (CLI), native `fetch` (HTTP), `node:child_process` execSync (git), `node:fs`/`node:path`/`node:os` (config I/O) — all existing; **no new dependencies** (025-multi-org-support)
 - JSON file at `~/.azdo/config.json` (existing; extended with an `organizations` map) (025-multi-org-support)
 - TypeScript 5.x (strict mode), Node.js LTS + commander.js (CLI), native `fetch` (HTTP) — no new deps (027-work-item-relations)
+- TypeScript 5.x (strict: true) + commander.js (CLI framework), native `fetch` (HTTP), vitest (tests) (028-pr-comment-line)
 
 ## Recent Changes
 - 019-fix-pr-command: `azdo pr` now recognises HTTPS remotes with a `<user>[:<token>]@` userinfo prefix and an optional `.git` suffix (one-time, sanitised stderr credential warning; host allow-list unchanged). The single-PR commands (`pr comments` / `comment-resolve` / `comment-reopen`) document the branch→PR auto-detection rule in `--help` and fail cleanly on zero/multi-match; `pr status` stays a multi-PR list (decision A). No new runtime deps.
