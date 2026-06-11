@@ -64,6 +64,7 @@ function thread(id: number, status: string) {
     id,
     status,
     threadContext: null,
+    line: null,
     comments: [{ id: id * 10, author: 'Alice', content: 'note', publishedAt: null }],
   };
 }

@@ -226,10 +226,16 @@ function mapThread(thread: AzdoThread): ActiveCommentThread | null {
     return null;
   }
 
+  const line =
+    thread.threadContext?.rightFileStart?.line ??
+    thread.threadContext?.leftFileStart?.line ??
+    null;
+
   return {
     id: thread.id,
     status: thread.status ?? 'unknown',
     threadContext: thread.threadContext?.filePath ?? null,
+    line,
     comments,
   };
 }
@@ -238,10 +244,16 @@ function toActiveCommentThread(thread: AzdoThread): ActiveCommentThread {
   // Unlike mapThread() this does not drop threads whose visible comments
   // list is empty; the state-change path needs to round-trip any thread
   // the PATCH call returns so callers can confirm the new status.
+  const line =
+    thread.threadContext?.rightFileStart?.line ??
+    thread.threadContext?.leftFileStart?.line ??
+    null;
+
   return {
     id: thread.id,
     status: thread.status ?? 'unknown',
     threadContext: thread.threadContext?.filePath ?? null,
+    line,
     comments: thread.comments
       .map(mapComment)
       .filter((comment): comment is ActivePullRequestComment => comment !== null),
