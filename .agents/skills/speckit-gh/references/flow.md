@@ -208,6 +208,28 @@ Immediately after creation:
 
 ## 9. Implement — stop and ask on any real decision
 
+**Before invoking `/speckit-implement`, record the feature in the changelog:**
+
+Invoke `/changelog record` with a one-line summary of the feature derived from
+the spec title and first user story. Use the issue/PR numbers as refs. Example:
+
+```
+/changelog record "<feature summary from spec> (<branch>, #<N>/#<pr>)"
+```
+
+Commit the changelog files on the feature branch:
+
+```bash
+git add CHANGELOG.md docs/changelogs/unreleased.md
+git commit -m "docs(#<N>): record <short-name> in changelog"
+git push
+```
+
+Post a `speckit:status` on the PR noting the changelog was updated. Then
+proceed with implementation.
+
+---
+
 Invoke `/speckit-implement`. Brief it: "all communication on PR #<pr> via
 `gh pr comment`; never the console. Commits use scope `#<N>`."
 
