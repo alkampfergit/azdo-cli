@@ -64,8 +64,23 @@ export const AZDO_ORG = (process.env.AZDO_ORG ?? '').trim();
 export const AZDO_PROJECT = (process.env.AZDO_PROJECT ?? '').trim();
 export const AZDO_REPO = (process.env.AZDO_REPO ?? '').trim();
 export const AZDO_PR_ID = process.env.AZDO_PR_ID ? Number(process.env.AZDO_PR_ID.trim()) : null;
+export const AZDO_WI_WITH_RELATIONS = process.env.AZDO_WI_WITH_RELATIONS
+  ? Number(process.env.AZDO_WI_WITH_RELATIONS.trim())
+  : null;
+export const AZDO_WI_RELATION_SOURCE = process.env.AZDO_WI_RELATION_SOURCE
+  ? Number(process.env.AZDO_WI_RELATION_SOURCE.trim())
+  : null;
+export const AZDO_WI_RELATION_TARGET = process.env.AZDO_WI_RELATION_TARGET
+  ? Number(process.env.AZDO_WI_RELATION_TARGET.trim())
+  : null;
+export const AZDO_PR_ID_WITH_BUILDS = process.env.AZDO_PR_ID_WITH_BUILDS
+  ? Number(process.env.AZDO_PR_ID_WITH_BUILDS.trim())
+  : null;
 export const AZDO_ATTACHMENT_ITEM_ID = Number(process.env.AZDO_ATTACHMENT_ITEM_ID ?? '39835');
 export const AZDO_ATTACHMENT_FILENAME = (process.env.AZDO_ATTACHMENT_FILENAME ?? '_profile.png').trim();
+/** Work item whose System.Description contains an embedded image (for image-download tests). */
+export const AZDO_IMAGE_ITEM_ID = Number(process.env.AZDO_IMAGE_ITEM_ID ?? '41748');
+export const AZDO_IMAGE_FIELD = (process.env.AZDO_IMAGE_FIELD ?? 'System.Description').trim();
 
 /** True when the mandatory env vars are missing — use with describe.skipIf. */
 export const SKIP_AZDO = !AZDO_PAT || !AZDO_ORG || !AZDO_PROJECT;

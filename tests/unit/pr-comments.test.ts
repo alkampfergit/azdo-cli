@@ -93,7 +93,7 @@ describe('pr comments command --pr-number', () => {
       url: 'https://example.test/pr/64',
     });
     vi.mocked(getPullRequestThreads).mockResolvedValue([
-      { id: 500, status: 'active', threadContext: null, comments: [{ id: 1, author: 'A', content: 'hi', publishedAt: null }] },
+      { id: 500, status: 'active', threadContext: null, line: null, comments: [{ id: 1, author: 'A', content: 'hi', publishedAt: null }] },
     ]);
 
     await run(['--pr-number', '64']);
@@ -157,6 +157,7 @@ describe('pr comments command', () => {
         id: 100,
         status: 'active',
         threadContext: '/src/file.ts',
+        line: null,
         comments: [
           { id: 1, author: 'Alice', content: 'Please fix this', publishedAt: '2026-03-27T00:00:00Z' },
         ],
@@ -165,6 +166,7 @@ describe('pr comments command', () => {
         id: 101,
         status: 'pending',
         threadContext: null,
+        line: null,
         comments: [
           { id: 2, author: 'Bob', content: 'Still waiting', publishedAt: '2026-03-27T00:00:00Z' },
         ],
@@ -176,6 +178,7 @@ describe('pr comments command', () => {
     const output = getStdout();
     expect(output).toContain('Comment threads for pull request #12: Test PR');
     expect(output).toContain('Thread #100 [active] /src/file.ts');
+    expect(output).not.toContain('/src/file.ts:');
     expect(output).toContain('  Alice: Please fix this');
     expect(output).toContain('Thread #101 [pending] (general)');
     expect(output).toContain('  Bob: Still waiting');
@@ -183,12 +186,12 @@ describe('pr comments command', () => {
 
   it('renders a [resolved] indicator for every settled thread status (FR-003)', async () => {
     vi.mocked(getPullRequestThreads).mockResolvedValue([
-      { id: 200, status: 'active', threadContext: null, comments: [{ id: 1, author: 'A', content: 'open', publishedAt: null }] },
-      { id: 201, status: 'fixed', threadContext: null, comments: [{ id: 2, author: 'A', content: 'done', publishedAt: null }] },
-      { id: 202, status: 'wontFix', threadContext: null, comments: [{ id: 3, author: 'A', content: 'no thanks', publishedAt: null }] },
-      { id: 203, status: 'closed', threadContext: null, comments: [{ id: 4, author: 'A', content: 'closed', publishedAt: null }] },
-      { id: 204, status: 'byDesign', threadContext: null, comments: [{ id: 5, author: 'A', content: 'intentional', publishedAt: null }] },
-      { id: 205, status: 'pending', threadContext: null, comments: [{ id: 6, author: 'A', content: 'waiting', publishedAt: null }] },
+      { id: 200, status: 'active', threadContext: null, line: null, comments: [{ id: 1, author: 'A', content: 'open', publishedAt: null }] },
+      { id: 201, status: 'fixed', threadContext: null, line: null, comments: [{ id: 2, author: 'A', content: 'done', publishedAt: null }] },
+      { id: 202, status: 'wontFix', threadContext: null, line: null, comments: [{ id: 3, author: 'A', content: 'no thanks', publishedAt: null }] },
+      { id: 203, status: 'closed', threadContext: null, line: null, comments: [{ id: 4, author: 'A', content: 'closed', publishedAt: null }] },
+      { id: 204, status: 'byDesign', threadContext: null, line: null, comments: [{ id: 5, author: 'A', content: 'intentional', publishedAt: null }] },
+      { id: 205, status: 'pending', threadContext: null, line: null, comments: [{ id: 6, author: 'A', content: 'waiting', publishedAt: null }] },
     ]);
 
     await run([]);
@@ -204,10 +207,10 @@ describe('pr comments command', () => {
 
   it('hides settled threads when --hide-resolved is set (FR-004a)', async () => {
     vi.mocked(getPullRequestThreads).mockResolvedValue([
-      { id: 300, status: 'active', threadContext: null, comments: [{ id: 1, author: 'A', content: 'open', publishedAt: null }] },
-      { id: 301, status: 'fixed', threadContext: null, comments: [{ id: 2, author: 'A', content: 'done', publishedAt: null }] },
-      { id: 302, status: 'pending', threadContext: null, comments: [{ id: 3, author: 'A', content: 'waiting', publishedAt: null }] },
-      { id: 303, status: 'closed', threadContext: null, comments: [{ id: 4, author: 'A', content: 'shut', publishedAt: null }] },
+      { id: 300, status: 'active', threadContext: null, line: null, comments: [{ id: 1, author: 'A', content: 'open', publishedAt: null }] },
+      { id: 301, status: 'fixed', threadContext: null, line: null, comments: [{ id: 2, author: 'A', content: 'done', publishedAt: null }] },
+      { id: 302, status: 'pending', threadContext: null, line: null, comments: [{ id: 3, author: 'A', content: 'waiting', publishedAt: null }] },
+      { id: 303, status: 'closed', threadContext: null, line: null, comments: [{ id: 4, author: 'A', content: 'shut', publishedAt: null }] },
     ]);
 
     await run(['--hide-resolved']);
@@ -221,7 +224,7 @@ describe('pr comments command', () => {
 
   it('still shows settled threads when --hide-resolved is absent', async () => {
     vi.mocked(getPullRequestThreads).mockResolvedValue([
-      { id: 400, status: 'fixed', threadContext: null, comments: [{ id: 1, author: 'A', content: 'done', publishedAt: null }] },
+      { id: 400, status: 'fixed', threadContext: null, line: null, comments: [{ id: 1, author: 'A', content: 'done', publishedAt: null }] },
     ]);
 
     await run([]);
@@ -236,6 +239,7 @@ describe('pr comments command', () => {
         id: 100,
         status: 'active',
         threadContext: '/src/file.ts',
+        line: null,
         comments: [
           { id: 1, author: 'Alice', content: 'Please fix this', publishedAt: '2026-03-27T00:00:00Z' },
         ],
@@ -252,6 +256,7 @@ describe('pr comments command', () => {
           id: 100,
           status: 'active',
           threadContext: '/src/file.ts',
+          line: null,
           comments: [
             {
               id: 1,
@@ -263,5 +268,80 @@ describe('pr comments command', () => {
         },
       ],
     });
+  });
+
+  it('appends :N to thread header when line is known (US1)', async () => {
+    vi.mocked(getPullRequestThreads).mockResolvedValue([
+      {
+        id: 100,
+        status: 'active',
+        threadContext: '/src/foo.ts',
+        line: 42,
+        comments: [{ id: 1, author: 'Alice', content: 'fix this', publishedAt: null }],
+      },
+    ]);
+
+    await run([]);
+
+    expect(getStdout()).toContain('Thread #100 [active] /src/foo.ts:42');
+  });
+
+  it('shows only file path when line is null for code-anchored thread (US1)', async () => {
+    vi.mocked(getPullRequestThreads).mockResolvedValue([
+      {
+        id: 101,
+        status: 'active',
+        threadContext: '/src/bar.ts',
+        line: null,
+        comments: [{ id: 1, author: 'Alice', content: 'note', publishedAt: null }],
+      },
+    ]);
+
+    await run([]);
+
+    const output = getStdout();
+    expect(output).toContain('Thread #101 [active] /src/bar.ts');
+    expect(output).not.toContain('/src/bar.ts:');
+  });
+
+  it('shows (general) for threads with no file anchor (US1)', async () => {
+    vi.mocked(getPullRequestThreads).mockResolvedValue([
+      {
+        id: 102,
+        status: 'active',
+        threadContext: null,
+        line: null,
+        comments: [{ id: 1, author: 'Bob', content: 'general comment', publishedAt: null }],
+      },
+    ]);
+
+    await run([]);
+
+    expect(getStdout()).toContain('Thread #102 [active] (general)');
+  });
+
+  it('includes line number in JSON output when known (US2)', async () => {
+    vi.mocked(getPullRequestThreads).mockResolvedValue([
+      {
+        id: 100,
+        status: 'active',
+        threadContext: '/src/file.ts',
+        line: 42,
+        comments: [{ id: 1, author: 'Alice', content: 'fix this', publishedAt: null }],
+      },
+      {
+        id: 101,
+        status: 'active',
+        threadContext: null,
+        line: null,
+        comments: [{ id: 2, author: 'Bob', content: 'general note', publishedAt: null }],
+      },
+    ]);
+
+    await run(['--json']);
+
+    const parsed = JSON.parse(getStdout());
+    expect(parsed.threads[0].line).toBe(42);
+    expect(parsed.threads[1].line).toBeNull();
   });
 });

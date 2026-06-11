@@ -2,6 +2,7 @@ import { Command } from 'commander';
 import type {
   ActiveCommentThread,
   BranchPullRequestMatch,
+  CodeCommentCounts,
   PullRequestCommentsResult,
   PullRequestCheck,
   PullRequestStatusPullRequest,
@@ -13,6 +14,9 @@ import {
   openPullRequest,
   getPullRequestThreads,
   getPullRequestChecks,
+  getPullRequestPolicyEvaluations,
+  getPullRequestBuilds,
+  resolveProjectId,
   getPullRequestById,
   isThreadResolved,
   patchThreadStatus,
@@ -27,6 +31,8 @@ interface PrCommandOptions {
   project?: string;
   json?: boolean;
   hideResolved?: boolean;
+  excludeResolved?: boolean;
+  codeRelatedOnly?: boolean;
   prNumber?: string;
 }
 
@@ -133,14 +139,20 @@ function handlePrCommandError(err: unknown, context?: AzdoContext, mode: 'read' 
   writeError(error.message);
 }
 
-function formatPullRequestChecks(checks: PullRequestCheck[]): string[] {
+function formatPullRequestChecks(checks: PullRequestCheck[], checksError?: string | null): string[] {
+  if (checksError) {
+    // A retrieval failure must never look like "no checks" (FR-002).
+    return [`Checks: unable to retrieve (${checksError})`];
+  }
+
   if (checks.length === 0) {
     return ['Checks: none reported by Azure DevOps'];
   }
 
   const lines = ['Checks:'];
   for (const check of checks) {
-    lines.push(`- [${check.state}] ${check.name}`);
+    const optionalTag = check.isBlocking === false ? ' [optional]' : '';
+    lines.push(`- [${check.state}] ${check.name}${optionalTag}`);
     if ((check.state === 'failed' || check.state === 'error') && check.description) {
       lines.push(`  Detail: ${check.description}`);
     }
@@ -149,13 +161,102 @@ function formatPullRequestChecks(checks: PullRequestCheck[]): string[] {
   return lines;
 }
 
+// Counts code-anchored (file/line) threads bucketed by resolved state. General
+// (non-file-anchored) threads are excluded from both buckets (FR-008).
+function countCodeComments(threads: ActiveCommentThread[]): CodeCommentCounts {
+  let open = 0;
+  let closed = 0;
+  for (const thread of threads) {
+    if (thread.threadContext === null) {
+      continue;
+    }
+    if (isThreadResolved(thread.status)) {
+      closed += 1;
+    } else {
+      open += 1;
+    }
+  }
+  return { open, closed };
+}
+
+function formatCodeCommentCounts(counts: CodeCommentCounts): string {
+  return `Code comments: ${counts.open} open, ${counts.closed} closed`;
+}
+
 function formatPullRequestBlock(pullRequest: PullRequestStatusPullRequest): string {
   return [
     `#${pullRequest.id} [${pullRequest.status}] ${pullRequest.title}`,
     `${formatBranchName(pullRequest.sourceRefName)} -> ${formatBranchName(pullRequest.targetRefName)}`,
     pullRequest.url ?? '—',
-    ...formatPullRequestChecks(pullRequest.checks),
+    ...formatPullRequestChecks(pullRequest.checks, pullRequest.checksError),
+    formatCodeCommentCounts(pullRequest.codeCommentCounts),
   ].join('\n');
+}
+
+// Builds one PR status entry: merges status-API checks with branch policy
+// evaluations and computes code-comment counts. Each remote fetch is isolated
+// so a single failure degrades gracefully instead of aborting the command:
+// - checks: error reported only when BOTH sources fail (FR-002);
+// - threads: a failure yields zero counts rather than hiding the PR.
+async function buildPullRequestStatusEntry(
+  context: AzdoContext,
+  repo: string,
+  cred: AuthCredential,
+  pullRequest: BranchPullRequestMatch,
+  projectId: string | null,
+): Promise<PullRequestStatusPullRequest> {
+  let statusChecks: PullRequestCheck[] = [];
+  let statusOk = true;
+  try {
+    statusChecks = await getPullRequestChecks(context, repo, cred, pullRequest.id);
+  } catch {
+    statusOk = false;
+  }
+
+  let policyChecks: PullRequestCheck[] = [];
+  // A null projectId means the GUID could not be resolved, so the policy
+  // source could not even be attempted — that counts as a policy error so an
+  // empty result is not misreported as "none".
+  let policyOk = true;
+  if (projectId === null) {
+    policyOk = false;
+  } else {
+    try {
+      policyChecks = await getPullRequestPolicyEvaluations(context, cred, projectId, pullRequest.id);
+    } catch {
+      policyOk = false;
+    }
+  }
+
+  let buildChecks: PullRequestCheck[] = [];
+  let buildsOk = true;
+  try {
+    buildChecks = await getPullRequestBuilds(context, cred, pullRequest.id);
+  } catch {
+    buildsOk = false;
+  }
+
+  let codeCommentCounts: CodeCommentCounts;
+  try {
+    const threads = await getPullRequestThreads(context, repo, cred, pullRequest.id);
+    codeCommentCounts = countCodeComments(threads);
+  } catch {
+    codeCommentCounts = { open: 0, closed: 0 };
+  }
+
+  const checks = [...statusChecks, ...policyChecks, ...buildChecks];
+  // Only report a retrieval failure when we have nothing to show AND a source
+  // actually failed — otherwise real (possibly partial) results are shown, and
+  // a genuine empty result still reads as "none reported" (FR-002).
+  const checksError =
+    checks.length === 0 && (!statusOk || !policyOk || !buildsOk) ? 'Azure DevOps request failed' : null;
+
+  return {
+    ...pullRequest,
+    checks,
+    codeCommentCounts,
+    checksError,
+  };
 }
 
 // Short user-facing label for a thread's backend status. Any state that
@@ -170,7 +271,9 @@ function formatThreads(prId: number, title: string, threads: ActiveCommentThread
   const lines = [`Comment threads for pull request #${prId}: ${title}`];
 
   for (const thread of threads) {
-    lines.push('', `Thread #${thread.id} [${threadStatusLabel(thread.status)}] ${thread.threadContext ?? '(general)'}`);
+    const lineSuffix = thread.line === null ? '' : `:${thread.line}`;
+    const location = thread.threadContext ? `${thread.threadContext}${lineSuffix}` : '(general)';
+    lines.push('', `Thread #${thread.id} [${threadStatusLabel(thread.status)}] ${location}`);
     for (const comment of thread.comments) {
       lines.push(`  ${comment.author ?? 'Unknown'}: ${comment.content}`);
     }
@@ -221,11 +324,21 @@ export function createPrStatusCommand(): Command {
         // is guaranteed non-null at runtime.
         const branch = resolved.branch!;
         const pullRequests = await listPullRequests(resolved.context, resolved.repo, resolved.pat, branch);
+
+        // The policy-evaluation artifactId needs the project GUID. Resolve it
+        // once (best-effort): if it fails, we still show status-API checks and
+        // simply skip the policy source for every PR.
+        let projectId: string | null = null;
+        try {
+          projectId = await resolveProjectId(resolved.context, resolved.pat);
+        } catch {
+          projectId = null;
+        }
+
         const pullRequestsWithChecks: PullRequestStatusPullRequest[] = await Promise.all(
-          pullRequests.map(async (pullRequest) => ({
-            ...pullRequest,
-            checks: await getPullRequestChecks(resolved.context, resolved.repo, resolved.pat, pullRequest.id),
-          })),
+          pullRequests.map(async (pullRequest) =>
+            buildPullRequestStatusEntry(resolved.context, resolved.repo, resolved.pat, pullRequest, projectId),
+          ),
         );
         const result: PullRequestStatusResult = { branch, repository: resolved.repo, pullRequests: pullRequestsWithChecks };
 
@@ -337,6 +450,8 @@ export function createPrCommentsCommand(): Command {
     .option('--project <project>', 'Azure DevOps project')
     .option('--pr-number <N>', PR_NUMBER_HELP)
     .option('--hide-resolved', 'hide threads whose status is resolved / won\'t fix / closed / by design')
+    .option('--exclude-resolved', 'alias of --hide-resolved: exclude resolved / won\'t fix / closed / by design threads')
+    .option('--code-related-only', 'show only threads anchored to a file/line; omit general discussion threads')
     .option('--json', 'output JSON')
     .action(async (options: PrCommandOptions) => {
       validateOrgProjectPair(options);
@@ -388,10 +503,18 @@ export function createPrCommentsCommand(): Command {
           branchLabel = resolved.branch!;
         }
 
+        // --exclude-resolved is an alias of --hide-resolved (owner decision on
+        // #50): either flag drops resolved threads, no behaviour change when
+        // neither is set.
+        const hideResolved = options.hideResolved === true || options.excludeResolved === true;
+        const codeRelatedOnly = options.codeRelatedOnly === true;
+
         const allThreads = await getPullRequestThreads(resolved.context, resolved.repo, resolved.pat, pullRequest.id);
-        const threads = options.hideResolved
-          ? allThreads.filter((thread) => !isThreadResolved(thread.status))
-          : allThreads;
+        const threads = allThreads.filter(
+          (thread) =>
+            (!hideResolved || !isThreadResolved(thread.status)) &&
+            (!codeRelatedOnly || thread.threadContext !== null),
+        );
         const result: PullRequestCommentsResult = { branch: branchLabel, pullRequest, threads };
 
         if (options.json) {
@@ -400,8 +523,17 @@ export function createPrCommentsCommand(): Command {
         }
 
         if (threads.length === 0) {
-          if (options.hideResolved && allThreads.length > 0) {
-            process.stdout.write(`Pull request #${pullRequest.id} has no unresolved comment threads (${allThreads.length} resolved thread${allThreads.length === 1 ? '' : 's'} hidden by --hide-resolved).\n`);
+          if (allThreads.length > 0 && (hideResolved || codeRelatedOnly)) {
+            const filters: string[] = [];
+            if (codeRelatedOnly) {
+              filters.push('code-related');
+            }
+            if (hideResolved) {
+              filters.push('unresolved');
+            }
+            process.stdout.write(
+              `Pull request #${pullRequest.id} has no ${filters.join(' ')} comment threads (filtered from ${allThreads.length} thread${allThreads.length === 1 ? '' : 's'}).\n`,
+            );
           } else {
             process.stdout.write(`Pull request #${pullRequest.id} has no comment threads.\n`);
           }

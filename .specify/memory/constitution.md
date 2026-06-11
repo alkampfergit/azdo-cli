@@ -1,8 +1,9 @@
 <!--
   Sync Impact Report
   ==================
-  Version change: 1.0.0 → 1.1.0
-  Modified principles: N/A
+  Version change: 1.2.0 → 1.2.1
+  Modified principles: VI. Azure DevOps API Research — added Context7 as second
+    authoritative source alongside Microsoft Learn MCP server
   Added sections: N/A
   Removed sections: N/A
   Templates requiring updates:
@@ -70,6 +71,43 @@ This project use GitFlow for branch strategy, prefix spec branches with feature/
   configuration file formats unless user scenarios demand it.
 - Prefer flat module structure over deeply nested directories.
 
+### VI. Azure DevOps API Research
+
+Agents MUST consult at least one of the two authoritative MCP sources
+below before proposing or generating any code that touches the ADO
+REST API. Do NOT rely on training-data knowledge alone.
+
+#### Microsoft Learn MCP server (`microsoft-docs@microsoft-docs-marketplace`)
+
+- Use `microsoft_docs_search` for a quick targeted lookup.
+- Use `microsoft_docs_fetch` with the exact Learn URL when a full
+  endpoint spec, complete JSON schema, or detailed parameter table
+  is required (e.g.
+  `https://learn.microsoft.com/en-us/rest/api/azure/devops/git/pull-requests/...`).
+- Use `microsoft_code_sample_search` when an official code example
+  is needed before writing implementation code.
+- Best for: full schema definitions, all query parameters, OAuth
+  scopes, and real JSON response examples.
+
+#### Context7 MCP server (`context7-plugin@context7-marketplace`)
+
+- Resolve the library with `resolve-library-id` using library name
+  `"Azure DevOps"` and select ID
+  `/websites/learn_microsoft_en-us_rest_api_azure_devops`
+  (the dedicated REST API reference index, NOT the Node SDK entry).
+- Always append `PURE REST API ONLY!` to the `query-docs` query to
+  steer results toward raw HTTP endpoint snippets rather than SDK
+  wrappers.
+- Best for: quick endpoint URL lookups and cross-checking endpoint
+  paths without loading a full docs page.
+
+#### Scope
+
+This principle applies to spec authoring, plan authoring, and
+implementation phases — any agent that touches the ADO API surface
+MUST consult at least one of these two MCP servers before proposing
+or generating code.
+
 ## Technology Stack
 
 - **Language**: TypeScript 5.x (strict mode)
@@ -110,4 +148,4 @@ This project use GitFlow for branch strategy, prefix spec branches with feature/
 - All pull requests SHOULD verify compliance with these principles
   during review.
 
-**Version**: 1.1.0 | **Ratified**: 2026-03-04 | **Last Amended**: 2026-03-09
+**Version**: 1.2.1 | **Ratified**: 2026-03-04 | **Last Amended**: 2026-06-05

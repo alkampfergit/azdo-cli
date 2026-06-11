@@ -1,0 +1,151 @@
+# Research: `azdo pipeline` command group (024)
+
+**Feature**: 024-azdo-pipeline · **Issue**: #51 · **Date**: 2026-06-03
+
+Resolves the technical unknowns for the `pipeline` command group, grounded in
+the Azure DevOps REST API (api-version 7.1) and the existing codebase. Web
+research was performed at the owner's explicit request.
+
+---
+
+## R1 — Listing pipeline definitions (US1)
+
+**Decision.** `GET https://dev.azure.com/{org}/{project}/_apis/pipelines?api-version=7.1`
+returns `{ value: [{ id, name, folder, ... }] }`. `--filter` is applied
+client-side as a case-insensitive substring on `name` (the list endpoint has no
+name-filter parameter). The implementation issues a **single GET** and shows
+whatever the first page returns; `continuationToken` pagination is **not**
+implemented (acceptable for typical project sizes — noted as a follow-up if a
+project ever exceeds one page).
+
+**Rationale.** Simplest correct source; matches the issue's "list all the
+definitions, --filter by name".
+
+---
+
+## R2 — Listing runs for a definition (US2)
+
+**Decision (as implemented).** Runs are listed via the **Build API**
+`GET _apis/build/builds?definitions={id}&queryOrder=queueTimeDescending&$top={n}&api-version=7.1`
+(build id == run id for YAML pipelines). Chosen because the Pipelines runs
+*list* endpoint omits `resources.repositories`, so `sourceBranch` was always
+null and `--branch` filtering was useless; builds carry `sourceBranch` /
+`sourceVersion` directly and filter by branch **server-side** (`branchName`).
+`--pr <n>` maps to the PR merge ref `refs/pull/{n}/merge`; `--commit <sha>` is
+matched client-side over a 200-build window (the Build API has no
+`sourceVersion` query parameter).
+
+**Alternatives.** The Pipelines runs endpoint
+(`GET .../_apis/pipelines/{pipelineId}/runs`) was the original choice for
+consistency with the rest of the group, but was replaced after field use for
+the reasons above.
+
+---
+
+## R3 — Waiting for a run to finish (US3, owner-requested lynchpin)
+
+**Decision.** Poll `GET .../_apis/pipelines/{pipelineId}/runs/{runId}` until
+`state == 'completed'` (or timeout). Map `result` → process exit code:
+`succeeded` → 0; `failed`/`canceled` → non-zero (distinct codes, e.g. 1 and 2);
+`--timeout` elapsed → a distinct non-zero (e.g. 124, matching `timeout(1)`
+convention). Poll interval defaults to a bounded value (e.g. 5s) and is
+configurable via `--poll-interval`; default `--timeout` e.g. 1800s. The run is
+**not** canceled on timeout.
+
+**Note.** `wait <run_id>` needs the `pipelineId` to build the runs URL. Resolve
+it from the run/build: the Build API `GET _apis/build/builds/{buildId}` returns
+`definition.id`. Since run id == build id (R5), resolve pipelineId via the build
+once, then poll the pipelines run endpoint. (Alternatively poll the Build API
+`GET _apis/build/builds/{buildId}` directly for `status`/`result` — simpler, one
+endpoint, no pipelineId needed. **Chosen: poll the Build API by build id** to
+avoid a definition-id lookup in `wait`.)
+
+**Rationale.** The exit-code contract is the whole point — it makes the agent
+loop scriptable (`azdo pipeline wait $id && deploy || diagnose`).
+
+---
+
+## R4 — Run detail: date, commit, result, errors, failing tests, stages (US4)
+
+**Decision.** Compose from three sources keyed by the run/build id:
+1. **Run/build core** — `GET _apis/pipelines/{pipelineId}/runs/{runId}` (or
+   `GET _apis/build/builds/{buildId}`) for state/result, created/finished dates,
+   the built commit (`sourceVersion` / run `resources.repositories.*.version`)
+   and branch, and the web link (`_links.web.href`).
+2. **Errors + per-stage/job status** — **Build Timeline API**
+   `GET _apis/build/builds/{buildId}/timeline?api-version=7.1`. Records have
+   `type` (Stage/Phase/Job/Task), `name`, `state`, `result`, and an `issues[]`
+   array (`type: error|warning`, `message`). Errors = timeline `issues` of type
+   `error`; per-stage status = the Stage-type records.
+3. **Failing tests** — **Test Results API**
+   `GET _apis/test/ResultSummaryByBuild?buildId={buildId}&api-version=7.1` (or
+   `GET _apis/test/runs?buildUri=...`) for total/failed counts. When no test
+   runs are associated → report "no tests present" (distinct from 0 failures).
+
+**run id ↔ build id.** For YAML pipelines a pipeline run corresponds 1:1 to a
+build; the numeric ids coincide in practice. The plan treats `run_id` as the
+build id for the timeline/test sources and documents this; if a mismatch is
+ever observed, resolve via the run's `_links`/`id`.
+
+**Graceful degradation.** Any of the three sources failing → that section shows
+"unavailable" rather than failing the whole command (FR-010).
+
+---
+
+## R5 — Run logs (US5)
+
+**Decision (as implemented).** Logs are fetched via the **Build logs API**,
+keyed by the build id (== run id, per R4) — no pipeline-id lookup needed:
+`GET .../_apis/build/builds/{buildId}/logs?api-version=7.1` lists logs
+(`value[].id`, `createdOn`, `lineCount`), and
+`GET .../_apis/build/builds/{buildId}/logs/{logId}` returns a log's text.
+The Pipelines runs-logs endpoint (`_apis/pipelines/{pipelineId}/runs/{runId}/logs`)
+was considered but rejected because it requires resolving the pipeline id first;
+the Build endpoint is equivalent for YAML pipelines and consistent with how
+`wait`/`get-run-detail` already use the build id.
+
+---
+
+## R6 — Starting a run (US6)
+
+**Decision.** `POST .../_apis/pipelines/{pipelineId}/runs?api-version=7.1` with
+body `{ resources: { repositories: { self: { refName: "refs/heads/<branch>" } } }, templateParameters: { <k>: <v> } }`.
+`--branch` sets `refName` (default branch when omitted); `--parameter key=value`
+(repeatable) populates `templateParameters`. Returns the new run (`id`, links) —
+emit under `--json` so it pipes into `pipeline wait`.
+
+---
+
+## R7 — Codebase integration
+
+**Decision.** Mirror the existing command/service split:
+- New `src/commands/pipeline.ts` exporting `createPipelineCommand()` that groups
+  subcommands (same shape as `createPrCommand()` in `src/commands/pr.ts:714`),
+  registered in `src/index.ts` via `program.addCommand(createPipelineCommand())`.
+- New `src/services/pipeline-client.ts` for all REST I/O, reusing
+  `authHeaders` / `fetchWithErrors` from `src/services/azdo-client.ts` and
+  `resolveContext` from `src/services/context.ts`, exactly as `pr-client.ts`
+  does.
+- New `src/types/pipeline.ts` for raw ADO shapes and domain types.
+- Numeric-id validation reuses the `parsePositivePrNumber` pattern from
+  `pr.ts:36`.
+
+**Rationale.** Constitution III (shared logic in services) and consistency with
+the existing PR/work-item commands. No new runtime dependency — native `fetch`
++ commander.js only.
+
+---
+
+## Summary of decisions
+
+| # | Decision |
+|---|----------|
+| R1 | List via `_apis/pipelines`; client-side `--filter` substring. |
+| R2 | Runs via `_apis/pipelines/{id}/runs`; client-side `--limit`/`--branch`. |
+| R3 | `wait` polls the **Build API by build id** for state/result; exit code from result; `--timeout`/`--poll-interval`. |
+| R4 | Detail composes run core + **Build Timeline** (errors, stages) + **Test Results** (failing tests); graceful degradation. |
+| R5 | Logs via `_apis/pipelines/{id}/runs/{runId}/logs` (+ `{logId}`). |
+| R6 | Start via `POST .../runs` with `refName` + `templateParameters`. |
+| R7 | New `pipeline.ts` command + `pipeline-client.ts` service + `pipeline.ts` types; reuse existing helpers; register in `index.ts`. No new deps. |
+
+No `NEEDS CLARIFICATION` items remain.

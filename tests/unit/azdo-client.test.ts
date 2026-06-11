@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
   addWorkItemComment,
   createWorkItem,
+  getOrgFieldNames,
   getWorkItem,
   listWorkItemComments,
   updateWorkItem,
@@ -438,5 +439,122 @@ describe('addWorkItemComment', () => {
         body: JSON.stringify({ text: '**Bold comment**' }),
       }),
     );
+  });
+});
+
+// ── T012: TF51535 missing-field graceful degradation (multi-org support #55) ──
+
+describe('getWorkItem — TF51535 fallback', () => {
+  const tf51535Body = {
+    message: 'TF51535: Cannot find field Custom.Missing.',
+    typeKey: 'FieldDoesNotExistException',
+  };
+
+  const fieldListBody = {
+    value: [
+      { referenceName: 'System.Title' },
+      { referenceName: 'System.State' },
+      { referenceName: 'Custom.Existing' },
+    ],
+    count: 3,
+  };
+
+  function makeWorkItemWith400TF51535() {
+    return makeFetchResponse(tf51535Body, 400);
+  }
+
+  beforeEach(() => {
+    vi.spyOn(globalThis, 'fetch');
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('retries without missing fields on TF51535 and emits one warning per missing field', async () => {
+    const stderrLines: string[] = [];
+    vi.spyOn(process.stderr, 'write').mockImplementation((chunk) => {
+      stderrLines.push(String(chunk));
+      return true;
+    });
+
+    // First call (with Custom.Missing) → 400+TF51535
+    // Second call (GET field list) → field list
+    // Third call (retry without Custom.Missing) → success
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(makeWorkItemWith400TF51535())
+      .mockResolvedValueOnce(makeFetchResponse(fieldListBody))
+      .mockResolvedValueOnce(makeWorkItemResponse({ 'Custom.Existing': 'val' }))
+      .mockResolvedValueOnce(makeWorkItemResponse({ 'Custom.Existing': 'val' })); // relations fetch
+
+    const item = await getWorkItem(ctx, 42, pat, ['Custom.Existing', 'Custom.Missing']);
+    expect(item.id).toBe(42);
+    const warnings = stderrLines.filter((l) => l.includes('Custom.Missing'));
+    expect(warnings).toHaveLength(1);
+  });
+
+  it('does NOT retry or warn when all configured fields exist', async () => {
+    const fetchSpy = vi.mocked(fetch);
+    // First call → success (no TF51535)
+    fetchSpy.mockResolvedValueOnce(makeWorkItemResponse({ 'Custom.Existing': 'val' }));
+    fetchSpy.mockResolvedValueOnce(makeWorkItemResponse({ 'Custom.Existing': 'val' })); // relations
+
+    const item = await getWorkItem(ctx, 42, pat, ['Custom.Existing']);
+    expect(item.id).toBe(42);
+    // Field list fetch should NOT have been called (only 2 fetches: fields + relations)
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+  });
+
+  it('propagates error when second attempt also returns 400', async () => {
+    vi.spyOn(process.stderr, 'write').mockReturnValue(true);
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(makeWorkItemWith400TF51535())
+      .mockResolvedValueOnce(makeFetchResponse(fieldListBody))
+      .mockResolvedValueOnce(makeFetchResponse({ message: 'Still bad' }, 400));
+
+    await expect(getWorkItem(ctx, 42, pat, ['Custom.Missing'])).rejects.toThrow();
+  });
+
+  it('warnings go to stderr, not stdout', async () => {
+    const stdoutLines: string[] = [];
+    vi.spyOn(process.stdout, 'write').mockImplementation((chunk) => {
+      stdoutLines.push(String(chunk));
+      return true;
+    });
+    vi.spyOn(process.stderr, 'write').mockReturnValue(true);
+
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(makeWorkItemWith400TF51535())
+      .mockResolvedValueOnce(makeFetchResponse(fieldListBody))
+      .mockResolvedValueOnce(makeWorkItemResponse({}))
+      .mockResolvedValueOnce(makeWorkItemResponse({}));
+
+    await getWorkItem(ctx, 42, pat, ['Custom.Missing']);
+    const stdoutWarnings = stdoutLines.filter((l) => l.includes('Custom.Missing'));
+    expect(stdoutWarnings).toHaveLength(0);
+  });
+});
+
+describe('getOrgFieldNames', () => {
+  beforeEach(() => {
+    vi.spyOn(globalThis, 'fetch');
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('returns reference names from the field list API', async () => {
+    vi.mocked(fetch).mockResolvedValue(makeFetchResponse({
+      value: [
+        { referenceName: 'System.Title' },
+        { referenceName: 'Custom.Field' },
+      ],
+      count: 2,
+    }));
+
+    const names = await getOrgFieldNames(ctx, pat);
+    expect(names).toContain('System.Title');
+    expect(names).toContain('Custom.Field');
   });
 });

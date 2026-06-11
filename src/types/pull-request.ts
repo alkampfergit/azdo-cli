@@ -18,10 +18,30 @@ export interface PullRequestCheck {
   createdBy: string | null;
   createdAt: string | null;
   updatedAt: string | null;
+  // Where this check came from: the Pull Request Status API (`status`), a
+  // branch policy evaluation (`policy`), or the Builds API (`build`).
+  // Branch-policy build validations are the green checks the Azure DevOps UI
+  // shows; they are NOT returned by the statuses endpoint, so all three sources
+  // are merged for `pr status`.
+  source?: 'status' | 'policy' | 'build';
+  // Whether this check is a blocking (required) policy. True = required,
+  // false = optional, null/undefined = unknown (status and build sources).
+  isBlocking?: boolean | null;
+}
+
+// Open/closed counts of code-anchored (file/line) comment threads on a PR.
+// General (non-file-anchored) threads are excluded.
+export interface CodeCommentCounts {
+  open: number;
+  closed: number;
 }
 
 export interface PullRequestStatusPullRequest extends BranchPullRequestMatch {
   checks: PullRequestCheck[];
+  codeCommentCounts: CodeCommentCounts;
+  // Set when check retrieval failed entirely (both the status and policy
+  // sources errored), so "none reported" is never shown for a fetch failure.
+  checksError?: string | null;
 }
 
 export interface PullRequestStatusResult {
@@ -67,6 +87,7 @@ export interface ActiveCommentThread {
   id: number;
   status: string;
   threadContext: string | null;
+  line: number | null;
   comments: ActivePullRequestComment[];
 }
 
@@ -101,11 +122,20 @@ export interface AzdoThreadListResponse {
   value: AzdoThread[];
 }
 
+interface CommentPosition {
+  line: number;
+  offset: number;
+}
+
 export interface AzdoThread {
   id: number;
-  status: string;
+  status?: string;
   threadContext?: {
     filePath?: string;
+    rightFileStart?: CommentPosition;
+    rightFileEnd?: CommentPosition;
+    leftFileStart?: CommentPosition;
+    leftFileEnd?: CommentPosition;
   };
   comments: AzdoComment[];
 }
@@ -139,4 +169,35 @@ export interface AzdoPullRequestStatus {
   creationDate?: string;
   updatedDate?: string;
   targetUrl?: string;
+}
+
+// Minimal shape of the Projects API response — we only need the GUID to build
+// the policy-evaluation artifactId.
+export interface AzdoProject {
+  id: string;
+  name?: string;
+}
+
+export interface AzdoPolicyEvaluationListResponse {
+  value: AzdoPolicyEvaluation[];
+  count?: number;
+}
+
+// Branch policy evaluation as returned by
+// GET .../_apis/policy/evaluations?artifactId=...
+// `status` ∈ {approved, rejected, running, queued, notApplicable, notSet, ...}.
+export interface AzdoPolicyEvaluation {
+  evaluationId?: string;
+  status?: string;
+  configuration?: {
+    id?: number;
+    isBlocking?: boolean;
+    type?: {
+      id?: string;
+      displayName?: string;
+    };
+    settings?: {
+      displayName?: string;
+    };
+  };
 }

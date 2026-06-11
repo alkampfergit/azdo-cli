@@ -36,7 +36,7 @@ export function formatResolutionError(): string {
   return [
     'Could not resolve an Azure DevOps organization. Options (in priority order):',
     '  1. Pass --org <name> on the command line.',
-    '  2. Run this command from a git repo whose origin remote is an Azure DevOps URL.',
+    '  2. Run this command from a git repo that has an Azure DevOps remote.',
     '  3. Run `azdo config set org <name>` once to set a persistent default.',
   ].join('\n');
 }

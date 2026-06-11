@@ -3,11 +3,13 @@ import type { AzdoContext } from '../../src/types/work-item.js';
 import {
   getPullRequestById,
   getPullRequestChecks,
+  getPullRequestPolicyEvaluations,
   getPullRequestThreads,
   isThreadResolved,
   listPullRequests,
   openPullRequest,
   patchThreadStatus,
+  resolveProjectId,
 } from '../../src/services/pr-client.js';
 
 const context: AzdoContext = { org: 'test-org', project: 'test-project' };
@@ -36,7 +38,7 @@ describe('pr-client', () => {
             },
           ],
         }),
-      } as Response);
+      });
 
       const result = await listPullRequests(context, 'repo-name', 'pat', 'feature/test');
 
@@ -63,7 +65,7 @@ describe('pr-client', () => {
         ok: true,
         status: 200,
         json: async () => ({ count: 0, value: [] }),
-      } as Response);
+      });
 
       await expect(listPullRequests(context, 'repo-name', 'pat', 'feature/test')).resolves.toEqual([]);
     });
@@ -72,7 +74,7 @@ describe('pr-client', () => {
       vi.spyOn(globalThis, 'fetch').mockResolvedValue({
         ok: false,
         status: 401,
-      } as Response);
+      });
 
       await expect(listPullRequests(context, 'repo-name', 'pat', 'feature/test')).rejects.toThrow('AUTH_FAILED');
     });
@@ -95,7 +97,7 @@ describe('pr-client', () => {
             },
           ],
         }),
-      } as Response);
+      });
 
       const result = await listPullRequests(context, 'repo-name', 'pat', 'feature/x');
       expect(result).toEqual([
@@ -125,7 +127,7 @@ describe('pr-client', () => {
             },
           ],
         }),
-      } as Response);
+      });
 
       const result = await listPullRequests(context, 'repo-name', 'pat', 'feature/y');
       expect(result[0].url).toBeNull();
@@ -146,7 +148,7 @@ describe('pr-client', () => {
           createdBy: { displayName: 'Alice' },
           _links: { web: { href: 'https://example.test/pr/64' } },
         }),
-      } as Response);
+      });
 
       const result = await getPullRequestById(context, 'repo-name', 'pat', 64);
       expect(result).toEqual({
@@ -169,7 +171,7 @@ describe('pr-client', () => {
       vi.spyOn(globalThis, 'fetch').mockResolvedValue({
         ok: false,
         status: 404,
-      } as Response);
+      });
 
       await expect(getPullRequestById(context, 'repo-name', 'pat', 999999)).rejects.toThrow(/NOT_FOUND/);
     });
@@ -178,7 +180,7 @@ describe('pr-client', () => {
       vi.spyOn(globalThis, 'fetch').mockResolvedValue({
         ok: false,
         status: 401,
-      } as Response);
+      });
 
       await expect(getPullRequestById(context, 'repo-name', 'pat', 64)).rejects.toThrow('AUTH_FAILED');
     });
@@ -194,7 +196,7 @@ describe('pr-client', () => {
           sourceRefName: 'refs/heads/feature/y',
           targetRefName: 'refs/heads/develop',
         }),
-      } as Response);
+      });
 
       const result = await getPullRequestById(context, 'repo-name', 'pat', 77);
       expect(result.url).toBeNull();
@@ -213,7 +215,7 @@ describe('pr-client', () => {
             { id: 1, author: { displayName: 'Alice' }, content: 'done', publishedDate: null },
           ],
         }),
-      } as Response);
+      });
 
       const result = await patchThreadStatus(context, 'repo-name', 'pat', 64, 17, 'fixed');
 
@@ -240,7 +242,7 @@ describe('pr-client', () => {
             { id: 1, author: { displayName: 'Alice' }, content: 'back open', publishedDate: null },
           ],
         }),
-      } as Response);
+      });
 
       const result = await patchThreadStatus(context, 'repo-name', 'pat', 64, 17, 'active');
 
@@ -255,7 +257,7 @@ describe('pr-client', () => {
       vi.spyOn(globalThis, 'fetch').mockResolvedValue({
         ok: false,
         status: 404,
-      } as Response);
+      });
 
       await expect(patchThreadStatus(context, 'repo-name', 'pat', 64, 9999, 'fixed')).rejects.toThrow(/NOT_FOUND/);
     });
@@ -264,7 +266,7 @@ describe('pr-client', () => {
       vi.spyOn(globalThis, 'fetch').mockResolvedValue({
         ok: false,
         status: 401,
-      } as Response);
+      });
 
       await expect(patchThreadStatus(context, 'repo-name', 'pat', 64, 17, 'fixed')).rejects.toThrow('AUTH_FAILED');
     });
@@ -304,7 +306,7 @@ describe('pr-client', () => {
             createdBy: { displayName: 'Alice' },
             _links: { web: { href: 'https://example.test/pr/34' } },
           }),
-        } as Response);
+        });
 
       const result = await openPullRequest(context, 'repo-name', 'pat', 'feature/test', 'New PR', 'Description');
 
@@ -342,7 +344,7 @@ describe('pr-client', () => {
             },
           ],
         }),
-      } as Response);
+      });
 
       const result = await openPullRequest(context, 'repo-name', 'pat', 'feature/test', 'Ignored', 'Ignored');
 
@@ -388,7 +390,7 @@ describe('pr-client', () => {
             },
           ],
         }),
-      } as Response);
+      });
 
       await expect(openPullRequest(context, 'repo-name', 'pat', 'feature/test', 'Title', 'Description'))
         .rejects.toThrow('AMBIGUOUS_PRS:22,23');
@@ -441,7 +443,7 @@ describe('pr-client', () => {
             },
           ],
         }),
-      } as Response);
+      });
 
       const result = await getPullRequestChecks(context, 'repo-name', 'pat', 12);
 
@@ -455,6 +457,7 @@ describe('pr-client', () => {
           createdBy: 'Azure Pipelines',
           createdAt: '2026-03-31T10:00:00Z',
           updatedAt: '2026-03-31T10:05:00Z',
+          source: 'status',
         },
         {
           id: 2,
@@ -465,6 +468,7 @@ describe('pr-client', () => {
           createdBy: null,
           createdAt: '2026-03-31T10:01:00Z',
           updatedAt: '2026-03-31T10:06:00Z',
+          source: 'status',
         },
         {
           id: 3,
@@ -475,6 +479,7 @@ describe('pr-client', () => {
           createdBy: null,
           createdAt: '2026-03-31T10:02:00Z',
           updatedAt: '2026-03-31T10:07:00Z',
+          source: 'status',
         },
       ]);
     });
@@ -483,9 +488,60 @@ describe('pr-client', () => {
       vi.spyOn(globalThis, 'fetch').mockResolvedValue({
         ok: false,
         status: 401,
-      } as Response);
+      });
 
       await expect(getPullRequestChecks(context, 'repo-name', 'pat', 12)).rejects.toThrow('AUTH_FAILED');
+    });
+  });
+
+  describe('resolveProjectId', () => {
+    it('returns the project GUID from the Projects API', async () => {
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({ id: 'abc-123-guid', name: 'test-project' }),
+      });
+
+      const id = await resolveProjectId(context, 'pat');
+      expect(id).toBe('abc-123-guid');
+      expect(fetchSpy.mock.calls[0][0]).toContain('/_apis/projects/test-project');
+    });
+  });
+
+  describe('getPullRequestPolicyEvaluations', () => {
+    it('maps policy evaluations to checks and normalises their state', async () => {
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          value: [
+            {
+              evaluationId: 'e1',
+              status: 'approved',
+              configuration: { id: 10, type: { displayName: 'Build' }, settings: { displayName: 'Build validation' } },
+            },
+            { evaluationId: 'e2', status: 'rejected', configuration: { id: 11, type: { displayName: 'Required reviewers' } } },
+            { evaluationId: 'e3', status: 'running', configuration: { id: 12, type: { displayName: 'Status' } } },
+            { evaluationId: 'e4', status: 'queued', configuration: { id: 13, type: { displayName: 'Queued policy' } } },
+            // dropped — no signal
+            { evaluationId: 'e5', status: 'notApplicable', configuration: { id: 14, type: { displayName: 'N/A' } } },
+            { evaluationId: 'e6', status: 'notSet', configuration: { id: 15, type: { displayName: 'Not set' } } },
+          ],
+        }),
+      });
+
+      const result = await getPullRequestPolicyEvaluations(context, 'pat', 'proj-guid', 12);
+
+      // build artifactId carries project GUID + PR id
+      expect(fetchSpy.mock.calls[0][0]).toContain(
+        'artifactId=vstfs%3A%2F%2F%2FCodeReview%2FCodeReviewId%2Fproj-guid%2F12',
+      );
+      expect(result).toEqual([
+        { id: 10, state: 'succeeded', name: 'Build validation', description: null, targetUrl: null, createdBy: null, createdAt: null, updatedAt: null, source: 'policy', isBlocking: null },
+        { id: 11, state: 'failed', name: 'Required reviewers', description: null, targetUrl: null, createdBy: null, createdAt: null, updatedAt: null, source: 'policy', isBlocking: null },
+        { id: 12, state: 'pending', name: 'Status', description: null, targetUrl: null, createdBy: null, createdAt: null, updatedAt: null, source: 'policy', isBlocking: null },
+        { id: 13, state: 'pending', name: 'Queued policy', description: null, targetUrl: null, createdBy: null, createdAt: null, updatedAt: null, source: 'policy', isBlocking: null },
+      ]);
     });
   });
 
@@ -529,7 +585,7 @@ describe('pr-client', () => {
             },
           ],
         }),
-      } as Response);
+      });
 
       const result = await getPullRequestThreads(context, 'repo-name', 'pat', 42);
 
@@ -538,6 +594,7 @@ describe('pr-client', () => {
           id: 1,
           status: 'active',
           threadContext: '/src/file.ts',
+          line: null,
           comments: [
             {
               id: 10,
@@ -551,6 +608,7 @@ describe('pr-client', () => {
           id: 2,
           status: 'closed',
           threadContext: null,
+          line: null,
           comments: [
             {
               id: 12,
@@ -564,6 +622,7 @@ describe('pr-client', () => {
           id: 3,
           status: 'pending',
           threadContext: null,
+          line: null,
           comments: [
             {
               id: 13,
@@ -574,6 +633,94 @@ describe('pr-client', () => {
           ],
         },
       ]);
+    });
+
+    it('extracts line from rightFileStart when present', async () => {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          value: [
+            {
+              id: 10,
+              status: 'active',
+              threadContext: {
+                filePath: '/src/foo.ts',
+                rightFileStart: { line: 42, offset: 1 },
+                rightFileEnd: { line: 42, offset: 13 },
+              },
+              comments: [{ id: 1, author: { displayName: 'Alice' }, content: 'fix this', publishedDate: null }],
+            },
+          ],
+        }),
+      });
+
+      const result = await getPullRequestThreads(context, 'repo-name', 'pat', 42);
+      expect(result[0].line).toBe(42);
+    });
+
+    it('falls back to leftFileStart when rightFileStart is absent', async () => {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          value: [
+            {
+              id: 11,
+              status: 'active',
+              threadContext: {
+                filePath: '/src/foo.ts',
+                leftFileStart: { line: 7, offset: 3 },
+              },
+              comments: [{ id: 1, author: { displayName: 'Alice' }, content: 'old line', publishedDate: null }],
+            },
+          ],
+        }),
+      });
+
+      const result = await getPullRequestThreads(context, 'repo-name', 'pat', 42);
+      expect(result[0].line).toBe(7);
+    });
+
+    it('returns null line when threadContext has filePath but no position fields', async () => {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          value: [
+            {
+              id: 12,
+              status: 'active',
+              threadContext: { filePath: '/src/foo.ts' },
+              comments: [{ id: 1, author: { displayName: 'Alice' }, content: 'no pos', publishedDate: null }],
+            },
+          ],
+        }),
+      });
+
+      const result = await getPullRequestThreads(context, 'repo-name', 'pat', 42);
+      expect(result[0].threadContext).toBe('/src/foo.ts');
+      expect(result[0].line).toBeNull();
+    });
+
+    it('returns null line for general threads (no threadContext)', async () => {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          value: [
+            {
+              id: 13,
+              status: 'active',
+              comments: [{ id: 1, author: { displayName: 'Bob' }, content: 'general', publishedDate: null }],
+            },
+          ],
+        }),
+      });
+
+      const result = await getPullRequestThreads(context, 'repo-name', 'pat', 42);
+      expect(result[0].threadContext).toBeNull();
+      expect(result[0].line).toBeNull();
     });
   });
 });
