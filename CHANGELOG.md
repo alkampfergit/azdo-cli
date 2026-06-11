@@ -17,6 +17,7 @@ _Targeting **0.12.0** (0.11.0 already published to npm). Working detail: [`docs/
 - OAuth login (`azdo auth login`) with browser and headless flows (#38).
 - New `azdo pipeline` command group (list/get-runs/wait/get-run-detail/logs/start) for Azure DevOps Pipelines (#51).
 - Better PR comments & status: `--code-related-only`/`--exclude-resolved` filters, code-comment counts, and `pr status` now surfaces branch policy checks (#50).
+- `azdo pr comments` shows line numbers alongside file paths for code-anchored threads (#61).
 - Fix `azdo pr` on Azure DevOps remotes that carry userinfo (#43).
 - Sync authentication docs with the current auth surface (#42).
 
