@@ -42,7 +42,7 @@ export async function fetchRaw(url: string, init: RequestInit): Promise<{ status
   try {
     response = await fetch(url, init);
   } catch (err) {
-    throw new Error(`NETWORK_ERROR: ${err instanceof Error ? err.message : String(err)}`);
+    throw new Error(`NETWORK_ERROR: ${err instanceof Error ? err.message : String(err)}`, { cause: err });
   }
   const body = await response.text();
   return { status: response.status, body };
@@ -54,7 +54,7 @@ export async function fetchWithErrors(url: string, init: RequestInit): Promise<R
   try {
     response = await fetch(url, init);
   } catch (err) {
-    throw new Error('NETWORK_ERROR');
+    throw new Error('NETWORK_ERROR', { cause: err });
   }
 
   if (writer) {

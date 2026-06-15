@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { redactHeaders, redactUrl, redactBody, TraceWriter, initTraceWriter, getActiveTraceWriter } from '../../src/services/trace-writer.js';
+import { redactHeaders, redactUrl, redactBody, TraceWriter, initTraceWriter } from '../../src/services/trace-writer.js';
 import type { TraceEntry } from '../../src/types/auth-diagnostics.js';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
