@@ -65,12 +65,8 @@ program.hook("postAction", async () => {
   }
 });
 
-async function main(): Promise<void> {
-  await program.parseAsync();
+await program.parseAsync();
 
-  if (process.argv.length <= 2) {
-    program.help();
-  }
+if (process.argv.length <= 2) {
+  program.help();
 }
-
-void main();

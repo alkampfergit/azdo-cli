@@ -75,7 +75,8 @@ function autoDetectZeroMatch(branch: string): string {
 // listed in the order Azure DevOps returned them (no re-sort), each `#`-prefixed
 // and `, `-joined. Never prompts, even under a TTY.
 function autoDetectMultiMatch(branch: string, ids: number[]): string {
-  return `Multiple open pull requests match branch ${branch}: ${ids.map((id) => `#${id}`).join(', ')}. Re-run with --pr-number to choose.`;
+  const idList = ids.map((id) => `#${id}`).join(', ');
+  return `Multiple open pull requests match branch ${branch}: ${idList}. Re-run with --pr-number to choose.`;
 }
 
 // Writes a contract error line verbatim to stderr (no "Error: " prefix, unlike
