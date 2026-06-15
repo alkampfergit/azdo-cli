@@ -53,11 +53,12 @@ A developer passes a global `--trace <file>` flag to any `azdo` command to write
 ### Functional Requirements
 
 - **FR-001**: The CLI MUST provide an `azdo auth diagnose` subcommand that prints the active auth type (PAT or OAuth), the credential source location, the configured org, and the result of a live Azure DevOps connectivity test.
-- **FR-002**: The connectivity test in `auth diagnose` MUST include the exact API error message returned by Azure DevOps when authentication fails, not a generic CLI-level message.
+- **FR-002**: The connectivity test MUST be scope-aware: it MUST attempt a minimal scoped operation (e.g. listing projects) to verify both that credentials are accepted AND that the PAT has sufficient scope — not merely that the server responded. The exact API error message MUST be surfaced when either check fails.
 - **FR-003**: The CLI MUST accept a global `--trace <filepath>` flag on any command that writes HTTP request and response details to the specified file.
 - **FR-004**: The trace log MUST redact all credential values (PAT strings, Bearer tokens, Basic auth header values) replacing them with `[REDACTED]` before writing to disk.
 - **FR-005**: The `auth diagnose` command MUST exit with a non-zero code when the connectivity test fails.
 - **FR-006**: The `--trace` flag failure to open the output file MUST be non-fatal — the command continues and prints a warning to stderr.
+- **FR-008**: The trace file MUST be created with owner-only permissions (readable and writable only by the current user) to protect potentially sensitive API response bodies.
 - **FR-007**: The `auth diagnose` output MUST be human-readable plain text by default; a `--json` flag MAY be supported for machine-readable output.
 
 ### Key Entities
@@ -89,3 +90,5 @@ A developer passes a global `--trace <file>` flag to any `azdo` command to write
 
 - Q: Should `auth diagnose` follow normal context resolution (env vars → config → flags)? → A: Yes, same as all other commands; `--org` and `--project` overrides work if provided.
 - Q: Should the trace log append or overwrite? → A: Append, so multiple invocations in a debugging session accumulate in one file.
+- Q: Should the connectivity test be auth-only or scope-aware? → A: Scope-aware (Option B) — attempt a minimal scoped operation (e.g. list projects) to verify both auth and PAT scope validity.
+- Q: Should the trace file use restrictive or default permissions? → A: Owner-only (Option A) — trace file is readable/writable only by the creating user to protect API response bodies.
