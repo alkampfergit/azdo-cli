@@ -17,7 +17,8 @@ Azure DevOps CLI focused on work item read/write workflows.
 - Check branch pull request status, open PRs to `develop`, list PR comment threads for any PR (`--pr-number`), and resolve/reopen threads from the CLI (`pr`)
 - Persist org/project/default fields in local config (`config`)
 - List all fields of a work item (`list-fields`)
-- Authenticate per Azure DevOps organization with `azdo auth login` — OAuth (Microsoft Entra) by default, or a Personal Access Token via `--use-pat` (or the `AZDO_PAT` env var). Credentials are stored in the OS credential store. Inspect with `azdo auth status`, remove with `azdo auth logout`. See [docs/authentication.md](docs/authentication.md).
+- Authenticate per Azure DevOps organization with `azdo auth login` — OAuth (Microsoft Entra) by default, or a Personal Access Token via `--use-pat` (or the `AZDO_PAT` env var). Credentials are stored in the OS credential store. Inspect with `azdo auth status`, remove with `azdo auth logout`. Diagnose auth problems with `azdo auth diagnose`. See [docs/authentication.md](docs/authentication.md).
+- Trace all HTTP requests to a local file with `--trace <filepath>` (sensitive headers and tokens are automatically redacted).
 
 ## Installation
 

@@ -7,6 +7,7 @@ import {
   loginWithOAuth,
   logout as logoutService,
   status as statusService,
+  resolveAuthCredential,
   type OAuthLoginOptions,
 } from '../services/auth.js';
 import {
@@ -21,6 +22,7 @@ import { resolveOrg, formatResolutionError } from '../services/org-resolver.js';
 import { openUrl } from '../services/browser-open.js';
 import { appendAuthAuditEvent, readAuditEvents } from '../services/audit-log.js';
 import { AZDO_RESOURCE_ID, defaultScopes, firstPartyShippedScopes } from '../services/oauth-config.js';
+import { diagnoseAuth, formatDiagnosticReport } from '../services/auth-diagnostics.js';
 
 type RootOptions = {
   org?: string;
@@ -490,6 +492,29 @@ Note: \`azdo auth\` (no subcommand) preserves the legacy PAT-prompt entry point;
   logoutCmd.action(async (options: { all?: boolean }) => {
     const globals = logoutCmd.optsWithGlobals() as GlobalsWithOrg;
     await handleLogout(options, globals.org);
+  });
+
+  const diagnoseCmd = command
+    .command('diagnose')
+    .description('Show auth type, credential source, org, and live connectivity test result')
+    .option('--org <name>', 'Azure DevOps organization (overrides context resolution)')
+    .option('--project <name>', 'Azure DevOps project (optional context)')
+    .option('--json', 'emit JSON instead of human-readable text', false);
+  diagnoseCmd.action(async (options: { org?: string; project?: string; json?: boolean }) => {
+    const globals = diagnoseCmd.optsWithGlobals() as GlobalsWithOrg;
+    const orgName = options.org ?? globals.org;
+    const resolved = resolveOrg({ org: orgName });
+    if (!resolved) {
+      process.stderr.write(`${formatResolutionError()}\n`);
+      process.exitCode = 1;
+      return;
+    }
+    const report = await diagnoseAuth(resolved.org, options.project ?? null, resolveAuthCredential);
+    const output = formatDiagnosticReport(report, options.json ?? false);
+    process.stdout.write(`${output}\n`);
+    if (report.connectivityStatus === 'failed') {
+      process.exitCode = 1;
+    }
   });
 
   return command;
