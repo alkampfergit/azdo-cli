@@ -59,7 +59,9 @@ A user accidentally supplies a non-existent thread ID or a thread ID belonging t
 - What happens when the reply text contains special characters (quotes, newlines, Unicode)?
   - System must preserve the text exactly as supplied and post it to the thread without mangling.
 - What happens when the thread is already resolved/closed?
-  - System posts the reply and succeeds; the ADO API allows replies to resolved threads. If the server rejects it, the CLI surfaces the server error clearly.
+  - System posts the reply regardless of thread status; the server decides whether to accept it. If the server rejects it, the CLI surfaces the error clearly.
+- What happens when the target PR is abandoned or completed?
+  - The command does not pre-validate PR state; the server's response determines the outcome. Any server-side rejection is surfaced as a clear error message.
 - What happens when the user is not authorised to post on the PR (e.g. read-only membership)?
   - System exits non-zero with a permission-denied message without crashing.
 - What happens when the network is unavailable?
@@ -69,7 +71,7 @@ A user accidentally supplies a non-existent thread ID or a thread ID belonging t
 
 ### Functional Requirements
 
-- **FR-001**: Users MUST be able to post a text reply to an existing pull request comment thread by specifying the thread ID and reply text as command arguments.
+- **FR-001**: Users MUST be able to post a text reply to an existing pull request comment thread using `azdo pr comments reply <threadId> "<text>"`. The command MUST also be accessible as `azdo pr comment-reply <threadId> "<text>"` (alias); both forms are equivalent.
 - **FR-002**: Users MUST be able to target a specific PR by number (`--pr-number`) instead of relying on branch-based resolution, consistent with the existing `azdo pr comments` behaviour.
 - **FR-003**: The command MUST accept a `--json` flag that causes it to emit the newly created comment's details (PR number, thread ID, comment ID, content) as a JSON object on stdout.
 - **FR-004**: The command MUST validate that the thread ID is a positive integer and the reply text is non-empty before making any network call, exiting non-zero with a clear message on failure.
@@ -98,3 +100,10 @@ A user accidentally supplies a non-existent thread ID or a thread ID belonging t
 - Multi-line reply text is supported via normal shell quoting (`$'line1\nline2'` or a here-string) — no special `--multi-line` flag is needed.
 - The command runs in the same authentication context as the other `azdo` commands (PAT-based or OAuth, whichever is configured).
 - Thread IDs shown by `azdo pr comments` are the same IDs accepted by this command — no translation layer is needed.
+
+## Clarifications
+
+### Session 2026-06-15
+
+- Q: Which command form should be canonical? → A: `azdo pr comments reply <threadId> "<text>"` is the primary (shown in `--help` and docs); `azdo pr comment-reply <threadId> "<text>"` is supported as an alias for consistency with `comment-resolve` / `comment-reopen`.
+- Q: Should the reply command restrict to open/active PRs only, or any PR state? → A: Any PR state — let the server decide; surface any server-side rejection as a clear error. *(default applied after 60-min timeout; owner may revise before planning)*
