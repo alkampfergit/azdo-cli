@@ -21,8 +21,9 @@ None — `comments reply` and `comment-reply` are purely additive subcommands.
 
 ## Testing
 
-- **Unit**: `postThreadComment()` tested with mocked `fetch` across all error paths.
-- **Manual**: `azdo pr comments reply <threadId> "text"` and `--json` variant validated against a real ADO PR; `azdo pr comment-reply` alias produces identical output.
+- **Unit**: 6 new tests for `postThreadComment()` covering success, null-author response, 401, 403, 404, and network error. All 915 tests pass (18 pre-existing skips, 0 failures).
+- **Build**: `npm run build` ✓ (0 TypeScript errors).
+- **Lint**: `npm run lint` ✓ (0 errors; 2 pre-existing warnings in `audit-log.test.ts` — unrelated to this feature).
 
 ## Notes
 
