@@ -736,7 +736,7 @@ describe('pr-client', () => {
           content: 'Great suggestion!',
           publishedDate: '2026-06-15T13:00:00.000Z',
         }),
-      } as Response);
+      });
 
       const result = await postThreadComment(context, 'repo-name', 'pat', 22, 148, 'Great suggestion!');
 
@@ -761,7 +761,7 @@ describe('pr-client', () => {
         ok: true,
         status: 200,
         json: async () => ({ id: 5, content: 'reply text' }),
-      } as Response);
+      });
 
       const result = await postThreadComment(context, 'repo-name', 'pat', 22, 148, 'reply text');
       expect(result.author).toBeNull();
@@ -770,12 +770,12 @@ describe('pr-client', () => {
     });
 
     it('throws AUTH_FAILED on a 401 response', async () => {
-      vi.spyOn(globalThis, 'fetch').mockResolvedValue({ ok: false, status: 401 } as Response);
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue({ ok: false, status: 401 });
       await expect(postThreadComment(context, 'repo-name', 'pat', 22, 148, 'hi')).rejects.toThrow('AUTH_FAILED');
     });
 
     it('throws PERMISSION_DENIED on a 403 response', async () => {
-      vi.spyOn(globalThis, 'fetch').mockResolvedValue({ ok: false, status: 403 } as Response);
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue({ ok: false, status: 403 });
       await expect(postThreadComment(context, 'repo-name', 'pat', 22, 148, 'hi')).rejects.toThrow('PERMISSION_DENIED');
     });
 
@@ -785,7 +785,7 @@ describe('pr-client', () => {
         status: 404,
         text: async () => '',
         headers: { get: () => null },
-      } as unknown as Response);
+      });
       await expect(postThreadComment(context, 'repo-name', 'pat', 22, 148, 'hi')).rejects.toThrow(/NOT_FOUND/);
     });
 
