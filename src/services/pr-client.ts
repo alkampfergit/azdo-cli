@@ -4,6 +4,7 @@ import type { AzdoBuild, AzdoBuildListResponse } from '../types/pipeline.js';
 import type {
   ActiveCommentThread,
   ActivePullRequestComment,
+  AzdoCreatedComment,
   AzdoPolicyEvaluation,
   AzdoPolicyEvaluationListResponse,
   AzdoPrListResponse,
@@ -14,6 +15,7 @@ import type {
   AzdoThread,
   AzdoThreadListResponse,
   BranchPullRequestMatch,
+  PostedPrComment,
   PullRequestCheck,
   PullRequestOpenRequest,
   PullRequestOpenResult,
@@ -492,4 +494,37 @@ export async function getPullRequestThreads(
   return data.value
     .map(mapThread)
     .filter((thread): thread is ActiveCommentThread => thread !== null);
+}
+
+function buildThreadCommentUrl(context: AzdoContext, repo: string, prId: number, threadId: number): URL {
+  const url = new URL(
+    `https://dev.azure.com/${encodeURIComponent(context.org)}/${encodeURIComponent(context.project)}/_apis/git/repositories/${encodeURIComponent(repo)}/pullRequests/${prId}/threads/${threadId}/comments`,
+  );
+  url.searchParams.set('api-version', '7.1');
+  return url;
+}
+
+export async function postThreadComment(
+  context: AzdoContext,
+  repo: string,
+  cred: AuthCredential,
+  prId: number,
+  threadId: number,
+  content: string,
+): Promise<PostedPrComment> {
+  const response = await fetchWithErrors(buildThreadCommentUrl(context, repo, prId, threadId).toString(), {
+    method: 'POST',
+    headers: {
+      ...authHeaders(cred),
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ content, parentCommentId: 0, commentType: 1 }),
+  });
+  const data = await readJsonResponse<AzdoCreatedComment>(response);
+  return {
+    id: data.id,
+    author: data.author?.displayName ?? null,
+    content: data.content ?? content,
+    publishedAt: data.publishedDate ?? null,
+  };
 }
