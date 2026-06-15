@@ -53,7 +53,7 @@ export async function diagnoseAuth(
     : 'credential-store';
 
   return {
-    authType: cred.kind,
+    authType: cred.kind ?? 'pat',
     credentialSource: sourceLabel,
     org,
     project,
