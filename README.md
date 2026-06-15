@@ -62,6 +62,11 @@ azdo pr status                          # PR checks (status + branch policies + 
 azdo pr comment-resolve 17 --pr-number 64   # idempotent: exit 0 even when already resolved
 azdo pr comment-reopen 17  --pr-number 64
 
+# Reply to a PR comment thread
+azdo pr comments reply 148 "Great suggestion, I'll address it."          # human-readable output
+azdo pr comments reply 148 "Done." --pr-number 64 --json                 # JSON: { pullRequestId, threadId, commentId, content }
+azdo pr comment-reply 148 "Done."  --pr-number 64                        # flat alias, identical behaviour
+
 # Pipelines — list, inspect runs, wait (exit code = result), start
 azdo pipeline list --filter ci
 azdo pipeline get-runs 12 --branch develop --limit 1

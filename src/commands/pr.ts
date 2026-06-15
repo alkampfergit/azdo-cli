@@ -20,6 +20,7 @@ import {
   getPullRequestById,
   isThreadResolved,
   patchThreadStatus,
+  postThreadComment,
 } from '../services/pr-client.js';
 import { requireAuthCredential } from '../services/auth.js';
 import { resolveContext } from '../services/context.js';
@@ -547,6 +548,7 @@ export function createPrCommentsCommand(): Command {
       }
     });
 
+  command.addCommand(createPrCommentsReplyCommand());
   return command;
 }
 
@@ -725,6 +727,100 @@ export function createPrCommentReopenCommand(): Command {
   return command;
 }
 
+// Flat JSON shape emitted by `azdo pr comments reply --json` and its alias.
+interface PrCommentReplyResult {
+  pullRequestId: number;
+  threadId: number;
+  commentId: number;
+  content: string;
+}
+
+async function runCommentReply(
+  threadIdRaw: string,
+  text: string,
+  options: PrCommandOptions,
+): Promise<void> {
+  let context: AzdoContext | undefined;
+
+  try {
+    const trimmedText = text.trim();
+    if (!trimmedText) {
+      writeError('Reply text must not be empty.');
+      return;
+    }
+
+    const target = await resolveThreadTarget(threadIdRaw, options);
+    if (target === null) {
+      return;
+    }
+    context = target.context;
+
+    const threads = await getPullRequestThreads(target.context, target.repo, target.pat, target.pullRequest.id);
+    const thread = threads.find((t) => t.id === target.threadId);
+    if (!thread) {
+      writeError(`Thread #${target.threadId} not found on pull request #${target.pullRequest.id}.`);
+      return;
+    }
+
+    const posted = await postThreadComment(
+      target.context,
+      target.repo,
+      target.pat,
+      target.pullRequest.id,
+      target.threadId,
+      trimmedText,
+    );
+
+    const result: PrCommentReplyResult = {
+      pullRequestId: target.pullRequest.id,
+      threadId: target.threadId,
+      commentId: posted.id,
+      content: posted.content,
+    };
+
+    if (options.json) {
+      process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+      return;
+    }
+
+    process.stdout.write(`Reply posted to thread #${target.threadId} on pull request #${target.pullRequest.id}.\n`);
+  } catch (err) {
+    handlePrCommandError(err, context, 'write');
+  }
+}
+
+export function createPrCommentsReplyCommand(): Command {
+  const command = new Command('reply');
+  configureUnwrappedHelp(command)
+    .description('Post a reply to a pull request comment thread')
+    .argument('<threadId>', 'numeric id of the thread to reply to')
+    .argument('<text>', 'text of the reply')
+    .option('--org <org>', 'Azure DevOps organization')
+    .option('--project <project>', 'Azure DevOps project')
+    .option('--pr-number <N>', PR_NUMBER_HELP)
+    .option('--json', 'output JSON')
+    .action(async (threadIdRaw: string, text: string, options: PrCommandOptions) => {
+      await runCommentReply(threadIdRaw, text, options);
+    });
+  return command;
+}
+
+export function createPrCommentReplyCommand(): Command {
+  const command = new Command('comment-reply');
+  configureUnwrappedHelp(command)
+    .description('Post a reply to a pull request comment thread (alias of "azdo pr comments reply")')
+    .argument('<threadId>', 'numeric id of the thread to reply to')
+    .argument('<text>', 'text of the reply')
+    .option('--org <org>', 'Azure DevOps organization')
+    .option('--project <project>', 'Azure DevOps project')
+    .option('--pr-number <N>', PR_NUMBER_HELP)
+    .option('--json', 'output JSON')
+    .action(async (threadIdRaw: string, text: string, options: PrCommandOptions) => {
+      await runCommentReply(threadIdRaw, text, options);
+    });
+  return command;
+}
+
 export function createPrCommand(): Command {
   const command = new Command('pr');
   command.description('Manage Azure DevOps pull requests');
@@ -733,5 +829,6 @@ export function createPrCommand(): Command {
   command.addCommand(createPrCommentsCommand());
   command.addCommand(createPrCommentResolveCommand());
   command.addCommand(createPrCommentReopenCommand());
+  command.addCommand(createPrCommentReplyCommand());
   return command;
 }
