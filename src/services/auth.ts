@@ -87,7 +87,7 @@ export function findDotEnvPat(startDir: string = process.cwd()): string | null {
     if (existsSync(envFile)) {
       const contents = readFileSync(envFile, 'utf8');
       for (const line of contents.split('\n')) {
-        const match = line.match(/^AZDO_PAT\s*=\s*(.+)$/);
+        const match = line.match(/^AZDO_PAT\s*=([^\n\r]+)$/);
         if (match) {
           const value = match[1].trim().replace(/^["']|["']$/g, '');
           if (value.length > 0) return value;

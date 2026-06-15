@@ -10,7 +10,7 @@ const { version: PKG_VERSION } = JSON.parse(
 
 function run(args: string[]): { stdout: string; stderr: string; exitCode: number } {
   try {
-    const stdout = execFileSync("node", [CLI_PATH, ...args], {
+    const stdout = execFileSync(process.execPath, [CLI_PATH, ...args], {
       encoding: "utf-8",
       stdio: ["pipe", "pipe", "pipe"],
     });
