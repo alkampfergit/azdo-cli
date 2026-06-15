@@ -11,7 +11,7 @@ describe('parseAzdoRemote', () => {
   });
 
   it('parses HTTPS current format with http scheme', () => {
-    const result = parseAzdoRemote('http://dev.azure.com/myorg/myproject/_git/myrepo');
+    const result = parseAzdoRemote('http://dev.azure.com/myorg/myproject/_git/myrepo'); // NOSONAR: intentional http test
     expect(result).toEqual({ org: 'myorg', project: 'myproject' });
   });
 
