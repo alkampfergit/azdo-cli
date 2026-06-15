@@ -16,7 +16,7 @@
 
 **Purpose**: No new project or dependency setup is needed (existing TypeScript/commander.js project, no new runtime deps). Single verification task.
 
-- [ ] T001 Confirm branch `029-pr-comment-reply` is checked out and up to date with `origin/029-pr-comment-reply`; run `npm install` to ensure lockfile is consistent
+- [x] T001 Confirm branch `029-pr-comment-reply` is checked out and up to date with `origin/029-pr-comment-reply`; run `npm install` to ensure lockfile is consistent
 
 ---
 
@@ -26,9 +26,9 @@
 
 **⚠️ CRITICAL**: No user story work can begin until this phase is complete.
 
-- [ ] T002 Add `AzdoCreatedComment` and `PostedPrComment` interfaces to `src/types/pull-request.ts` (per `data-model.md` — shapes for the POST /comments API response and the CLI's mapped result type)
-- [ ] T003 [P] Add `buildThreadCommentUrl()` (internal) and `postThreadComment()` (exported) to `src/services/pr-client.ts` — POST to `/pullRequests/{prId}/threads/{threadId}/comments?api-version=7.1` with `{ content, parentCommentId: 0, commentType: 1 }`, map response to `PostedPrComment`
-- [ ] T004 [P] Add `postThreadComment()` unit tests in `tests/unit/pr-client.test.ts` — mock `fetch` to cover: success 200, auth failure 401, permission denied 403, thread not found 404, network error
+- [x] T002 Add `AzdoCreatedComment` and `PostedPrComment` interfaces to `src/types/pull-request.ts` (per `data-model.md` — shapes for the POST /comments API response and the CLI's mapped result type)
+- [x] T003 [P] Add `buildThreadCommentUrl()` (internal) and `postThreadComment()` (exported) to `src/services/pr-client.ts` — POST to `/pullRequests/{prId}/threads/{threadId}/comments?api-version=7.1` with `{ content, parentCommentId: 0, commentType: 1 }`, map response to `PostedPrComment`
+- [x] T004 [P] Add `postThreadComment()` unit tests in `tests/unit/pr-client.test.ts` — mock `fetch` to cover: success 200, auth failure 401, permission denied 403, thread not found 404, network error
 
 **Checkpoint**: `postThreadComment()` is tested and the types are in place — user story implementation can begin.
 
@@ -42,9 +42,9 @@
 
 ### Implementation for User Story 1
 
-- [ ] T005 [US1] Add `runCommentReply()` action function in `src/commands/pr.ts` — reuse `resolveThreadTarget()` for PR resolution; validate `threadIdRaw` as positive integer and `text` as non-empty (exit 1 with `Reply text must not be empty.` on failure); fetch threads with `getPullRequestThreads()` and find the target thread (exit 1 with `Thread #<id> not found on pull request #<pr>.` if missing); call `postThreadComment()`; print `Reply posted to thread #<threadId> on pull request #<prId>.\n` to stdout
-- [ ] T006 [US1] Add `createPrCommentsReplyCommand()` factory in `src/commands/pr.ts` — `new Command('reply')`, argument `<threadId>`, argument `<text>`, options `--org`, `--project`, `--pr-number` (reuse `PR_NUMBER_HELP`), action delegates to `runCommentReply()`
-- [ ] T007 [US1] Register the reply subcommand: inside `createPrCommentsCommand()` in `src/commands/pr.ts`, add `command.addCommand(createPrCommentsReplyCommand())` before `return command`
+- [x] T005 [US1] Add `runCommentReply()` action function in `src/commands/pr.ts` — reuse `resolveThreadTarget()` for PR resolution; validate `threadIdRaw` as positive integer and `text` as non-empty (exit 1 with `Reply text must not be empty.` on failure); fetch threads with `getPullRequestThreads()` and find the target thread (exit 1 with `Thread #<id> not found on pull request #<pr>.` if missing); call `postThreadComment()`; print `Reply posted to thread #<threadId> on pull request #<prId>.\n` to stdout
+- [x] T006 [US1] Add `createPrCommentsReplyCommand()` factory in `src/commands/pr.ts` — `new Command('reply')`, argument `<threadId>`, argument `<text>`, options `--org`, `--project`, `--pr-number` (reuse `PR_NUMBER_HELP`), action delegates to `runCommentReply()`
+- [x] T007 [US1] Register the reply subcommand: inside `createPrCommentsCommand()` in `src/commands/pr.ts`, add `command.addCommand(createPrCommentsReplyCommand())` before `return command`
 
 **Checkpoint**: `azdo pr comments reply <threadId> "<text>"` works end-to-end on a real PR. Human-readable output only at this point.
 
@@ -58,8 +58,8 @@
 
 ### Implementation for User Story 2
 
-- [ ] T008 [US2] Add `PrCommentReplyResult` local interface in `src/commands/pr.ts` — `{ pullRequestId: number; threadId: number; commentId: number; content: string }`
-- [ ] T009 [US2] Add `--json` option to `createPrCommentsReplyCommand()` in `src/commands/pr.ts`; extend `runCommentReply()` to accept `options.json` — when true, emit `JSON.stringify(result, null, 2)` to stdout instead of the human-readable line; on `--json` + error, errors still go to stderr and stdout stays empty
+- [x] T008 [US2] Add `PrCommentReplyResult` local interface in `src/commands/pr.ts` — `{ pullRequestId: number; threadId: number; commentId: number; content: string }`
+- [x] T009 [US2] Add `--json` option to `createPrCommentsReplyCommand()` in `src/commands/pr.ts`; extend `runCommentReply()` to accept `options.json` — when true, emit `JSON.stringify(result, null, 2)` to stdout instead of the human-readable line; on `--json` + error, errors still go to stderr and stdout stays empty
 
 **Checkpoint**: `azdo pr comments reply <threadId> "<text>" --json` emits the structured JSON object.
 
@@ -73,8 +73,8 @@
 
 ### Implementation for User Story 3
 
-- [ ] T010 [US3] Add `createPrCommentReplyCommand()` factory in `src/commands/pr.ts` — `new Command('comment-reply')`, identical arguments/options to `createPrCommentsReplyCommand()`, same `runCommentReply()` action, description: `'Post a reply to a pull request comment thread (alias of "azdo pr comments reply")'`
-- [ ] T011 [US3] Register alias: inside `createPrCommand()` in `src/commands/pr.ts`, add `command.addCommand(createPrCommentReplyCommand())` alongside the existing `comment-resolve` and `comment-reopen` registrations
+- [x] T010 [US3] Add `createPrCommentReplyCommand()` factory in `src/commands/pr.ts` — `new Command('comment-reply')`, identical arguments/options to `createPrCommentsReplyCommand()`, same `runCommentReply()` action, description: `'Post a reply to a pull request comment thread (alias of "azdo pr comments reply")'`
+- [x] T011 [US3] Register alias: inside `createPrCommand()` in `src/commands/pr.ts`, add `command.addCommand(createPrCommentReplyCommand())` alongside the existing `comment-resolve` and `comment-reopen` registrations
 
 **Checkpoint**: Both `azdo pr comments reply` and `azdo pr comment-reply` work end-to-end.
 
@@ -84,8 +84,8 @@
 
 **Purpose**: Documentation, final build verification, and README update (required by constitution before merge).
 
-- [ ] T012 [P] Update `README.md` — add `azdo pr comments reply` and `azdo pr comment-reply` to the PR commands section with usage examples matching the contract in `contracts/cli-commands.md`
-- [ ] T013 Run `npm run lint && npm test && npm run build` and confirm zero errors, zero warnings; fix any lint or type issues before marking complete
+- [x] T012 [P] Update `README.md` — add `azdo pr comments reply` and `azdo pr comment-reply` to the PR commands section with usage examples matching the contract in `contracts/cli-commands.md`
+- [x] T013 Run `npm run lint && npm test && npm run build` and confirm zero errors, zero warnings; fix any lint or type issues before marking complete
 
 ---
 
