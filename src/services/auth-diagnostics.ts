@@ -48,9 +48,8 @@ export async function diagnoseAuth(
 
   const connectivity = await runConnectivityTest(org, cred);
 
-  const sourceLabel = cred.source === 'env'
-    ? `env:${process.env.AZDO_PAT ? 'AZDO_PAT' : 'dotenv'}`
-    : 'credential-store';
+  const envVarName = process.env.AZDO_PAT ? 'AZDO_PAT' : 'dotenv';
+  const sourceLabel = cred.source === 'env' ? `env:${envVarName}` : 'credential-store';
 
   return {
     authType: cred.kind ?? 'pat',
@@ -67,12 +66,14 @@ export function formatDiagnosticReport(report: AuthDiagnosticReport, json: boole
     return JSON.stringify(report, null, 2);
   }
 
-  const connectivityLine =
-    report.connectivityStatus === 'ok'
-      ? 'OK'
-      : report.connectivityStatus === 'no-credentials'
-        ? 'no credentials found'
-        : 'FAILED';
+  let connectivityLine: string;
+  if (report.connectivityStatus === 'ok') {
+    connectivityLine = 'OK';
+  } else if (report.connectivityStatus === 'no-credentials') {
+    connectivityLine = 'no credentials found';
+  } else {
+    connectivityLine = 'FAILED';
+  }
 
   const lines = [
     `Auth type:    ${report.authType}`,

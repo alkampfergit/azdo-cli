@@ -111,7 +111,7 @@ describe('TraceWriter', () => {
     const content = readFileSync(tmpFile, 'utf-8');
     const lines = content.trim().split('\n').filter(Boolean);
     expect(lines).toHaveLength(1);
-    const parsed = JSON.parse(lines[0]!) as TraceEntry;
+    const parsed = JSON.parse(lines[0]!) as unknown as TraceEntry;
     expect(parsed.method).toBe('GET');
     expect(parsed.responseStatus).toBe(200);
   });
