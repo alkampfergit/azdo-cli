@@ -12,15 +12,20 @@ the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-_Targeting **0.12.0** (0.11.0 already published to npm). Working detail: [`docs/changelogs/unreleased.md`](docs/changelogs/unreleased.md)._
+_Targeting **0.14.0**. Working detail: [`docs/changelogs/unreleased.md`](docs/changelogs/unreleased.md)._
+
+## [0.13.0] - 2026-06-16 — Pipelines, auth diagnostics & PR improvements
+
+OAuth is the default login flow; new `azdo pipeline` group covers the full
+CI/AI-agent lifecycle; `azdo auth diagnose` + `--trace` flag for debugging;
+PR comment reply, line numbers, and resolution filters.
+→ [details](docs/changelogs/0.13.0.md)
 
 - OAuth login (`azdo auth login`) with browser and headless flows (#38).
-- New `azdo pipeline` command group (list/get-runs/wait/get-run-detail/logs/start) for Azure DevOps Pipelines (#51).
-- Better PR comments & status: `--code-related-only`/`--exclude-resolved` filters, code-comment counts, and `pr status` now surfaces branch policy checks (#50).
-- `azdo pr comments` shows line numbers alongside file paths for code-anchored threads (#61).
-- Fix project auto-detection for Azure DevOps projects with spaces in the name (#71).
-- Fix `azdo pr` on Azure DevOps remotes that carry userinfo (#43).
-- Sync authentication docs with the current auth surface (#42).
+- New `azdo pipeline` command group: list, get-runs, wait, get-run-detail, logs, tests, start (#51).
+- `azdo auth diagnose` and global `--trace <filepath>` for auth/HTTP debugging (#68).
+- `azdo pr comments reply`; line-number display; `--code-related-only`/`--exclude-resolved` filters; policy checks in `pr status` (#50/#61/#65).
+- Fix project auto-detection for names with spaces; PR detection on userinfo remotes (#71/#43).
 
 ## [0.10.1] - 2026-04-27 — Patch
 
