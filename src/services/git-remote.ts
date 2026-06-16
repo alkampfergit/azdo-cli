@@ -71,11 +71,21 @@ function parseSingleRemoteLine(line: string): { remoteName: string; url: string 
   return { remoteName, url };
 }
 
+// Safely decode a percent-encoded URL segment. Returns the raw segment if the
+// encoding is malformed (e.g. `%GG`) rather than throwing.
+function decodePctSegment(segment: string): string {
+  try {
+    return decodeURIComponent(segment);
+  } catch {
+    return segment;
+  }
+}
+
 function matchAzdoRemote(remoteName: string, url: string): RemoteCandidate | null {
   for (const pattern of patterns) {
     const match = pattern.exec(url);
     if (!match) continue;
-    const project = match[2];
+    const project = decodePctSegment(match[2]);
     if (/^DefaultCollection$/i.test(project)) return null;
     return { remoteName, org: match[1], project, hasEmbeddedSecret: httpsEmbeddedSecret.test(url) };
   }
@@ -143,7 +153,7 @@ export function parseAzdoRemote(url: string): AzdoContext | null {
       if (httpsEmbeddedSecret.test(url)) {
         noticeCredentialBearingRemote();
       }
-      const project = match[2];
+      const project = decodePctSegment(match[2]);
       // DefaultCollection is not a real project — skip this match
       if (/^DefaultCollection$/i.test(project)) {
         return { org: match[1], project: '' };

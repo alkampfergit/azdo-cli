@@ -13,7 +13,7 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 SRC_DIR="$REPO_ROOT/.agents/skills"
 DEST_DIR="$REPO_ROOT/.claude/skills"
 
-if [ ! -d "$SRC_DIR" ]; then
+if [[ ! -d "$SRC_DIR" ]]; then
     echo "link-skills: $SRC_DIR does not exist; nothing to link."
     exit 0
 fi
@@ -27,7 +27,7 @@ for skill_path in "$SRC_DIR"/*/; do
     dest="$DEST_DIR/$skill_name"
     rel_target="../../.agents/skills/$skill_name"
 
-    if [ -e "$dest" ] && [ ! -L "$dest" ]; then
+    if [[ -e "$dest" ]] && [[ ! -L "$dest" ]]; then
         echo "link-skills: $dest exists and is not a symlink; leaving it alone."
         skipped=$((skipped + 1))
         continue
@@ -39,8 +39,8 @@ done
 
 pruned=0
 for link in "$DEST_DIR"/*; do
-    [ -L "$link" ] || continue
-    if [ ! -e "$link" ]; then
+    [[ -L "$link" ]] || continue
+    if [[ ! -e "$link" ]]; then
         rm "$link"
         pruned=$((pruned + 1))
     fi

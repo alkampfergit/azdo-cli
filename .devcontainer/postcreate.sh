@@ -58,14 +58,14 @@ sudo apt-get install -y gnome-keyring libsecret-tools xvfb xdotool python3-dbus 
 
 # Initialise the GNOME Keyring default collection so credential-store
 # integration tests can run without a real desktop session (skipped if absent).
-[ -f scripts/setup-keyring.sh ] && bash scripts/setup-keyring.sh || true
+[[ -f scripts/setup-keyring.sh ]] && bash scripts/setup-keyring.sh || true
 
 # tokensave: semantic code intelligence for Claude Code and Codex CLI.
 echo "Installing tokensave..."
 TOKENSAVE_TAG=$(curl -sI https://github.com/aovestdipaperino/tokensave/releases/latest | grep -i '^location:' | sed 's|.*/tag/||;s/\r//')
 TOKENSAVE_VERSION="${TOKENSAVE_TAG#v}"
 ARCH=$(uname -m)
-if [ "$ARCH" = "aarch64" ] || [ "$ARCH" = "arm64" ]; then
+if [[ "$ARCH" = "aarch64" ]] || [[ "$ARCH" = "arm64" ]]; then
     TOKENSAVE_ARCH="aarch64-linux"
 else
     TOKENSAVE_ARCH="x86_64-linux"
@@ -106,15 +106,15 @@ else
     echo "Homebrew already installed, skipping."
 fi
 
-if [ -x /home/linuxbrew/.linuxbrew/bin/brew ]; then
+if [[ -x /home/linuxbrew/.linuxbrew/bin/brew ]]; then
     BREW_BIN="/home/linuxbrew/.linuxbrew/bin/brew"
-elif [ -x /opt/homebrew/bin/brew ]; then
+elif [[ -x /opt/homebrew/bin/brew ]]; then
     BREW_BIN="/opt/homebrew/bin/brew"
 else
     BREW_BIN=""
 fi
 
-if [ -n "$BREW_BIN" ]; then
+if [[ -n "$BREW_BIN" ]]; then
     BREW_SHELLENV_LINE="eval \"\$($BREW_BIN shellenv)\""
     append_if_missing "$BREW_SHELLENV_LINE" "$HOME/.zprofile"
     append_if_missing "$BREW_SHELLENV_LINE" "$HOME/.zshrc"

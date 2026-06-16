@@ -101,19 +101,23 @@ NEW_PROJECT_TYPE=""
 #==============================================================================
 
 log_info() {
-    echo "INFO: $1"
+    local message="$1"
+    echo "INFO: $message"
 }
 
 log_success() {
-    echo "✓ $1"
+    local message="$1"
+    echo "✓ $message"
 }
 
 log_error() {
-    echo "ERROR: $1" >&2
+    local message="$1"
+    echo "ERROR: $message" >&2
 }
 
 log_warning() {
-    echo "WARNING: $1" >&2
+    local message="$1"
+    echo "WARNING: $message" >&2
 }
 
 # Cleanup function for temporary files
@@ -514,14 +518,12 @@ update_existing_agent_file() {
     fi
     
     # Ensure Cursor .mdc files have YAML frontmatter for auto-inclusion
-    if [[ "$target_file" == *.mdc ]]; then
-        if ! head -1 "$temp_file" | grep -q '^---'; then
-            local frontmatter_file
-            frontmatter_file=$(mktemp) || { rm -f "$temp_file"; return 1; }
-            printf '%s\n' "---" "description: Project Development Guidelines" "globs: [\"**/*\"]" "alwaysApply: true" "---" "" > "$frontmatter_file"
-            cat "$temp_file" >> "$frontmatter_file"
-            mv "$frontmatter_file" "$temp_file"
-        fi
+    if [[ "$target_file" == *.mdc ]] && ! head -1 "$temp_file" | grep -q '^---'; then
+        local frontmatter_file
+        frontmatter_file=$(mktemp) || { rm -f "$temp_file"; return 1; }
+        printf '%s\n' "---" "description: Project Development Guidelines" "globs: [\"**/*\"]" "alwaysApply: true" "---" "" > "$frontmatter_file"
+        cat "$temp_file" >> "$frontmatter_file"
+        mv "$frontmatter_file" "$temp_file"
     fi
 
     # Move temp file to target atomically
@@ -556,11 +558,9 @@ update_agent_file() {
     # Create directory if it doesn't exist
     local target_dir
     target_dir=$(dirname "$target_file")
-    if [[ ! -d "$target_dir" ]]; then
-        if ! mkdir -p "$target_dir"; then
-            log_error "Failed to create directory: $target_dir"
-            return 1
-        fi
+    if [[ ! -d "$target_dir" ]] && ! mkdir -p "$target_dir"; then
+        log_error "Failed to create directory: $target_dir"
+        return 1
     fi
     
     if [[ ! -f "$target_file" ]]; then

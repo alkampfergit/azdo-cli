@@ -11,7 +11,7 @@ describe('parseAzdoRemote', () => {
   });
 
   it('parses HTTPS current format with http scheme', () => {
-    const result = parseAzdoRemote('http://dev.azure.com/myorg/myproject/_git/myrepo');
+    const result = parseAzdoRemote('http://dev.azure.com/myorg/myproject/_git/myrepo'); // NOSONAR: intentional http test
     expect(result).toEqual({ org: 'myorg', project: 'myproject' });
   });
 
@@ -37,7 +37,28 @@ describe('parseAzdoRemote', () => {
 
   it('handles org and project with special characters', () => {
     const result = parseAzdoRemote('https://dev.azure.com/my-org/my%20project/_git/repo');
-    expect(result).toEqual({ org: 'my-org', project: 'my%20project' });
+    expect(result).toEqual({ org: 'my-org', project: 'my project' });
+  });
+
+  it('decodes percent-encoded project name (issue #71 — Course Examples Builds)', () => {
+    const result = parseAzdoRemote('https://dev.azure.com/gianmariaricci/Course%20Examples%20Builds/_git/JavaCalendar');
+    expect(result).toEqual({ org: 'gianmariaricci', project: 'Course Examples Builds' });
+  });
+
+  it('decodes multi-space percent-encoded project name', () => {
+    const result = parseAzdoRemote('https://dev.azure.com/myorg/My%20Awesome%20Project/_git/repo');
+    expect(result).toEqual({ org: 'myorg', project: 'My Awesome Project' });
+  });
+
+  it('decodes percent-encoded project name when userinfo prefix is present', () => {
+    vi.spyOn(process.stderr, 'write').mockReturnValue(true);
+    const result = parseAzdoRemote('https://user:token@dev.azure.com/org/My%20Project/_git/repo');
+    expect(result).toEqual({ org: 'org', project: 'My Project' });
+  });
+
+  it('returns raw segment unchanged for malformed percent-encoding', () => {
+    const result = parseAzdoRemote('https://dev.azure.com/org/My%GGProject/_git/repo');
+    expect(result).toEqual({ org: 'org', project: 'My%GGProject' });
   });
 
   it('returns null for GitHub URL', () => {
@@ -139,6 +160,20 @@ describe('parseAzdoRemote / parseRepoName — frozen parity (C-7, FR-007)', () =
 });
 
 // ── T016: multi-remote detection (multi-org support #55) ─────────────────────
+
+describe('parseAllAzdoRemotes — percent-encoded project names', () => {
+  it('decodes percent-encoded project name end-to-end via gitConfigToRemoteLines', () => {
+    const config = [
+      '[remote "origin"]',
+      '\turl = https://dev.azure.com/gianmariaricci/Course%20Examples%20Builds/_git/JavaCalendar',
+      '\tfetch = +refs/heads/*:refs/remotes/origin/*',
+    ].join('\n');
+    const lines = gitConfigToRemoteLines(config);
+    const candidates = parseAllAzdoRemotes(lines);
+    expect(candidates).toHaveLength(1);
+    expect(candidates[0]).toMatchObject({ remoteName: 'origin', org: 'gianmariaricci', project: 'Course Examples Builds' });
+  });
+});
 
 describe('parseAllAzdoRemotes', () => {
   it('parses a single AZDO remote from git remote -v output', () => {

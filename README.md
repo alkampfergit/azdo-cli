@@ -17,7 +17,8 @@ Azure DevOps CLI focused on work item read/write workflows.
 - Check branch pull request status, open PRs to `develop`, list PR comment threads for any PR (`--pr-number`), and resolve/reopen threads from the CLI (`pr`)
 - Persist org/project/default fields in local config (`config`)
 - List all fields of a work item (`list-fields`)
-- Authenticate per Azure DevOps organization with `azdo auth login` — OAuth (Microsoft Entra) by default, or a Personal Access Token via `--use-pat` (or the `AZDO_PAT` env var). Credentials are stored in the OS credential store. Inspect with `azdo auth status`, remove with `azdo auth logout`. See [docs/authentication.md](docs/authentication.md).
+- Authenticate per Azure DevOps organization with `azdo auth login` — OAuth (Microsoft Entra) by default, or a Personal Access Token via `--use-pat` (or the `AZDO_PAT` env var). Credentials are stored in the OS credential store. Inspect with `azdo auth status`, remove with `azdo auth logout`. Diagnose auth problems with `azdo auth diagnose`. See [docs/authentication.md](docs/authentication.md).
+- Trace all HTTP requests to a local file with `--trace <filepath>` (sensitive headers and tokens are automatically redacted).
 
 ## Installation
 
@@ -61,6 +62,11 @@ azdo pr comments --code-related-only    # only file/line-anchored threads
 azdo pr status                          # PR checks (status + branch policies + pipeline builds) + code-comment counts
 azdo pr comment-resolve 17 --pr-number 64   # idempotent: exit 0 even when already resolved
 azdo pr comment-reopen 17  --pr-number 64
+
+# Reply to a PR comment thread
+azdo pr comments reply 148 "Great suggestion, I'll address it."          # human-readable output
+azdo pr comments reply 148 "Done." --pr-number 64 --json                 # JSON: { pullRequestId, threadId, commentId, content }
+azdo pr comment-reply 148 "Done."  --pr-number 64                        # flat alias, identical behaviour
 
 # Pipelines — list, inspect runs, wait (exit code = result), start
 azdo pipeline list --filter ci

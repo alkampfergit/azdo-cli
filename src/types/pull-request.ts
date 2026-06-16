@@ -171,6 +171,25 @@ export interface AzdoPullRequestStatus {
   targetUrl?: string;
 }
 
+// Minimal shape of the POST /threads/{id}/comments 200 response. Only the
+// fields the CLI reads are declared; the ADO API returns many more.
+export interface AzdoCreatedComment {
+  id: number;
+  author?: { displayName?: string };
+  content?: string;
+  publishedDate?: string;
+}
+
+// Result of a successful postThreadComment() call — mapped from the ADO
+// response and exposed to command code. Mirrors ActivePullRequestComment
+// in nullability convention.
+export interface PostedPrComment {
+  id: number;
+  author: string | null;
+  content: string;
+  publishedAt: string | null;
+}
+
 // Minimal shape of the Projects API response — we only need the GUID to build
 // the policy-evaluation artifactId.
 export interface AzdoProject {

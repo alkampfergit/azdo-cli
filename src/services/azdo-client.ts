@@ -10,6 +10,8 @@ import type {
   WorkItemCommentsResult,
   WriteResult,
 } from '../types/work-item.js';
+import { getActiveTraceWriter, redactHeaders, redactUrl, redactBody } from './trace-writer.js';
+import type { TraceEntry } from '../types/auth-diagnostics.js';
 
 const DEFAULT_FIELDS: readonly string[] = [
   'System.Title',
@@ -35,12 +37,46 @@ export function authHeaders(credentialOrPat: AuthCredential | string): Record<st
   return { Authorization: `Basic ${token}` };
 }
 
-export async function fetchWithErrors(url: string, init: RequestInit): Promise<Response> {
+export async function fetchRaw(url: string, init: RequestInit): Promise<{ status: number; body: string }> {
   let response: Response;
   try {
     response = await fetch(url, init);
-  } catch {
-    throw new Error('NETWORK_ERROR');
+  } catch (err) {
+    throw new Error(`NETWORK_ERROR: ${err instanceof Error ? err.message : String(err)}`, { cause: err });
+  }
+  const body = await response.text();
+  return { status: response.status, body };
+}
+
+export async function fetchWithErrors(url: string, init: RequestInit): Promise<Response> {
+  const writer = getActiveTraceWriter();
+  let response: Response;
+  try {
+    response = await fetch(url, init);
+  } catch (err) {
+    throw new Error('NETWORK_ERROR', { cause: err });
+  }
+
+  if (writer) {
+    const reqHeaders = redactHeaders((init.headers ?? {}) as Record<string, string>);
+    const reqBody = typeof init.body === 'string' ? redactBody(init.body) : null;
+    let responseBody = '';
+    // Clone the response so we can read the body for tracing without consuming it.
+    const clone = response.clone();
+    try { responseBody = await clone.text(); } catch { /* ignore */ }
+    const respHeaders: Record<string, string> = {};
+    response.headers.forEach((v, k) => { respHeaders[k] = v; });
+    const entry: TraceEntry = {
+      timestamp: new Date().toISOString(),
+      method: (init.method ?? 'GET').toUpperCase(),
+      url: redactUrl(url),
+      requestHeaders: reqHeaders,
+      requestBody: reqBody ?? null,
+      responseStatus: response.status,
+      responseHeaders: respHeaders,
+      responseBody,
+    };
+    writer.append(entry);
   }
 
   if (response.status === 401) throw new Error('AUTH_FAILED');

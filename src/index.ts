@@ -17,6 +17,7 @@ import { createCommentsCommand } from "./commands/comments.js";
 import { createDownloadAttachmentCommand } from "./commands/download-attachment.js";
 import { createRelationsCommand } from "./commands/relations.js";
 import { getUpdateNotice } from "./services/update-check.js";
+import { initTraceWriter } from "./services/trace-writer.js";
 
 // Standard CLI behaviour for `azdo … | head`: when the downstream reader
 // closes the pipe early, swallow EPIPE and exit cleanly instead of dumping
@@ -35,6 +36,7 @@ const program = new Command();
 program.name("azdo").description("Azure DevOps CLI tool").version(version, "-v, --version");
 
 program.option("--no-update-check", "Skip the check for a newer published version");
+program.option("--trace <filepath>", "Append redacted HTTP request/response trace to a file (owner-read-only permissions)");
 
 program.addCommand(createGetItemCommand());
 program.addCommand(createAuthCommand());
@@ -55,6 +57,13 @@ program.addCommand(createRelationsCommand());
 
 program.showHelpAfterError();
 
+program.hook("preAction", () => {
+  const { trace } = program.opts() as { trace?: string };
+  if (trace) {
+    initTraceWriter(trace);
+  }
+});
+
 // After a command finishes, print a best-effort update notice on stderr.
 // The hook only fires for action commands, so -v/--version and help paths
 // are naturally skipped. Any failure is swallowed by getUpdateNotice itself.
@@ -65,12 +74,8 @@ program.hook("postAction", async () => {
   }
 });
 
-async function main(): Promise<void> {
-  await program.parseAsync();
+await program.parseAsync();
 
-  if (process.argv.length <= 2) {
-    program.help();
-  }
+if (process.argv.length <= 2) {
+  program.help();
 }
-
-void main();

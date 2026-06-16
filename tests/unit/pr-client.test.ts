@@ -9,6 +9,7 @@ import {
   listPullRequests,
   openPullRequest,
   patchThreadStatus,
+  postThreadComment,
   resolveProjectId,
 } from '../../src/services/pr-client.js';
 
@@ -721,6 +722,76 @@ describe('pr-client', () => {
       const result = await getPullRequestThreads(context, 'repo-name', 'pat', 42);
       expect(result[0].threadContext).toBeNull();
       expect(result[0].line).toBeNull();
+    });
+  });
+
+  describe('postThreadComment', () => {
+    it('posts a reply and maps the response to PostedPrComment', async () => {
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          id: 3,
+          author: { displayName: 'Alice' },
+          content: 'Great suggestion!',
+          publishedDate: '2026-06-15T13:00:00.000Z',
+        }),
+      });
+
+      const result = await postThreadComment(context, 'repo-name', 'pat', 22, 148, 'Great suggestion!');
+
+      expect(result).toEqual({
+        id: 3,
+        author: 'Alice',
+        content: 'Great suggestion!',
+        publishedAt: '2026-06-15T13:00:00.000Z',
+      });
+      expect(fetchSpy).toHaveBeenCalledWith(
+        expect.stringContaining('/pullRequests/22/threads/148/comments'),
+        expect.objectContaining({
+          method: 'POST',
+          body: JSON.stringify({ content: 'Great suggestion!', parentCommentId: 0, commentType: 1 }),
+          headers: expect.objectContaining({ 'Content-Type': 'application/json' }),
+        }),
+      );
+    });
+
+    it('returns null author and publishedAt when omitted from response', async () => {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({ id: 5, content: 'reply text' }),
+      });
+
+      const result = await postThreadComment(context, 'repo-name', 'pat', 22, 148, 'reply text');
+      expect(result.author).toBeNull();
+      expect(result.publishedAt).toBeNull();
+      expect(result.content).toBe('reply text');
+    });
+
+    it('throws AUTH_FAILED on a 401 response', async () => {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue({ ok: false, status: 401 });
+      await expect(postThreadComment(context, 'repo-name', 'pat', 22, 148, 'hi')).rejects.toThrow('AUTH_FAILED');
+    });
+
+    it('throws PERMISSION_DENIED on a 403 response', async () => {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue({ ok: false, status: 403 });
+      await expect(postThreadComment(context, 'repo-name', 'pat', 22, 148, 'hi')).rejects.toThrow('PERMISSION_DENIED');
+    });
+
+    it('throws NOT_FOUND on a 404 response', async () => {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+        ok: false,
+        status: 404,
+        text: async () => '',
+        headers: { get: () => null },
+      });
+      await expect(postThreadComment(context, 'repo-name', 'pat', 22, 148, 'hi')).rejects.toThrow(/NOT_FOUND/);
+    });
+
+    it('throws NETWORK_ERROR on a network failure', async () => {
+      vi.spyOn(globalThis, 'fetch').mockRejectedValue(new TypeError('fetch failed'));
+      await expect(postThreadComment(context, 'repo-name', 'pat', 22, 148, 'hi')).rejects.toThrow('NETWORK_ERROR');
     });
   });
 });
