@@ -23,7 +23,7 @@ No project setup required — targeted bug fix in existing files only.
 
 **Purpose**: Add the safe-decode helper that both fix sites will call. Must exist before Phase 3.
 
-- [ ] T001 Add `decodePctSegment(segment: string): string` helper function just above `matchAzdoRemote` in `src/services/git-remote.ts`. The helper wraps `decodeURIComponent` in try/catch and returns the raw segment on error (handles malformed `%GG`-style sequences).
+- [x] T001 Add `decodePctSegment(segment: string): string` helper function just above `matchAzdoRemote` in `src/services/git-remote.ts`. The helper wraps `decodeURIComponent` in try/catch and returns the raw segment on error (handles malformed `%GG`-style sequences).
 
 **Checkpoint**: Helper is present and compiles before any story work begins.
 
@@ -37,17 +37,17 @@ No project setup required — targeted bug fix in existing files only.
 
 ### Implementation
 
-- [ ] T002 [US1] In `matchAzdoRemote` in `src/services/git-remote.ts`, change `const project = match[2];` to `const project = decodePctSegment(match[2]);`
-- [ ] T003 [US1] In `parseAzdoRemote` in `src/services/git-remote.ts`, change `const project = match[2];` to `const project = decodePctSegment(match[2]);` (two occurrences in that function — both the main path and the DefaultCollection branch)
+- [x] T002 [US1] In `matchAzdoRemote` in `src/services/git-remote.ts`, change `const project = match[2];` to `const project = decodePctSegment(match[2]);`
+- [x] T003 [US1] In `parseAzdoRemote` in `src/services/git-remote.ts`, change `const project = match[2];` to `const project = decodePctSegment(match[2]);` (two occurrences in that function — both the main path and the DefaultCollection branch)
 
 ### Tests (update + add)
 
-- [ ] T004 [US1] Update the existing test `'handles org and project with special characters'` in `tests/unit/git-remote.test.ts` (currently line ~39): change the expected value from `project: 'my%20project'` to `project: 'my project'` (this test currently asserts the buggy behavior)
-- [ ] T005 [P] [US1] Add test in `tests/unit/git-remote.test.ts`: `parseAzdoRemote('https://dev.azure.com/gianmariaricci/Course%20Examples%20Builds/_git/JavaCalendar')` → `{ org: 'gianmariaricci', project: 'Course Examples Builds' }`
-- [ ] T006 [P] [US1] Add test in `tests/unit/git-remote.test.ts`: `parseAzdoRemote` with multi-space name `My%20Awesome%20Project` → `{ org: 'myorg', project: 'My Awesome Project' }`
-- [ ] T007 [P] [US1] Add test in `tests/unit/git-remote.test.ts`: `parseAzdoRemote` with userinfo prefix + encoded project: `'https://user:token@dev.azure.com/org/My%20Project/_git/repo'` → `{ org: 'org', project: 'My Project' }` (with `vi.spyOn(process.stderr, 'write')` to silence credential warning)
-- [ ] T008 [P] [US1] Add test in `tests/unit/git-remote.test.ts`: `gitConfigToRemoteLines` + `parseAllAzdoRemotes` end-to-end for a `.git/config` whose remote URL contains `Course%20Examples%20Builds` — the resulting `RemoteCandidate.project` must equal `'Course Examples Builds'`
-- [ ] T009 [P] [US1] Add test in `tests/unit/git-remote.test.ts` (new `describe` block `decodePctSegment resilience`): `parseAzdoRemote('https://dev.azure.com/org/My%GGProject/_git/repo')` must not throw and must return the raw `'My%GGProject'` as the project name (graceful fallback)
+- [x] T004 [US1] Update the existing test `'handles org and project with special characters'` in `tests/unit/git-remote.test.ts` (currently line ~39): change the expected value from `project: 'my%20project'` to `project: 'my project'` (this test currently asserts the buggy behavior)
+- [x] T005 [P] [US1] Add test in `tests/unit/git-remote.test.ts`: `parseAzdoRemote('https://dev.azure.com/gianmariaricci/Course%20Examples%20Builds/_git/JavaCalendar')` → `{ org: 'gianmariaricci', project: 'Course Examples Builds' }`
+- [x] T006 [P] [US1] Add test in `tests/unit/git-remote.test.ts`: `parseAzdoRemote` with multi-space name `My%20Awesome%20Project` → `{ org: 'myorg', project: 'My Awesome Project' }`
+- [x] T007 [P] [US1] Add test in `tests/unit/git-remote.test.ts`: `parseAzdoRemote` with userinfo prefix + encoded project: `'https://user:token@dev.azure.com/org/My%20Project/_git/repo'` → `{ org: 'org', project: 'My Project' }` (with `vi.spyOn(process.stderr, 'write')` to silence credential warning)
+- [x] T008 [P] [US1] Add test in `tests/unit/git-remote.test.ts`: `gitConfigToRemoteLines` + `parseAllAzdoRemotes` end-to-end for a `.git/config` whose remote URL contains `Course%20Examples%20Builds` — the resulting `RemoteCandidate.project` must equal `'Course Examples Builds'`
+- [x] T009 [P] [US1] Add test in `tests/unit/git-remote.test.ts` (new `describe` block `decodePctSegment resilience`): `parseAzdoRemote('https://dev.azure.com/org/My%GGProject/_git/repo')` must not throw and must return the raw `'My%GGProject'` as the project name (graceful fallback)
 
 **Checkpoint**: `npm run test:unit` green. US1 fully verified.
 
@@ -61,7 +61,7 @@ No project setup required — targeted bug fix in existing files only.
 
 ### Verification
 
-- [ ] T010 [US2] Review `tests/unit/git-remote.test.ts`: confirm no test that exercises the explicit `--project` path needs modification. The explicit `--project` flow bypasses `git-remote.ts` entirely (it is wired in `context.ts` / command option parsing), so no source change is required. Add a comment in the test file if the explicit path is not tested at unit level, noting it is covered by integration tests.
+- [x] T010 [US2] Review `tests/unit/git-remote.test.ts`: confirm no test that exercises the explicit `--project` path needs modification. The explicit `--project` flow bypasses `git-remote.ts` entirely (it is wired in `context.ts` / command option parsing), so no source change is required. Add a comment in the test file if the explicit path is not tested at unit level, noting it is covered by integration tests.
 
 **Checkpoint**: Zero test changes for US2; existing tests green.
 
@@ -75,7 +75,7 @@ No project setup required — targeted bug fix in existing files only.
 
 ### Verification
 
-- [ ] T011 [US3] Confirm `tests/unit/fixtures/git-remote.cases.ts` requires no changes (all 5 FROZEN_BASELINE URLs contain no percent-encoded segments; `decodePctSegment` is a no-op on plain ASCII strings). Add a note to the fixture file header if helpful.
+- [x] T011 [US3] Confirm `tests/unit/fixtures/git-remote.cases.ts` requires no changes (all 5 FROZEN_BASELINE URLs contain no percent-encoded segments; `decodePctSegment` is a no-op on plain ASCII strings). Add a note to the fixture file header if helpful.
 
 **Checkpoint**: FROZEN_BASELINE passes unchanged; regression safety confirmed.
 
@@ -83,8 +83,8 @@ No project setup required — targeted bug fix in existing files only.
 
 ## Phase 6: Polish & Cross-Cutting
 
-- [ ] T012 Run full validation suite: `npm test` (lint + type-check + unit + build). Fix any lint or type errors introduced by the helper function.
-- [ ] T013 Review `README.md` section on project auto-detection from git remote. If a "project names with spaces" note is absent, add one sentence: "Project names containing spaces are supported — the CLI decodes percent-encoded remote URLs automatically."
+- [x] T012 Run full validation suite: `npm test` (lint + type-check + unit + build). Fix any lint or type errors introduced by the helper function.
+- [x] T013 Review `README.md` section on project auto-detection from git remote. If a "project names with spaces" note is absent, add one sentence: "Project names containing spaces are supported — the CLI decodes percent-encoded remote URLs automatically."
 
 ---
 

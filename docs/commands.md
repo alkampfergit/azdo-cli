@@ -298,7 +298,7 @@ azdo config org-copy default acme --force   # overwrite on collision
 
 Resolution order for `get-item`, `set-state`, and other work item commands:
 1. `--org` / `--project` CLI flags
-2. Git remote (any Azure DevOps remote, not just `origin`)
+2. Git remote (any Azure DevOps remote, not just `origin`) — project names containing spaces are decoded automatically from the remote URL
 3. Org-scoped config (`organizations.<org>.project`)
 4. Default config (`project`)
 

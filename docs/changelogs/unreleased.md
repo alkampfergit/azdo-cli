@@ -19,6 +19,7 @@
 
 ### Fixed
 
+- **Project name with spaces auto-detected from git remote** — `detectAzdoContext()` and `parseAzdoRemote()` now apply `decodeURIComponent` to the project name segment of the remote URL, preventing double-encoding (`%2520` instead of `%20`) in API calls for projects whose names contain spaces (`031-fix-project-url-encoding`, #71/#72).
 - **`azdo pr` on valid Azure DevOps remotes** — recognise remotes that carry userinfo (e.g. `user@dev.azure.com`) so PR auto-detection no longer errors (`019-fix-pr-command`, #40/#43).
 - **`azdo pr status` reported "no checks"** — it now also fetches branch **policy evaluations** (build validation, required reviewers) and merges them with status-API checks, so green checks are surfaced; a retrieval failure shows "unable to retrieve" rather than masquerading as "none" (`023-pr-comments-status`, #50).
 
