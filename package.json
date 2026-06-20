@@ -30,6 +30,9 @@
     "jimp": "^1.6.1",
     "node-html-markdown": "^2.0.0"
   },
+  "overrides": {
+    "esbuild": "^0.28.1"
+  },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@types/node": "^25.5.0",
