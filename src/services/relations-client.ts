@@ -144,7 +144,7 @@ export async function addWorkItemRelation(
 
   const targetUrl = `https://dev.azure.com/${encodeURIComponent(context.org)}/_apis/wit/workItems/${id2}`;
   const existing = (workItem.relations ?? []).find(
-    (r) => r.rel === relType.referenceName && r.url.toLowerCase() === targetUrl.toLowerCase(),
+    (r) => r.rel === relType.referenceName && parseTargetId(r.url) === id2,
   );
 
   if (existing) {

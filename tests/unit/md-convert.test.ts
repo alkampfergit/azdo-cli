@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { htmlToMarkdown, toMarkdown } from '../../src/services/md-convert.js';
+import { htmlToMarkdown, toMarkdown, escapeAnglesInMarkdownCodeSpans } from '../../src/services/md-convert.js';
 
 describe('htmlToMarkdown', () => {
   it('converts <strong> to markdown bold', () => {
@@ -75,5 +75,66 @@ describe('toMarkdown', () => {
 
   it('passes empty string through unchanged', () => {
     expect(toMarkdown('')).toBe('');
+  });
+
+  it('decodes &lt;/&gt; entities inside code spans in plain text', () => {
+    const result = toMarkdown('See `Task&lt;T&gt;` for details');
+    expect(result).toContain('`Task<T>`');
+  });
+
+  it('leaves prose text with &lt; outside code spans unchanged', () => {
+    const result = toMarkdown('a &lt; b is plain prose');
+    expect(result).toBe('a &lt; b is plain prose');
+  });
+});
+
+describe('htmlToMarkdown — generic types in code elements', () => {
+  it('preserves single generic in <code> element', () => {
+    expect(htmlToMarkdown('<code>Task<HealthCheckResult></code>')).toContain('`Task<HealthCheckResult>`');
+  });
+
+  it('preserves nested generics in <code> element', () => {
+    expect(htmlToMarkdown('<code>Func<Task<T>></code>')).toContain('`Func<Task<T>>`');
+  });
+
+  it('preserves multi-param generic in <code> element', () => {
+    expect(htmlToMarkdown('<code>Dict<K, V></code>')).toContain('`Dict<K, V>`');
+  });
+
+  it('does not double-encode already-escaped entities in <code>', () => {
+    expect(htmlToMarkdown('<code>Task&lt;T&gt;</code>')).toContain('`Task<T>`');
+  });
+
+  it('does not affect elements outside <code>', () => {
+    const result = htmlToMarkdown('<p><strong>bold</strong></p>');
+    expect(result).toContain('**bold**');
+  });
+});
+
+describe('escapeAnglesInMarkdownCodeSpans', () => {
+  it('escapes < and > inside a single-backtick code span', () => {
+    expect(escapeAnglesInMarkdownCodeSpans('`Task<T>`')).toBe('`Task&lt;T&gt;`');
+  });
+
+  it('escapes nested generics', () => {
+    expect(escapeAnglesInMarkdownCodeSpans('`Func<Task<T>>`')).toBe('`Func&lt;Task&lt;T&gt;&gt;`');
+  });
+
+  it('escapes multi-param generic', () => {
+    expect(escapeAnglesInMarkdownCodeSpans('`Dict<K, V>`')).toBe('`Dict&lt;K, V&gt;`');
+  });
+
+  it('does not touch prose outside code spans', () => {
+    expect(escapeAnglesInMarkdownCodeSpans('prose <b>bold</b>')).toBe('prose <b>bold</b>');
+  });
+
+  it('is idempotent on already-escaped content', () => {
+    const escaped = '`Task&lt;T&gt;`';
+    expect(escapeAnglesInMarkdownCodeSpans(escaped)).toBe(escaped);
+  });
+
+  it('escapes spans inline with surrounding text', () => {
+    const result = escapeAnglesInMarkdownCodeSpans('Sig: `Task<T>` returns void');
+    expect(result).toBe('Sig: `Task&lt;T&gt;` returns void');
   });
 });
