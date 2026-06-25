@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { Command } from 'commander';
 import type { AzdoContext } from '../types/work-item.js';
 import { updateWorkItem } from '../services/azdo-client.js';
+import { escapeAnglesInMarkdownCodeSpans } from '../services/md-convert.js';
 import { requireAuthCredential } from '../services/auth.js';
 import { resolveContext } from '../services/context.js';
 import { parseWorkItemId, validateOrgProjectPair, handleCommandError } from '../services/command-helpers.js';
@@ -110,8 +111,9 @@ export function createSetMdFieldCommand(): Command {
           context = resolveContext(options);
           const credential = await requireAuthCredential(context.org);
 
+          const safeContent = escapeAnglesInMarkdownCodeSpans(content);
           const operations = [
-            { op: 'add' as const, path: `/fields/${field}`, value: content },
+            { op: 'add' as const, path: `/fields/${field}`, value: safeContent },
             { op: 'add' as const, path: `/multilineFieldsFormat/${field}`, value: 'Markdown' },
           ];
 

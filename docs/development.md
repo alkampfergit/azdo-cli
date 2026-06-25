@@ -25,6 +25,37 @@ npm install
 | `npm run typecheck` | Type-check with tsc (no emit) |
 | `npm run format` | Check formatting with Prettier |
 
+## Integration test environment
+
+Integration tests hit a real Azure DevOps instance. Create a `.env` file **one directory above the repo root** (e.g. `/workspaces/.env` when the repo lives at `/workspaces/azdo-cli`) with the following variables:
+
+```dotenv
+# Required — credentials and target org/project
+AZDO_PAT=<your personal access token>
+AZDO_ORG=gianmariaricci
+AZDO_PROJECT=azdocli
+
+# Required for pull-request tests
+AZDO_REPO=azdocli
+AZDO_PR_ID=64
+
+# Required for pull-request + build tests
+AZDO_PR_ID_WITH_BUILDS=65
+
+# Required for work-item relation tests
+AZDO_WI_WITH_RELATIONS=44920
+AZDO_WI_RELATION_SOURCE=44920
+AZDO_WI_RELATION_TARGET=44922
+
+# Required for attachment tests
+AZDO_ATTACHMENT_ITEM_ID=39835
+AZDO_ATTACHMENT_FILENAME=_profile.png
+```
+
+If the required variables are absent the integration tests are skipped automatically (they do not fail).
+
+`AZDO_PAT` and `AZDO_REPO` have no built-in defaults and must always be set explicitly. All other variables fall back to the values shown above when absent. The PAT needs at minimum the **Work Items (read/write)** and **Code (read)** scopes; to run the PR thread write tests (`patchThreadStatus`) also add the **Code (write)** scope and set `AZDO_REPO`.
+
 ## Utility scripts
 
 ### sync-env-to-gh-secrets
