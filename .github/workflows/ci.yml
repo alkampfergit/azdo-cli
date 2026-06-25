@@ -111,55 +111,8 @@ jobs:
       - name: Set version and tag
         id: version
         run: |
-          BASE_VERSION=$(node -p "require('./package.json').version")
-          BRANCH="${GITHUB_REF_NAME}"
-          RUN="${GITHUB_RUN_NUMBER}"
-
-          SAFE_BRANCH=$(echo "$BRANCH" | sed 's/[^a-zA-Z0-9-]/-/g')
-
-          if [ "$BRANCH" = "master" ]; then
-            HEAD_TAG=$(git tag --points-at HEAD | grep -E '^v?[0-9]+\.[0-9]+\.[0-9]+([.-].*)?$' | head -n 1)
-            if [ -z "$HEAD_TAG" ]; then
-              echo "No version tag found on HEAD for master branch."
-              exit 1
-            fi
-            VERSION="${HEAD_TAG#v}"
-
-            # Only promote to `latest` when this version is >= the current
-            # `latest` on npm. Hotfixes on master for an older minor (e.g.
-            # 0.8.1 merged after 0.9.0) would otherwise regress the tag.
-            CURRENT_LATEST=$(npm view azdo-cli dist-tags.latest 2>/dev/null || true)
-            if [ -z "$CURRENT_LATEST" ]; then
-              TAG="latest"
-            else
-              HIGHEST=$(printf '%s\n%s\n' "$VERSION" "$CURRENT_LATEST" | sort -V | tail -n 1)
-              if [ "$HIGHEST" = "$VERSION" ]; then
-                TAG="latest"
-              else
-                MAJOR_MINOR=$(echo "$VERSION" | cut -d. -f1,2)
-                TAG="maint-${MAJOR_MINOR}"
-                echo "Not promoting $VERSION to 'latest' (current latest is $CURRENT_LATEST); using '$TAG' instead."
-              fi
-            fi
-          elif [ "$BRANCH" = "develop" ]; then
-            TAG="dev"
-            LATEST_TAG=$(git tag --sort=-v:refname | grep -E '^v?[0-9]+\.[0-9]+\.[0-9]+$' | head -n 1)
-            LATEST_TAG="${LATEST_TAG#v}"
-            MAJOR=$(echo "$LATEST_TAG" | cut -d. -f1)
-            MINOR=$(echo "$LATEST_TAG" | cut -d. -f2)
-            NEXT_MINOR=$((MINOR + 1))
-            VERSION="${MAJOR}.${NEXT_MINOR}.0-develop.${RUN}"
-          elif [[ "$BRANCH" == release/* ]]; then
-            TAG="next"
-            VERSION="${BASE_VERSION}-next.${RUN}"
-          else
-            TAG="dev"
-            VERSION="${BASE_VERSION}-${SAFE_BRANCH}.${RUN}"
-          fi
-
-          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
-          echo "base_version=$BASE_VERSION" >> "$GITHUB_OUTPUT"
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          bash scripts/compute-version.sh "$GITHUB_REF_NAME" "$GITHUB_RUN_NUMBER" | \
+            tee -a "$GITHUB_OUTPUT"
 
       - name: Set package version
         if: steps.version.outputs.version != steps.version.outputs.base_version
