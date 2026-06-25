@@ -143,11 +143,11 @@ export async function addWorkItemRelation(
   const workItem = await getWorkItemWithRelations(context, cred, id1);
 
   const targetUrl = `https://dev.azure.com/${encodeURIComponent(context.org)}/_apis/wit/workItems/${id2}`;
-  const existing = (workItem.relations ?? []).find(
+  const exists = (workItem.relations ?? []).some(
     (r) => r.rel === relType.referenceName && parseTargetId(r.url) === id2,
   );
 
-  if (existing) {
+  if (exists) {
     return { status: 'already_exists', type: relType.name, referenceName: relType.referenceName, id1, id2 };
   }
 

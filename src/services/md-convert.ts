@@ -1,20 +1,20 @@
 import { NodeHtmlMarkdown } from 'node-html-markdown';
 import { isHtml } from './html-detect.js';
 
+const PLT = '@@PLT@@';
+const PGT = '@@PGT@@';
+
 // Escapes bare `<`/`>` inside `<code>` elements in an HTML string before
 // NodeHtmlMarkdown parses it. Without this, the HTML parser treats `<Something>`
 // as an unknown tag and discards it. Uses placeholder swap to avoid
 // double-encoding already-escaped entities.
-const PLT = '@@PLT@@';
-const PGT = '@@PGT@@';
-
 function escapeAnglesInCodeElements(html: string): string {
   return html.replace(/<code([^>]*)>([\s\S]*?)<\/code>/gi, (_, attrs: string, content: string) => {
     const safe = content
       .split('&lt;').join(PLT)
       .split('&gt;').join(PGT)
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
+      .replaceAll('<', '&lt;')
+      .replaceAll('>', '&gt;')
       .split(PLT).join('&lt;')
       .split(PGT).join('&gt;');
     return `<code${attrs}>${safe}</code>`;
@@ -30,8 +30,8 @@ export function escapeAnglesInMarkdownCodeSpans(markdown: string): string {
     const safe = inner
       .split('&lt;').join(PLT)
       .split('&gt;').join(PGT)
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
+      .replaceAll('<', '&lt;')
+      .replaceAll('>', '&gt;')
       .split(PLT).join('&lt;')
       .split(PGT).join('&gt;');
     return '`' + safe + '`';
@@ -43,7 +43,7 @@ export function escapeAnglesInMarkdownCodeSpans(markdown: string): string {
 // restores the original `<`/`>` characters in the output.
 function decodeEntitiesInMarkdownCodeSpans(text: string): string {
   return text.replace(/(?<!`)`([^`\n]+)`(?!`)/g, (_, inner: string) => {
-    const decoded = inner.replace(/&lt;/g, '<').replace(/&gt;/g, '>');
+    const decoded = inner.replaceAll('&lt;', '<').replaceAll('&gt;', '>');
     return '`' + decoded + '`';
   });
 }
