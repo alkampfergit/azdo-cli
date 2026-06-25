@@ -62,7 +62,7 @@ function resolvePat(): string {
 export const AZDO_PAT = resolvePat().trim();
 export const AZDO_ORG = (process.env.AZDO_ORG ?? 'gianmariaricci').trim();
 export const AZDO_PROJECT = (process.env.AZDO_PROJECT ?? 'azdocli').trim();
-export const AZDO_REPO = (process.env.AZDO_REPO ?? 'azdocli').trim();
+export const AZDO_REPO = (process.env.AZDO_REPO ?? '').trim();
 export const AZDO_PR_ID = Number((process.env.AZDO_PR_ID ?? '64').trim());
 export const AZDO_WI_WITH_RELATIONS = Number(
   (process.env.AZDO_WI_WITH_RELATIONS ?? '44920').trim(),

@@ -52,7 +52,9 @@ AZDO_ATTACHMENT_ITEM_ID=39835
 AZDO_ATTACHMENT_FILENAME=_profile.png
 ```
 
-If the required variables are absent the integration tests are skipped automatically (they do not fail). The PAT needs at minimum the **Work Items (read/write)** and **Code (read)** scopes.
+If the required variables are absent the integration tests are skipped automatically (they do not fail).
+
+`AZDO_PAT` and `AZDO_REPO` have no built-in defaults and must always be set explicitly. All other variables fall back to the values shown above when absent. The PAT needs at minimum the **Work Items (read/write)** and **Code (read)** scopes; to run the PR thread write tests (`patchThreadStatus`) also add the **Code (write)** scope and set `AZDO_REPO`.
 
 ## Utility scripts
 
