@@ -69,6 +69,7 @@ the fix for the realistic range of generic signatures found in practice.
 - **FR-004**: The fix MUST NOT alter content outside of code spans — prose, headings, lists, and links MUST be unaffected.
 - **FR-005**: The fix MUST NOT double-encode already-escaped content; fields that round-trip correctly today MUST continue to work.
 - **FR-006**: The HTML-to-markdown conversion step MUST produce equivalent output for all existing content types that currently convert correctly (no regressions).
+- **FR-007**: `set-md-field` MUST pre-process the uploaded markdown to protect angle brackets inside inline code spans before ADO's internal renderer processes them, so that the stored field value preserves the full type argument text.
 
 ## Success Criteria *(mandatory)*
 
@@ -81,6 +82,13 @@ the fix for the realistic range of generic signatures found in practice.
 
 ## Assumptions
 
-- ADO may return rich-text field values as HTML containing bare (unescaped) angle brackets inside `<code>` elements, rather than properly HTML-escaped entities. This is the root condition producing the data loss.
-- The fix is applied entirely within the client-side HTML→markdown conversion logic; no changes to the ADO API calls or field upload logic are required.
+- ADO's internal markdown→HTML renderer does not HTML-escape angle brackets inside inline code spans (confirmed: the Azure DevOps web UI shows the stripped result after upload). This affects both the stored content and the returned HTML.
+- The upload fix pre-escapes angle brackets in backtick code spans in the markdown before sending to ADO; ADO's markdown renderer then stores them as proper HTML entities.
+- The download fix handles both newly-uploaded fields (which will have properly escaped entities) and pre-existing fields that may have been stored with bad HTML before this fix.
 - Existing tests for other HTML conversion scenarios (bold, italic, links, headings, lists) serve as the regression guard and do not need modification.
+
+## Clarifications
+
+### Session 2026-06-25
+
+- Q: Does the ADO web UI also show stripped content after upload (or is the issue only in the CLI read path)? → A: Yes — web UI also shows stripped content (Option B). Both upload and download paths require fixing.

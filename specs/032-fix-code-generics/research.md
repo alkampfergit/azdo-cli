@@ -37,10 +37,16 @@
 
 **Note**: The fix does correctly handle `<code>` elements nested inside `<pre>` — the regex matches the inner `<code>` tag, escapes its content, and leaves the outer `<pre>` tag untouched. This is safe.
 
-## R5: ADO API — No Changes Required
+## R5: ADO Upload Also Affected — Upload Pre-Processing Required
 
-**Decision**: No changes to `set-md-field`, `get-md-field`, or `azdo-client.ts`. The upload path (markdown → ADO via `multilineFieldsFormat: Markdown`) is correct. The problem is entirely in the read-back conversion path.
+**Decision**: `set-md-field` MUST pre-process the markdown to escape bare `<` / `>` inside backtick inline code spans before sending to ADO. An `escapeAnglesInMarkdownCodeSpans(markdown: string): string` helper is exported from `md-convert.ts` and called in `set-md-field`.
 
-**Rationale**: Confirmed by inspecting `src/commands/set-md-field.ts` — content is sent as raw markdown with the format flag, and ADO stores/returns it as HTML. The conversion failure is client-side.
+**Rationale**: Owner confirmed (Plan approval phase) that the Azure DevOps web UI also shows stripped content after upload — `Task<HealthCheckResult>` becomes `Task`. This means ADO's internal markdown→HTML renderer discards unescaped angle brackets inside code spans before storage. Pre-escaping (`<` → `&lt;`, `>` → `&gt;`) in the markdown source before upload causes ADO's renderer to store `&lt;HealthCheckResult&gt;` as proper HTML entities, which survive to the GET response and are correctly decoded by `NodeHtmlMarkdown`.
 
-No ADO REST API research was required for this fix (Constitution §VI scope: ADO API changes only).
+**Alternatives considered**:
+- *Convert markdown to HTML client-side (e.g. `marked` library) and upload HTML*: Reliable but adds a new dependency (violates Constitution §V). Not chosen.
+- *Leave upload unchanged and only fix the download path*: Insufficient — the data is already corrupted in ADO storage, so fields viewed in the web UI are wrong regardless of CLI fixes.
+
+**Risk note**: If ADO double-encodes `&lt;` when processing markdown code spans (i.e., stores `&amp;lt;` rather than `&lt;`), the round-trip would produce `&lt;HealthCheckResult&gt;` in the markdown output instead of `<HealthCheckResult>`. This should be verified against a real ADO instance. The download-path fix's `escapeAnglesInCodeElements()` would handle the `&amp;lt;` case correctly if it arises. (See edge-case note in data-model.)
+
+No ADO REST API surface changes — `set-md-field` still uses the same `updateWorkItem` call with `multilineFieldsFormat: Markdown`; only the `value` string is pre-processed.

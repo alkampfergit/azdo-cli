@@ -5,9 +5,14 @@
 
 ## Summary
 
-`get-md-field` silently drops generic type arguments (e.g. `<HealthCheckResult>`) from inline code spans when converting ADO HTML field values back to markdown. The HTML parser inside `node-html-markdown` treats bare `<Something>` inside `<code>` elements as unknown HTML tags and discards them.
+`set-md-field` / `get-md-field` both lose generic type arguments inside inline code spans. ADO's internal markdown→HTML renderer strips bare `<Something>` when storing the field (confirmed via web UI). On read, the HTML→markdown converter further loses any brackets that survive.
 
-**Fix**: add a private `escapeAnglesInCodeElements()` helper in `src/services/md-convert.ts` that HTML-escapes bare `<` / `>` inside `<code>` elements before the string reaches `NodeHtmlMarkdown.translate()`. The function is idempotent (already-escaped entities are not double-encoded). Add regression-preventing unit tests in `tests/unit/md-convert.test.ts`.
+**Two-part fix** — both changes in `src/services/md-convert.ts`:
+
+1. **Upload** (`set-md-field`): export `escapeAnglesInMarkdownCodeSpans(md)` — pre-escapes bare `<`/`>` inside backtick spans before sending to ADO so ADO stores `&lt;HealthCheckResult&gt;`.
+2. **Download** (`get-md-field`): private `escapeAnglesInCodeElements(html)` — pre-processes HTML before `NodeHtmlMarkdown.translate()` as a safety net for pre-existing/migrated content.
+
+No new dependencies. No CLI surface changes.
 
 ## Technical Context
 
@@ -19,7 +24,7 @@
 **Project Type**: CLI (single executable, npm-distributed)
 **Performance Goals**: N/A — trivial string pre-processing; no measurable latency impact
 **Constraints**: Must not introduce `any`; must not add new runtime dependencies
-**Scale/Scope**: Single function change + tests — no structural changes to commands or services
+**Scale/Scope**: Two helper functions + one call site + tests — no structural changes
 
 ## Constitution Check
 
@@ -27,14 +32,14 @@
 
 | Principle | Status | Notes |
 |---|---|---|
-| I. CLI-First Design | ✅ Pass | No new commands; existing `get-md-field` CLI surface unchanged |
-| II. TypeScript Strictness | ✅ Pass | Helper uses `string` in/out; no `any` |
-| III. Single Responsibility | ✅ Pass | Fix is isolated to `md-convert.ts`; no logic mixed with command layer |
+| I. CLI-First Design | ✅ Pass | No new commands; existing CLI surface unchanged |
+| II. TypeScript Strictness | ✅ Pass | Helpers use `string` in/out; no `any` |
+| III. Single Responsibility | ✅ Pass | Both helpers in `md-convert.ts`; call site in `set-md-field.ts` is one line |
 | IV. npm Distribution | ✅ Pass | No new runtime dependencies; bundle unchanged |
 | V. Simplicity (YAGNI) | ✅ Pass | Minimal targeted fix; no abstractions beyond the immediate need |
-| VI. ADO API Research | ✅ N/A | No ADO REST API changes in this fix |
+| VI. ADO API Research | ✅ N/A | No ADO REST API interface changes |
 
-**Post-Phase-1 re-check**: All gates remain ✅. No new patterns introduced.
+**Post-Phase-1 re-check**: All gates remain ✅.
 
 ## Project Structure
 
@@ -54,42 +59,63 @@ No `contracts/` or `quickstart.md` — no new CLI interface; no API surface chan
 
 ```text
 src/
-└── services/
-    └── md-convert.ts        ← add escapeAnglesInCodeElements() helper
+├── services/
+│   └── md-convert.ts        ← add escapeAnglesInMarkdownCodeSpans() (export) +
+│                                  escapeAnglesInCodeElements() (private)
+└── commands/
+    └── set-md-field.ts      ← call escapeAnglesInMarkdownCodeSpans(content) before upload
 
 tests/
 └── unit/
-    └── md-convert.test.ts   ← add failing test (reproduce bug) + verify fix passes
+    └── md-convert.test.ts   ← new tests for both helpers + round-trip regression
 ```
-
-No other source files are modified.
 
 ## Implementation Design
 
-### `src/services/md-convert.ts` — change
+### `src/services/md-convert.ts` — changes
 
-Add a private `escapeAnglesInCodeElements(html: string): string` function that:
+**New exported function** `escapeAnglesInMarkdownCodeSpans(markdown: string): string`:
 
-1. Matches every `<code` ... `>` ... `</code>` block (non-greedy, case-insensitive, dotall).
-2. For the captured block content:
-   a. Replaces existing `&lt;` with a control-char placeholder (`\x01`) — protects already-escaped entities.
-   b. Replaces existing `&gt;` with a control-char placeholder (`\x02`).
-   c. Replaces remaining bare `<` → `&lt;`.
-   d. Replaces remaining bare `>` → `&gt;`.
-   e. Restores `\x01` → `&lt;` and `\x02` → `&gt;`.
-3. Returns the full HTML string with only `<code>` block internals modified.
+- Matches every backtick-delimited inline code span: `` `...` `` (non-greedy, single backtick only for now — the common case).
+- Inside each span, escapes bare `<` → `&lt;` and `>` → `&gt;`.
+- Content outside code spans is not touched.
+- Used by `set-md-field.ts` before uploading to ADO.
 
-Update `htmlToMarkdown()` to call `escapeAnglesInCodeElements(html)` before `NodeHtmlMarkdown.translate()`.
+**New private function** `escapeAnglesInCodeElements(html: string): string`:
+
+- Matches `<code ...>...</code>` blocks in HTML (non-greedy, case-insensitive, dotall).
+- Uses placeholder swap to avoid double-encoding already-escaped entities (`&lt;`/`&gt;`).
+- Escapes remaining bare `<` → `&lt;` and `>` → `&gt;` inside the block.
+- Called inside `htmlToMarkdown()` before `NodeHtmlMarkdown.translate()`.
+
+### `src/commands/set-md-field.ts` — change
+
+In the action handler, wrap `content` with `escapeAnglesInMarkdownCodeSpans()` before the operations array:
+
+```
+const safeContent = escapeAnglesInMarkdownCodeSpans(content);
+// use safeContent in place of content for the field value operation
+```
 
 ### `tests/unit/md-convert.test.ts` — tests to add
 
-All new tests go inside the existing `describe('htmlToMarkdown', ...)` block.
+**Upload helper (`escapeAnglesInMarkdownCodeSpans`):**
 
-| Test name | Input HTML | Expected markdown output contains |
+| Test | Input | Expected output |
 |---|---|---|
-| preserves single generic type arg in code span | `<code>Task<HealthCheckResult></code>` | `` `Task<HealthCheckResult>` `` |
-| preserves nested generic type args | `<code>Func<Task<HealthCheckResult>></code>` | `` `Func<Task<HealthCheckResult>>` `` |
-| preserves multiple type parameters | `<code>Dictionary<TKey, TValue></code>` | `` `Dictionary<TKey, TValue>` `` |
-| does not double-encode already-escaped entities | `<code>Task&lt;T&gt;</code>` | `` `Task<T>` `` |
-| does not touch content outside code spans | `<p>prose <em>italic</em></p>` | unchanged prose + italic |
-| preserves code spans with no generics | `<code>var x = 1</code>` | `` `var x = 1` `` |
+| escapes single generic | `` `Task<T>` `` (markdown) | `` `Task&lt;T&gt;` `` |
+| escapes nested generics | `` `Func<Task<T>>` `` | `` `Func&lt;Task&lt;T&gt;&gt;` `` |
+| escapes multi-param | `` `Dict<K, V>` `` | `` `Dict&lt;K, V&gt;` `` |
+| does not touch prose | `prose <b>bold</b>` | unchanged |
+| idempotent on already-escaped | `` `Task&lt;T&gt;` `` | `` `Task&lt;T&gt;` `` |
+
+**Download helper (`htmlToMarkdown`):**
+
+| Test | Input HTML | Expected markdown |
+|---|---|---|
+| preserves single generic | `<code>Task<HealthCheckResult></code>` | `` `Task<HealthCheckResult>` `` |
+| preserves nested | `<code>Func<Task<T>></code>` | `` `Func<Task<T>>` `` |
+| preserves multi-param | `<code>Dict<K, V></code>` | `` `Dict<K, V>` `` |
+| does not double-encode entities | `<code>Task&lt;T&gt;</code>` | `` `Task<T>` `` |
+| leaves prose untouched | `<p>plain text</p>` | `plain text` |
+| no regression — bold, links | existing tests still pass | (run full suite) |
