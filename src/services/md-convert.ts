@@ -48,22 +48,53 @@ function decodeEntitiesInMarkdownCodeSpans(text: string): string {
   });
 }
 
+// Named HTML entities that Azure DevOps may inject into stored markdown fields.
+// Covers the HTML4 named entity set most likely to appear in ADO-managed content.
+// &amp; is intentionally absent — it is decoded last to avoid turning &amp;gt;
+// into > instead of the correct &gt;.
+const ADO_NAMED_ENTITIES: Record<string, string> = {
+  // HTML special characters
+  lt: '<', gt: '>',
+  quot: '"', apos: "'",
+  // Dashes and punctuation
+  mdash: '—', ndash: '–',
+  hellip: '…',
+  lsquo: '‘', rsquo: '’',
+  ldquo: '“', rdquo: '”',
+  sbquo: '‚', bdquo: '„',
+  laquo: '«', raquo: '»',
+  lsaquo: '‹', rsaquo: '›',
+  // Common symbols
+  copy: '©', reg: '®', trade: '™',
+  nbsp: ' ',
+  euro: '€', pound: '£', yen: '¥', cent: '¢',
+  deg: '°', plusmn: '±', times: '×', divide: '÷',
+  micro: 'µ', para: '¶', middot: '·',
+  frac12: '½', frac14: '¼', frac34: '¾',
+  sup2: '²', sup3: '³',
+  bull: '•', prime: '′', Prime: '″',
+  minus: '−', asymp: '≈', ne: '≠', le: '≤', ge: '≥',
+  not: '¬',
+  // Arrows
+  larr: '←', uarr: '↑', rarr: '→', darr: '↓',
+  harr: '↔', rArr: '⇒', lArr: '⇐',
+};
+
 // Decodes HTML entities that Azure DevOps injects into stored markdown fields
-// on retrieval. ADO encodes certain characters as HTML entities even when the
-// field is stored in Markdown format — most notably ">" blockquote markers
-// become "&gt;" and em/en dashes become named or numeric entities.
+// on retrieval. ADO encodes characters as HTML entities even when the field is
+// stored in Markdown format — e.g. > becomes &gt;, & becomes &amp;, em dashes
+// become &mdash; or numeric entities, and non-ASCII characters may use
+// &#NNNN; or &#xHHHH; notation.
 //
-// Only "&gt;" at the start of a line is decoded (blockquote marker position);
-// "&gt;" in the middle of prose is intentional and left alone. Named/numeric
-// entities for dashes are decoded globally since they have no meaningful prose
-// use in markdown.
+// Numeric entities cover ALL Unicode code points (including emojis like
+// &#128270; for 🔎). &amp; is decoded last so that &amp;gt; correctly becomes
+// &gt; rather than >, preserving intentional entity literals.
 function decodeAdoEntitiesInMarkdown(text: string): string {
   return text
-    .replaceAll('&mdash;', '—')
-    .replaceAll('&ndash;', '–')
+    .replace(/&([a-zA-Z]+);/g, (match, name: string) => ADO_NAMED_ENTITIES[name] ?? match)
     .replace(/&#x([0-9a-fA-F]+);/g, (_, hex) => String.fromCodePoint(parseInt(hex, 16)))
     .replace(/&#([0-9]+);/g, (_, dec) => String.fromCodePoint(parseInt(dec, 10)))
-    .replace(/^(&gt; ?)+/gm, (match) => match.replaceAll('&gt;', '>'));
+    .replaceAll('&amp;', '&');
 }
 
 export function htmlToMarkdown(html: string): string {

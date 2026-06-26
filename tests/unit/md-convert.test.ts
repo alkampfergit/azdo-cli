@@ -82,9 +82,8 @@ describe('toMarkdown', () => {
     expect(result).toContain('`Task<T>`');
   });
 
-  it('leaves prose text with &lt; outside code spans unchanged', () => {
-    const result = toMarkdown('a &lt; b is plain prose');
-    expect(result).toBe('a &lt; b is plain prose');
+  it('decodes &lt; in prose to < (ADO encodes < as &lt; in markdown fields)', () => {
+    expect(toMarkdown('a &lt; b is plain prose')).toBe('a < b is plain prose');
   });
 
   it('decodes &gt; blockquote marker at start of line', () => {
@@ -99,8 +98,16 @@ describe('toMarkdown', () => {
     expect(toMarkdown('&gt; &gt; nested blockquote')).toBe('> > nested blockquote');
   });
 
-  it('leaves &gt; in the middle of prose unchanged', () => {
-    expect(toMarkdown('value &gt; 0 is required')).toBe('value &gt; 0 is required');
+  it('decodes &gt; in the middle of prose (ADO encodes all > as &gt;)', () => {
+    expect(toMarkdown('value &gt; 0 is required')).toBe('value > 0 is required');
+  });
+
+  it('decodes &amp; (ampersand entity)', () => {
+    expect(toMarkdown('AT&amp;T and R&amp;D')).toBe('AT&T and R&D');
+  });
+
+  it('preserves &amp;gt; as &gt; — avoids double-decoding', () => {
+    expect(toMarkdown('display literal &amp;gt; here')).toBe('display literal &gt; here');
   });
 
   it('decodes &mdash; named entity to em dash', () => {
@@ -117,6 +124,18 @@ describe('toMarkdown', () => {
 
   it('decodes &ndash; named entity to en dash', () => {
     expect(toMarkdown('range 1 &ndash; 10')).toBe('range 1 – 10');
+  });
+
+  it('decodes &#128270; numeric entity to emoji 🔎', () => {
+    expect(toMarkdown('Lens &#128270;')).toBe('Lens 🔎');
+  });
+
+  it('decodes &hellip; to horizontal ellipsis', () => {
+    expect(toMarkdown('and so on&hellip;')).toBe('and so on…');
+  });
+
+  it('decodes &copy; to copyright sign', () => {
+    expect(toMarkdown('&copy; 2025 Acme')).toBe('© 2025 Acme');
   });
 
   it('decodes entities and preserves code span generic types in the same string', () => {
