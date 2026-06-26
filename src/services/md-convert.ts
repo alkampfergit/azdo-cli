@@ -92,8 +92,8 @@ const ADO_NAMED_ENTITIES: Record<string, string> = {
 function decodeAdoEntitiesInMarkdown(text: string): string {
   return text
     .replace(/&([a-zA-Z]+);/g, (match, name: string) => ADO_NAMED_ENTITIES[name] ?? match)
-    .replace(/&#x([0-9a-fA-F]+);/g, (_, hex) => String.fromCodePoint(parseInt(hex, 16)))
-    .replace(/&#([0-9]+);/g, (_, dec) => String.fromCodePoint(parseInt(dec, 10)))
+    .replace(/&#x([0-9a-fA-F]+);/g, (_, hex) => String.fromCodePoint(Number.parseInt(hex, 16)))
+    .replace(/&#(\d+);/g, (_, dec) => String.fromCodePoint(Number.parseInt(dec, 10)))
     .replaceAll('&amp;', '&');
 }
 
