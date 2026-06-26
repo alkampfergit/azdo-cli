@@ -14,6 +14,13 @@ the project uses [Semantic Versioning](https://semver.org/).
 
 _Targeting **0.15.0**. Working detail: [`docs/changelogs/unreleased.md`](docs/changelogs/unreleased.md)._
 
+## [0.14.1] - 2026-06-26 — ADO HTML-entity decode for markdown fields
+
+Patch: full HTML-entity decoding on non-HTML markdown field downloads; em dashes, blockquote markers, and all named/numeric entities are now decoded correctly.
+→ [details](docs/changelogs/0.14.1.md)
+
+- Fix ADO HTML entities (`&gt;`, `&mdash;`, numeric) decoded in `toMarkdown()` output; set/get roundtrips are now byte-identical (#76/#77).
+
 ## [0.14.0] - 2026-06-26 — Maintainer skill, generic-type markdown fix & dep hardening
 
 Adds a `maintainer` skill for release-maintenance automation; fixes ADO's
