@@ -12,7 +12,18 @@ the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-_Targeting **0.14.0**. Working detail: [`docs/changelogs/unreleased.md`](docs/changelogs/unreleased.md)._
+_Targeting **0.15.0**. Working detail: [`docs/changelogs/unreleased.md`](docs/changelogs/unreleased.md)._
+
+## [0.14.0] - 2026-06-26 — Maintainer skill, generic-type markdown fix & dep hardening
+
+Adds a `maintainer` skill for release-maintenance automation; fixes ADO's
+REST sanitizer stripping `<T>` generic types inside backtick code spans;
+hardens the dev dependency chain.
+→ [details](docs/changelogs/0.14.0.md)
+
+- Add Maintainer skill for release maintenance workflows.
+- Fix generic type args (`<T>`) stripped by ADO sanitizer in markdown code spans; fix `addWorkItemRelation` idempotency (#74/#75).
+- Bump vulnerable dev dependencies (vite, postcss, esbuild) — dev-only, zero audit vulnerabilities (#73).
 
 ## [0.13.0] - 2026-06-16 — Pipelines, auth diagnostics & PR improvements
 
