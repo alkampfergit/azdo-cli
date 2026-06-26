@@ -48,6 +48,24 @@ function decodeEntitiesInMarkdownCodeSpans(text: string): string {
   });
 }
 
+// Decodes HTML entities that Azure DevOps injects into stored markdown fields
+// on retrieval. ADO encodes certain characters as HTML entities even when the
+// field is stored in Markdown format — most notably ">" blockquote markers
+// become "&gt;" and em/en dashes become named or numeric entities.
+//
+// Only "&gt;" at the start of a line is decoded (blockquote marker position);
+// "&gt;" in the middle of prose is intentional and left alone. Named/numeric
+// entities for dashes are decoded globally since they have no meaningful prose
+// use in markdown.
+function decodeAdoEntitiesInMarkdown(text: string): string {
+  return text
+    .replaceAll('&mdash;', '—')
+    .replaceAll('&ndash;', '–')
+    .replace(/&#x([0-9a-fA-F]+);/g, (_, hex) => String.fromCodePoint(parseInt(hex, 16)))
+    .replace(/&#([0-9]+);/g, (_, dec) => String.fromCodePoint(parseInt(dec, 10)))
+    .replace(/^(&gt; ?)+/gm, (match) => match.replaceAll('&gt;', '>'));
+}
+
 export function htmlToMarkdown(html: string): string {
   return NodeHtmlMarkdown.translate(escapeAnglesInCodeElements(html));
 }
@@ -56,5 +74,5 @@ export function toMarkdown(content: string): string {
   if (isHtml(content)) {
     return htmlToMarkdown(content);
   }
-  return decodeEntitiesInMarkdownCodeSpans(content);
+  return decodeEntitiesInMarkdownCodeSpans(decodeAdoEntitiesInMarkdown(content));
 }
