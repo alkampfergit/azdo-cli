@@ -92,6 +92,26 @@ azdo set-md-field 12345 System.Description --file ./description.md
 cat description.md | azdo set-md-field 12345 System.Description
 ```
 
+### Windows / PowerShell — output encoding
+
+`get-md-field` outputs UTF-8. PowerShell's `>` redirect reads the subprocess
+stdout using `[Console]::OutputEncoding`, which defaults to the OEM code page
+(CP437) on many Windows systems. This causes non-ASCII characters such as em
+dashes (`—`) to appear as `ΓÇö` in the redirected file.
+
+Fix — add this before redirecting:
+
+```powershell
+$OutputEncoding = [System.Text.Encoding]::UTF8
+& azdo get-md-field 12345 System.Description > output.md
+```
+
+Or use `Out-File`:
+
+```powershell
+azdo get-md-field 12345 System.Description | Out-File -Encoding UTF8 output.md
+```
+
 ## Pull request commands
 
 The `pr` group uses the current git branch and the Azure DevOps `origin` remote automatically.
