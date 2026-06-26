@@ -51,7 +51,7 @@ export function createGetMdFieldCommand(): Command {
           if (value === null) {
             process.stdout.write('\n');
           } else {
-            process.stdout.write(toMarkdown(value) + '\n');
+            process.stdout.write(toMarkdown(value).replace(/\r?\n$/, '') + '\n');
           }
 
           if (imageOptions.enabled) {

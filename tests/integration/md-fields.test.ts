@@ -24,6 +24,7 @@ import {
   updateWorkItem,
 } from '../../src/services/azdo-client.js';
 import { htmlToMarkdown, toMarkdown } from '../../src/services/md-convert.js';
+import { escapeAnglesInMarkdownCodeSpans } from '../../src/services/md-convert.js';
 import { isHtml } from '../../src/services/html-detect.js';
 import {
   AZDO_PAT,
@@ -165,6 +166,62 @@ describe.skipIf(SKIP_AZDO)('md-fields integration', () => {
       expect(md).toContain('bold');
       expect(md).not.toContain('<p>');
     });
+  });
+
+  // ── Character roundtrip: set-md-field → get-md-field ─────────────────────
+  //
+  // These tests reproduce issue #76: Azure DevOps HTML-encodes certain
+  // characters when returning stored markdown fields via the API
+  // (e.g. ">" → "&gt;", "—" → "&mdash;" or a numeric entity).
+  // toMarkdown() must decode those entities back to their original characters.
+
+  describe('character roundtrip (markdown set → get with toMarkdown)', () => {
+    it('preserves em dash — through set/get roundtrip', async () => {
+      const markdown = 'verbatim — markdown headings demoted';
+      await updateWorkItem(context, createdId, pat, 'System.Description', [
+        { op: 'add', path: '/fields/System.Description', value: escapeAnglesInMarkdownCodeSpans(markdown) },
+        { op: 'add', path: '/multilineFieldsFormat/System.Description', value: 'Markdown' },
+      ]);
+      const raw = await getWorkItemFieldValue(context, createdId, pat, 'System.Description');
+      expect(raw).not.toBeNull();
+      const result = toMarkdown(raw!);
+      expect(result).toContain('—');
+      expect(result).not.toMatch(/ΓÇö|&mdash;|&#8212;|&#x2014;/);
+    }, 20_000);
+
+    it('preserves blockquote > marker through set/get roundtrip', async () => {
+      const markdown = 'intro paragraph\n\n> Running log of the implementation phase';
+      await updateWorkItem(context, createdId, pat, 'System.Description', [
+        { op: 'add', path: '/fields/System.Description', value: escapeAnglesInMarkdownCodeSpans(markdown) },
+        { op: 'add', path: '/multilineFieldsFormat/System.Description', value: 'Markdown' },
+      ]);
+      const raw = await getWorkItemFieldValue(context, createdId, pat, 'System.Description');
+      expect(raw).not.toBeNull();
+      const result = toMarkdown(raw!);
+      expect(result).toMatch(/^>/m);
+      expect(result).not.toContain('&gt;');
+    }, 20_000);
+
+    it('preserves both — and > blockquote in the same document through set/get roundtrip', async () => {
+      const markdown = [
+        '**Field**: `Custom.sdd_plan` on the work item',
+        '',
+        '> Running log — implementation phase begins here',
+      ].join('\n');
+      await updateWorkItem(context, createdId, pat, 'System.Description', [
+        { op: 'add', path: '/fields/System.Description', value: escapeAnglesInMarkdownCodeSpans(markdown) },
+        { op: 'add', path: '/multilineFieldsFormat/System.Description', value: 'Markdown' },
+      ]);
+      const raw = await getWorkItemFieldValue(context, createdId, pat, 'System.Description');
+      expect(raw).not.toBeNull();
+      const result = toMarkdown(raw!);
+      // em dash must be preserved — not garbled as ΓÇö or left as &mdash;
+      expect(result).toContain('—');
+      expect(result).not.toMatch(/ΓÇö|&mdash;/);
+      // blockquote marker must be decoded — not left as &gt;
+      expect(result).toMatch(/^>/m);
+      expect(result).not.toMatch(/^&gt;/m);
+    }, 20_000);
   });
 
   // ── Clearing a field ──────────────────────────────────────────────────────
