@@ -7,6 +7,10 @@ export interface BranchPullRequestMatch {
   status: string;
   createdBy: string | null;
   url: string | null;
+  // PR overview description. Optional on the type so existing fixtures and
+  // callers that never read it stay valid; mapPullRequest() always sets it
+  // (null when Azure DevOps returns none).
+  description?: string | null;
 }
 
 export interface PullRequestCheck {
@@ -69,6 +73,10 @@ export interface ActivePullRequestComment {
   author: string | null;
   content: string;
   publishedAt: string | null;
+  // Azure DevOps comment kind: `text` for human comments, `system` for the
+  // service-generated entries (branch updates, reviewer votes, build events).
+  // Optional so existing fixtures stay valid; mapComment() always sets it.
+  commentType?: string | null;
 }
 
 // Azure DevOps comment-thread status enum. The backend may return other
@@ -106,6 +114,7 @@ export interface AzdoPullRequest {
   pullRequestId: number;
   title: string;
   status: string;
+  description?: string;
   sourceRefName: string;
   targetRefName: string;
   createdBy?: {
@@ -148,6 +157,8 @@ export interface AzdoComment {
   content?: string;
   isDeleted?: boolean;
   publishedDate?: string;
+  // 'text' | 'codeChange' | 'system' — the API omits it on some payloads.
+  commentType?: string;
 }
 
 export interface AzdoPrStatusListResponse {
@@ -188,6 +199,23 @@ export interface PostedPrComment {
   author: string | null;
   content: string;
   publishedAt: string | null;
+}
+
+// Thread statuses the CLI accepts when creating a comment thread. Omitting
+// the status entirely creates a plain, non-resolvable overview comment —
+// exactly what typing into the Azure DevOps "Overview" tab produces.
+export type CreatableThreadStatus = 'active' | 'fixed' | 'wontFix' | 'closed' | 'byDesign' | 'pending';
+
+// Body of POST .../pullRequests/{id}/threads. `commentType: 1` is the API's
+// numeric enum for a human ("text") comment; `parentCommentId: 0` marks the
+// comment as the root of a new thread.
+export interface PullRequestThreadCreateRequest {
+  comments: Array<{
+    parentCommentId: number;
+    content: string;
+    commentType: number;
+  }>;
+  status?: CreatableThreadStatus;
 }
 
 // Minimal shape of the Projects API response — we only need the GUID to build

@@ -1,16 +1,20 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AzdoContext } from '../../src/types/work-item.js';
 import {
+  createPullRequestThread,
   getPullRequestById,
   getPullRequestChecks,
   getPullRequestPolicyEvaluations,
+  getPullRequestThread,
   getPullRequestThreads,
   isThreadResolved,
   listPullRequests,
+  listRepositoryPullRequests,
   openPullRequest,
   patchThreadStatus,
   postThreadComment,
   resolveProjectId,
+  updateThreadComment,
 } from '../../src/services/pr-client.js';
 
 const context: AzdoContext = { org: 'test-org', project: 'test-project' };
@@ -53,6 +57,7 @@ describe('pr-client', () => {
           status: 'active',
           createdBy: 'Alice',
           url: 'https://example.test/pr/12',
+          description: null,
         },
       ]);
       expect(fetchSpy).toHaveBeenCalledWith(
@@ -161,6 +166,7 @@ describe('pr-client', () => {
         status: 'active',
         createdBy: 'Alice',
         url: 'https://example.test/pr/64',
+        description: null,
       });
       expect(fetchSpy).toHaveBeenCalledWith(
         expect.stringContaining('/pullRequests/64'),
@@ -362,6 +368,7 @@ describe('pr-client', () => {
           status: 'active',
           createdBy: 'Alice',
           url: 'https://example.test/pr/22',
+          description: null,
         },
       });
     });
@@ -602,6 +609,7 @@ describe('pr-client', () => {
               author: 'Alice',
               content: 'Needs work',
               publishedAt: '2026-03-27T00:00:00Z',
+              commentType: null,
             },
           ],
         },
@@ -616,6 +624,7 @@ describe('pr-client', () => {
               author: 'Alice',
               content: 'Closed',
               publishedAt: '2026-03-27T00:00:00Z',
+              commentType: null,
             },
           ],
         },
@@ -630,6 +639,7 @@ describe('pr-client', () => {
               author: 'Bob',
               content: 'Pending review',
               publishedAt: '2026-03-27T00:00:00Z',
+              commentType: null,
             },
           ],
         },
@@ -792,6 +802,198 @@ describe('pr-client', () => {
     it('throws NETWORK_ERROR on a network failure', async () => {
       vi.spyOn(globalThis, 'fetch').mockRejectedValue(new TypeError('fetch failed'));
       await expect(postThreadComment(context, 'repo-name', 'pat', 22, 148, 'hi')).rejects.toThrow('NETWORK_ERROR');
+    });
+  });
+
+  describe('listRepositoryPullRequests', () => {
+    function mockList() {
+      return vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          count: 1,
+          value: [
+            {
+              pullRequestId: 12,
+              title: 'Test PR',
+              status: 'active',
+              description: '  Adds the thing.  ',
+              sourceRefName: 'refs/heads/feature/test',
+              targetRefName: 'refs/heads/develop',
+              createdBy: { displayName: 'Alice' },
+              _links: { web: { href: 'https://example.test/pr/12' } },
+            },
+          ],
+        }),
+      } as unknown as Response);
+    }
+
+    it('omits the source-branch criteria when no branch is given', async () => {
+      const fetchSpy = mockList();
+
+      const result = await listRepositoryPullRequests(context, 'repo-name', 'pat', { status: 'all', top: 25 });
+
+      expect(result[0].id).toBe(12);
+      const url = String(fetchSpy.mock.calls[0][0]);
+      expect(url).not.toContain('searchCriteria.sourceRefName');
+      expect(url).toContain('searchCriteria.status=all');
+      expect(url).toContain('%24top=25');
+    });
+
+    it('filters by source branch when one is given', async () => {
+      const fetchSpy = mockList();
+
+      await listRepositoryPullRequests(context, 'repo-name', 'pat', { sourceBranch: 'feature/test' });
+
+      expect(String(fetchSpy.mock.calls[0][0])).toContain(
+        'searchCriteria.sourceRefName=refs%2Fheads%2Ffeature%2Ftest',
+      );
+    });
+
+    it('maps the PR description, trimmed, and nulls an empty one', async () => {
+      mockList();
+      const [withDescription] = await listRepositoryPullRequests(context, 'repo-name', 'pat');
+      expect(withDescription.description).toBe('Adds the thing.');
+
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          count: 1,
+          value: [
+            {
+              pullRequestId: 13,
+              title: 'No description',
+              status: 'active',
+              sourceRefName: 'refs/heads/feature/x',
+              targetRefName: 'refs/heads/develop',
+            },
+          ],
+        }),
+      } as unknown as Response);
+      const [withoutDescription] = await listRepositoryPullRequests(context, 'repo-name', 'pat');
+      expect(withoutDescription.description).toBeNull();
+    });
+  });
+
+  describe('getPullRequestThread', () => {
+    it('fetches a single thread and maps its comments', async () => {
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          id: 148,
+          status: 'active',
+          comments: [
+            { id: 1, author: { displayName: 'Alice' }, content: 'first', publishedDate: null, commentType: 'text' },
+            { id: 2, author: { displayName: 'Bob' }, content: 'second', publishedDate: null, commentType: 'text' },
+          ],
+        }),
+      } as unknown as Response);
+
+      const result = await getPullRequestThread(context, 'repo-name', 'pat', 22, 148);
+
+      expect(result.id).toBe(148);
+      expect(result.comments.map((comment) => comment.id)).toEqual([1, 2]);
+      expect(String(fetchSpy.mock.calls[0][0])).toContain('/pullRequests/22/threads/148?');
+    });
+
+    it('throws NOT_FOUND on a 404 response', async () => {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+        ok: false,
+        status: 404,
+        text: async () => '',
+        headers: { get: () => null },
+      } as unknown as Response);
+      await expect(getPullRequestThread(context, 'repo-name', 'pat', 22, 999)).rejects.toThrow(/NOT_FOUND/);
+    });
+  });
+
+  describe('createPullRequestThread', () => {
+    function mockCreated() {
+      return vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          id: 71936,
+          status: 'active',
+          comments: [
+            { id: 1, author: { displayName: 'Alice' }, content: 'ClaudeCode: build is green', publishedDate: null },
+          ],
+        }),
+      } as unknown as Response);
+    }
+
+    it('POSTs a root comment and maps the created thread', async () => {
+      const fetchSpy = mockCreated();
+
+      const result = await createPullRequestThread(context, 'repo-name', 'pat', 22, 'ClaudeCode: build is green');
+
+      expect(result.id).toBe(71936);
+      expect(result.comments[0]).toMatchObject({ id: 1, content: 'ClaudeCode: build is green' });
+      expect(fetchSpy).toHaveBeenCalledWith(
+        expect.stringContaining('/pullRequests/22/threads?'),
+        expect.objectContaining({
+          method: 'POST',
+          body: JSON.stringify({
+            comments: [{ parentCommentId: 0, content: 'ClaudeCode: build is green', commentType: 1 }],
+          }),
+        }),
+      );
+    });
+
+    it('includes the thread status only when one is requested', async () => {
+      const fetchSpy = mockCreated();
+
+      await createPullRequestThread(context, 'repo-name', 'pat', 22, 'body', 'active');
+
+      expect(JSON.parse(String((fetchSpy.mock.calls[0][1] as RequestInit).body))).toEqual({
+        comments: [{ parentCommentId: 0, content: 'body', commentType: 1 }],
+        status: 'active',
+      });
+    });
+
+    it('throws AUTH_FAILED on a 401 response', async () => {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue({ ok: false, status: 401 } as unknown as Response);
+      await expect(createPullRequestThread(context, 'repo-name', 'pat', 22, 'body')).rejects.toThrow('AUTH_FAILED');
+    });
+  });
+
+  describe('updateThreadComment', () => {
+    it('PATCHes the comment body and maps the response', async () => {
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          id: 1,
+          author: { displayName: 'Alice' },
+          content: 'corrected text',
+          publishedDate: '2026-06-15T13:00:00.000Z',
+        }),
+      } as unknown as Response);
+
+      const result = await updateThreadComment(context, 'repo-name', 'pat', 22, 148, 1, 'corrected text');
+
+      expect(result).toEqual({
+        id: 1,
+        author: 'Alice',
+        content: 'corrected text',
+        publishedAt: '2026-06-15T13:00:00.000Z',
+      });
+      expect(fetchSpy).toHaveBeenCalledWith(
+        expect.stringContaining('/pullRequests/22/threads/148/comments/1?'),
+        expect.objectContaining({
+          method: 'PATCH',
+          body: JSON.stringify({ content: 'corrected text' }),
+        }),
+      );
+    });
+
+    it('throws PERMISSION_DENIED when editing someone else\'s comment', async () => {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue({ ok: false, status: 403 } as unknown as Response);
+      await expect(updateThreadComment(context, 'repo-name', 'pat', 22, 148, 1, 'x')).rejects.toThrow(
+        'PERMISSION_DENIED',
+      );
     });
   });
 });

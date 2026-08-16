@@ -118,6 +118,8 @@ The `pr` group uses the current git branch and the Azure DevOps `origin` remote 
 Requires a credential (OAuth or PAT) with **Code (Read)** scope for reads and **Code (Read & Write)** for creation.
 
 ```bash
+azdo pr list                               # active PRs in the repository (one API call)
+azdo pr list --branch feature/x --json     # which PR belongs to this branch?
 azdo pr status                             # list PRs for current branch + checks
 azdo pr open --title "…" --description "…"      # open PR targeting develop
 azdo pr comments                           # list threads for current branch's PR
@@ -125,9 +127,23 @@ azdo pr comments --pr-number 64            # list threads for any PR by number
 azdo pr comments --hide-resolved           # triage view — hide settled threads
 azdo pr comments --exclude-resolved        # alias of --hide-resolved
 azdo pr comments --code-related-only       # only threads anchored to a file/line
+azdo pr comments --exclude-system --max-chars 500   # human comments only, truncated
+azdo pr comments add --file plan.md        # NEW thread on the PR overview
+azdo pr comments edit 148 --file plan.md   # rewrite a comment in place
+azdo pr comments reply 148 "Done."         # reply inside an existing thread
 azdo pr comment-resolve  17 --pr-number 64 # mark thread as resolved (idempotent)
 azdo pr comment-reopen   17 --pr-number 64 # reopen a previously resolved thread
 ```
+
+Every `pr` subcommand accepts `--org`, `--project`, `--repo`, and `--json`.
+`--repo <name>` overrides the repository derived from the git `origin` remote, so the commands also
+work from outside a checkout of the target repository.
+
+**`azdo pr list`**
+- Lists the repository's pull requests in a **single** API call — no checks, policies, or builds, unlike `pr status`
+- `--branch <name>` filters by source branch (a leading `refs/heads/` is accepted and stripped); without it, every PR in the repository is listed. `pr list` never falls back to the current branch — that is what `pr status` is for
+- `--status active|completed|abandoned|all` (default `active`), `--top <N>` (default 25)
+- Prints id, state, title, source → target, author and URL; `--json` adds the PR `description`
 
 **`azdo pr status`**
 - Lists PRs for the current branch, including Azure DevOps checks
@@ -149,8 +165,27 @@ azdo pr comment-reopen   17 --pr-number 64 # reopen a previously resolved thread
 - When `--pr-number` is omitted, the active PR is auto-detected as the open PR whose source branch equals `refs/heads/<current branch>`. If zero or more than one open PR matches, the command fails (exit 1) with a message naming the searched branch — pass `--pr-number` to disambiguate. (`pr status` is unaffected: it remains a multi-PR overview that lists all matches.)
 - `--hide-resolved` (and its alias `--exclude-resolved`) drops threads whose backend state is settled (`fixed`, `wontFix`, `closed`, `byDesign`) — useful when triaging only the threads that still need attention
 - `--code-related-only` shows only threads anchored to a real file/line, omitting general discussion threads
-- The two filters are independent and combinable; with neither flag the output is unchanged. Both are honoured in `--json` output
+- `--exclude-system` drops Azure DevOps system comments (branch updates, reviewer votes, build events); a thread left with no comments disappears from the listing
+- `--max-chars <N>` truncates each comment body to N characters plus ` […]`; `0` (the default) means no limit — useful when feeding a long review into a limited context window
+- The filters are independent and combinable; with none of them the output is unchanged. All are honoured in `--json` output, which also carries the PR `description` and each comment's `commentType`
 - Tolerant of Azure DevOps responses that omit `_links.web` (root cause of the original crash reported in issue #34)
+
+**`azdo pr comments add [text]`** (alias: `azdo pr comment-add`)
+- Posts a **new** comment thread on the pull request overview — `reply` can only append to an existing thread
+- Body comes from the inline argument or `--file <path>` (UTF-8, typically markdown); the two are mutually exclusive and one is required
+- `--status active|fixed|wontFix|closed|byDesign|pending` makes the thread resolvable; omit it for a plain overview comment
+- `--dry-run` resolves the target pull request, prints exactly what would be posted, and exits 0 without writing anything
+- `--json` returns `{ pullRequestId, threadId, commentId, status, content, dryRun }`
+
+**`azdo pr comments edit <threadId> [text]`** (alias: `azdo pr comment-edit`)
+- Rewrites an existing comment **in place**, keeping the thread, its id, and its position in the discussion — prefer it over a follow-up comment when correcting your own text
+- Edits the thread's first comment by default; `--comment-id <N>` targets another one
+- Same `--file` and `--dry-run` behaviour as `add`; `--json` also reports `previousContent`
+- Azure DevOps only lets a comment's own author edit it — another identity gets a permission error
+
+**`azdo pr comments reply <threadId> [text]`** (alias: `azdo pr comment-reply`)
+- Appends a reply to an existing thread
+- The body can now come from `--file <path>` instead of the inline argument
 
 **`azdo pr comment-resolve <threadId>`**
 - Marks a single comment thread as resolved on the target PR

@@ -1,6 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createPrCommentsCommand } from '../../src/commands/pr.js';
-import { createCommandRunner, getStdout, setupProcessSpies } from './helpers/command-test-utils.js';
+import {
+  createCommandRunner,
+  getExitCode,
+  getStderr,
+  getStdout,
+  setupProcessSpies,
+} from './helpers/command-test-utils.js';
 
 vi.mock('../../src/services/pr-client.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../src/services/pr-client.js')>();
@@ -135,5 +141,101 @@ describe('pr comments filters (#50)', () => {
     const out = getStdout();
     expect(out).toContain('no code-related unresolved comment threads');
     expect(out).toContain('filtered from 1 thread');
+  });
+});
+
+const systemThread = {
+  id: 5,
+  status: 'closed',
+  threadContext: null,
+  line: null,
+  comments: [
+    { id: 50, author: 'Microsoft.VisualStudio.Services.TFS', content: 'Alice updated the source branch', publishedAt: null, commentType: 'system' },
+  ],
+};
+const mixedThread = {
+  id: 6,
+  status: 'active',
+  threadContext: null,
+  line: null,
+  comments: [
+    { id: 60, author: 'Bob', content: 'human note', publishedAt: null, commentType: 'text' },
+    { id: 61, author: 'Microsoft.VisualStudio.Services.TFS', content: 'build succeeded', publishedAt: null, commentType: 'system' },
+  ],
+};
+
+describe('pr comments --exclude-system', () => {
+  it('keeps system threads by default (no behaviour change)', async () => {
+    vi.mocked(getPullRequestThreads).mockResolvedValue([generalActive, systemThread]);
+    await run(['--json']);
+    expect(threadIdsFromJson()).toEqual([3, 5]);
+  });
+
+  it('drops threads whose only comments are system-generated', async () => {
+    vi.mocked(getPullRequestThreads).mockResolvedValue([generalActive, systemThread]);
+    await run(['--exclude-system', '--json']);
+    expect(threadIdsFromJson()).toEqual([3]);
+  });
+
+  it('keeps a mixed thread but strips its system comments', async () => {
+    vi.mocked(getPullRequestThreads).mockResolvedValue([mixedThread]);
+    await run(['--exclude-system', '--json']);
+    const [thread] = JSON.parse(getStdout()).threads;
+    expect(thread.id).toBe(6);
+    expect(thread.comments.map((c: { id: number }) => c.id)).toEqual([60]);
+  });
+
+  it('names the non-system filter when it removes everything', async () => {
+    vi.mocked(getPullRequestThreads).mockResolvedValue([systemThread]);
+    await run(['--exclude-system']);
+    expect(getStdout()).toContain('no non-system comment threads');
+  });
+});
+
+describe('pr comments --max-chars', () => {
+  const longThread = {
+    id: 7,
+    status: 'active',
+    threadContext: null,
+    line: null,
+    comments: [{ id: 70, author: 'Alice', content: 'abcdefghij', publishedAt: null, commentType: 'text' }],
+  };
+
+  it('truncates comment bodies and marks the cut', async () => {
+    vi.mocked(getPullRequestThreads).mockResolvedValue([longThread]);
+    await run(['--max-chars', '4', '--json']);
+    expect(JSON.parse(getStdout()).threads[0].comments[0].content).toBe('abcd […]');
+  });
+
+  it('leaves shorter bodies untouched', async () => {
+    vi.mocked(getPullRequestThreads).mockResolvedValue([longThread]);
+    await run(['--max-chars', '99', '--json']);
+    expect(JSON.parse(getStdout()).threads[0].comments[0].content).toBe('abcdefghij');
+  });
+
+  it('treats 0 as no limit', async () => {
+    vi.mocked(getPullRequestThreads).mockResolvedValue([longThread]);
+    await run(['--max-chars', '0', '--json']);
+    expect(JSON.parse(getStdout()).threads[0].comments[0].content).toBe('abcdefghij');
+  });
+
+  it.each([['-1'], ['abc'], ['2.5']])('rejects an invalid value %s', async (raw) => {
+    await run(['--max-chars', raw]);
+    expect(getStderr()).toContain(`Invalid --max-chars "${raw}"`);
+    expect(getExitCode()).toBe(1);
+  });
+});
+
+describe('pr comments --repo', () => {
+  it('uses the given repository instead of the origin remote', async () => {
+    await run(['--repo', 'other-repo', '--json']);
+
+    expect(vi.mocked(detectRepoName)).not.toHaveBeenCalled();
+    expect(vi.mocked(getPullRequestThreads)).toHaveBeenCalledWith(
+      expect.any(Object),
+      'other-repo',
+      expect.any(Object),
+      12,
+    );
   });
 });

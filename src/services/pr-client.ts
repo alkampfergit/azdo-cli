@@ -15,23 +15,29 @@ import type {
   AzdoThread,
   AzdoThreadListResponse,
   BranchPullRequestMatch,
+  CreatableThreadStatus,
   PostedPrComment,
   PullRequestCheck,
   PullRequestOpenRequest,
   PullRequestOpenResult,
+  PullRequestThreadCreateRequest,
 } from '../types/pull-request.js';
 
 function buildPullRequestsUrl(
   context: AzdoContext,
   repo: string,
-  sourceBranch: string,
-  opts?: { status?: string; targetBranch?: string },
+  sourceBranch: string | null,
+  opts?: { status?: string; targetBranch?: string; top?: number },
 ): URL {
   const url = new URL(
     `https://dev.azure.com/${encodeURIComponent(context.org)}/${encodeURIComponent(context.project)}/_apis/git/repositories/${encodeURIComponent(repo)}/pullrequests`,
   );
   url.searchParams.set('api-version', '7.1');
-  url.searchParams.set('searchCriteria.sourceRefName', `refs/heads/${sourceBranch}`);
+  // A null source branch means "every pull request in the repository" — the
+  // criteria key is omitted entirely rather than sent empty.
+  if (sourceBranch !== null) {
+    url.searchParams.set('searchCriteria.sourceRefName', `refs/heads/${sourceBranch}`);
+  }
 
   if (opts?.status) {
     url.searchParams.set('searchCriteria.status', opts.status);
@@ -39,6 +45,10 @@ function buildPullRequestsUrl(
 
   if (opts?.targetBranch) {
     url.searchParams.set('searchCriteria.targetRefName', `refs/heads/${opts.targetBranch}`);
+  }
+
+  if (opts?.top !== undefined) {
+    url.searchParams.set('$top', String(opts.top));
   }
 
   return url;
@@ -92,6 +102,7 @@ function mapPullRequest(repo: string, pullRequest: AzdoPullRequest): BranchPullR
     status: pullRequest.status,
     createdBy: pullRequest.createdBy?.displayName ?? null,
     url: pullRequest._links?.web?.href ?? null,
+    description: pullRequest.description?.trim() || null,
   };
 }
 
@@ -212,6 +223,7 @@ function mapComment(comment: AzdoThread['comments'][number]): ActivePullRequestC
     author: comment.author?.displayName ?? null,
     content,
     publishedAt: comment.publishedDate ?? null,
+    commentType: comment.commentType ?? null,
   };
 }
 
@@ -344,6 +356,25 @@ export async function listPullRequests(
     buildPullRequestsUrl(context, repo, sourceBranch, opts).toString(),
     { headers: authHeaders(cred) },
   );
+  const data = await readJsonResponse<AzdoPrListResponse>(response);
+  return data.value.map((pullRequest) => mapPullRequest(repo, pullRequest));
+}
+
+// Repository-wide pull request listing used by `azdo pr list`. Unlike
+// listPullRequests() the source branch is optional: omitting it returns every
+// pull request in the repository that matches the status filter, which is the
+// "which PR belongs to this branch?" lookup generalised to the whole repo.
+export async function listRepositoryPullRequests(
+  context: AzdoContext,
+  repo: string,
+  cred: AuthCredential,
+  opts?: { sourceBranch?: string; status?: string; top?: number },
+): Promise<BranchPullRequestMatch[]> {
+  const url = buildPullRequestsUrl(context, repo, opts?.sourceBranch ?? null, {
+    status: opts?.status,
+    top: opts?.top,
+  });
+  const response = await fetchWithErrors(url.toString(), { headers: authHeaders(cred) });
   const data = await readJsonResponse<AzdoPrListResponse>(response);
   return data.value.map((pullRequest) => mapPullRequest(repo, pullRequest));
 }
@@ -496,12 +527,106 @@ export async function getPullRequestThreads(
     .filter((thread): thread is ActiveCommentThread => thread !== null);
 }
 
+// Fetches a single comment thread. Cheaper than listing every thread when the
+// caller already knows the id (comment edit), and — unlike the list mapping —
+// it never drops the thread just because its visible comments were filtered.
+// fetchWithErrors maps a 404 to NOT_FOUND; callers translate that into a
+// "thread not found" message.
+export async function getPullRequestThread(
+  context: AzdoContext,
+  repo: string,
+  cred: AuthCredential,
+  prId: number,
+  threadId: number,
+): Promise<ActiveCommentThread> {
+  const url = new URL(
+    `https://dev.azure.com/${encodeURIComponent(context.org)}/${encodeURIComponent(context.project)}/_apis/git/repositories/${encodeURIComponent(repo)}/pullRequests/${prId}/threads/${threadId}`,
+  );
+  url.searchParams.set('api-version', '7.1');
+
+  const response = await fetchWithErrors(url.toString(), { headers: authHeaders(cred) });
+  const data = await readJsonResponse<AzdoThread>(response);
+  return toActiveCommentThread(data);
+}
+
+// Creates a brand-new comment thread on the pull request overview. Neither
+// `azdo pr comments reply` nor the Azure DevOps `az repos pr` extension can do
+// this — they only append to an existing thread — so this is the transport for
+// `azdo pr comments add`. Passing no status creates a plain, non-resolvable
+// comment, exactly like typing into the Overview tab.
+export async function createPullRequestThread(
+  context: AzdoContext,
+  repo: string,
+  cred: AuthCredential,
+  prId: number,
+  content: string,
+  status?: CreatableThreadStatus,
+): Promise<ActiveCommentThread> {
+  const url = new URL(
+    `https://dev.azure.com/${encodeURIComponent(context.org)}/${encodeURIComponent(context.project)}/_apis/git/repositories/${encodeURIComponent(repo)}/pullRequests/${prId}/threads`,
+  );
+  url.searchParams.set('api-version', '7.1');
+
+  const payload: PullRequestThreadCreateRequest = {
+    comments: [{ parentCommentId: 0, content, commentType: 1 }],
+  };
+  if (status !== undefined) {
+    payload.status = status;
+  }
+
+  const response = await fetchWithErrors(url.toString(), {
+    method: 'POST',
+    headers: {
+      ...authHeaders(cred),
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(payload),
+  });
+  const data = await readJsonResponse<AzdoThread>(response);
+  return toActiveCommentThread(data);
+}
+
 function buildThreadCommentUrl(context: AzdoContext, repo: string, prId: number, threadId: number): URL {
   const url = new URL(
     `https://dev.azure.com/${encodeURIComponent(context.org)}/${encodeURIComponent(context.project)}/_apis/git/repositories/${encodeURIComponent(repo)}/pullRequests/${prId}/threads/${threadId}/comments`,
   );
   url.searchParams.set('api-version', '7.1');
   return url;
+}
+
+// Rewrites the body of an existing comment in place, keeping the thread, its
+// id and its position in the discussion. Azure DevOps only lets a comment's
+// own author edit it: any other identity gets a 401/403, which fetchWithErrors
+// maps to AUTH_FAILED / PERMISSION_DENIED.
+export async function updateThreadComment(
+  context: AzdoContext,
+  repo: string,
+  cred: AuthCredential,
+  prId: number,
+  threadId: number,
+  commentId: number,
+  content: string,
+): Promise<PostedPrComment> {
+  const url = new URL(
+    `https://dev.azure.com/${encodeURIComponent(context.org)}/${encodeURIComponent(context.project)}/_apis/git/repositories/${encodeURIComponent(repo)}/pullRequests/${prId}/threads/${threadId}/comments/${commentId}`,
+  );
+  url.searchParams.set('api-version', '7.1');
+
+  const response = await fetchWithErrors(url.toString(), {
+    method: 'PATCH',
+    headers: {
+      ...authHeaders(cred),
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ content }),
+  });
+  const data = await readJsonResponse<AzdoCreatedComment>(response);
+  return {
+    id: data.id,
+    author: data.author?.displayName ?? null,
+    content: data.content ?? content,
+    publishedAt: data.publishedDate ?? null,
+  };
 }
 
 export async function postThreadComment(

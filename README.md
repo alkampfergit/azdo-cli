@@ -54,19 +54,31 @@ azdo upsert --type "User Story" --content $'---\nTitle: Improve markdown import 
 azdo comments list 12345
 azdo comments add 12345 "Investigating the root cause now."
 
+# Find a pull request — one API call, any branch
+azdo pr list                            # active PRs in the repository
+azdo pr list --branch feature/x --json  # id, title, source/target, author, url, description
+azdo pr list --status all --top 50
+
 # PR comment threads — list, filter, target by number, resolve or reopen
 azdo pr comments                        # active-branch PR; code-anchored threads show file:line
 azdo pr comments --pr-number 64         # any PR by number (skips branch lookup)
 azdo pr comments --pr-number 64 --hide-resolved      # or --exclude-resolved (alias)
 azdo pr comments --code-related-only    # only file/line-anchored threads
+azdo pr comments --exclude-system --max-chars 500    # human comments only, truncated
 azdo pr status                          # PR checks (status + branch policies + pipeline builds) + code-comment counts
 azdo pr comment-resolve 17 --pr-number 64   # idempotent: exit 0 even when already resolved
 azdo pr comment-reopen 17  --pr-number 64
 
-# Reply to a PR comment thread
+# Write to a PR — new thread, in-place edit, reply
+azdo pr comments add --file plan.md --pr-number 64 --dry-run   # preview, writes nothing
+azdo pr comments add --file plan.md --pr-number 64             # NEW thread on the overview
+azdo pr comments edit 148 --file plan.md --pr-number 64        # rewrite it in place
 azdo pr comments reply 148 "Great suggestion, I'll address it."          # human-readable output
 azdo pr comments reply 148 "Done." --pr-number 64 --json                 # JSON: { pullRequestId, threadId, commentId, content }
 azdo pr comment-reply 148 "Done."  --pr-number 64                        # flat alias, identical behaviour
+
+# Any pr subcommand can target another repository
+azdo pr comments --repo other-repo --pr-number 12
 
 # Pipelines — list, inspect runs, wait (exit code = result), start
 azdo pipeline list --filter ci

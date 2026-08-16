@@ -1,8 +1,11 @@
+import { existsSync, readFileSync } from 'node:fs';
 import { Command } from 'commander';
 import type {
   ActiveCommentThread,
+  ActivePullRequestComment,
   BranchPullRequestMatch,
   CodeCommentCounts,
+  CreatableThreadStatus,
   PullRequestCommentsResult,
   PullRequestCheck,
   PullRequestStatusPullRequest,
@@ -11,7 +14,10 @@ import type {
 import type { AuthCredential, AzdoContext } from '../types/work-item.js';
 import {
   listPullRequests,
+  listRepositoryPullRequests,
   openPullRequest,
+  createPullRequestThread,
+  getPullRequestThread,
   getPullRequestThreads,
   getPullRequestChecks,
   getPullRequestPolicyEvaluations,
@@ -21,6 +27,7 @@ import {
   isThreadResolved,
   patchThreadStatus,
   postThreadComment,
+  updateThreadComment,
 } from '../services/pr-client.js';
 import { requireAuthCredential } from '../services/auth.js';
 import { resolveContext } from '../services/context.js';
@@ -30,11 +37,18 @@ import { detectRepoName, getCurrentBranch } from '../services/git-remote.js';
 interface PrCommandOptions {
   org?: string;
   project?: string;
+  repo?: string;
   json?: boolean;
   hideResolved?: boolean;
   excludeResolved?: boolean;
   codeRelatedOnly?: boolean;
+  excludeSystem?: boolean;
+  maxChars?: string;
   prNumber?: string;
+  commentId?: string;
+  file?: string;
+  status?: string;
+  dryRun?: boolean;
 }
 
 // Parses `--pr-number <N>` into a positive integer. Returns null on any
@@ -60,10 +74,26 @@ const PR_NUMBER_HELP =
   'remote; if zero or more than one open PR matches, the command fails with a message ' +
   'naming the searched branch.';
 
+// Shared help text for `--repo`, available on every `pr` subcommand. The
+// origin remote stays the default so existing invocations are unaffected;
+// passing the flag makes the command usable from outside the repository
+// working copy (or against a sibling repo in the same project).
+const PR_REPO_HELP =
+  'Azure DevOps repository name; defaults to the repository of the git "origin" remote';
+
 // Renders help without commander's column wrapping, so the C-1 substring stays
 // contiguous in `--help` output regardless of terminal width.
 function configureUnwrappedHelp(command: Command): Command {
   return command.configureHelp({ helpWidth: 1000 });
+}
+
+// Registers the option set every `pr` subcommand shares. Kept in one place so
+// a new flag cannot land on some subcommands and silently miss the others.
+function withCommonPrOptions(command: Command): Command {
+  return command
+    .option('--org <org>', 'Azure DevOps organization')
+    .option('--project <project>', 'Azure DevOps project')
+    .option('--repo <name>', PR_REPO_HELP);
 }
 
 // C-2 (FR-006): the exact zero-match auto-detection error. Emitted verbatim to
@@ -86,6 +116,71 @@ function autoDetectMultiMatch(branch: string, ids: number[]): string {
 function writeContractError(line: string): void {
   process.stderr.write(`${line}\n`);
   process.exitCode = 1;
+}
+
+// Wording shared by every "no body supplied" / "empty body" rejection, so the
+// two authoring commands (add / edit) and reply fail identically.
+const EMPTY_BODY_ERROR = 'Comment text must not be empty. Pass the text inline or use --file <path>.';
+
+// Resolves a comment body from the inline positional argument or --file, which
+// are mutually exclusive. Returns null when the input is unusable — the error
+// has already been written to stderr and the exit code flagged, so callers
+// simply `return`. The body is trimmed: Azure DevOps stores it verbatim, and a
+// trailing newline from a markdown file is never meaningful.
+function resolveCommentBody(
+  inline: string | undefined,
+  file: string | undefined,
+  emptyMessage: string = EMPTY_BODY_ERROR,
+): string | null {
+  if (inline !== undefined && file !== undefined) {
+    writeError('Cannot specify both inline text and --file.');
+    return null;
+  }
+
+  let body: string;
+  if (file !== undefined) {
+    if (!existsSync(file)) {
+      writeError(`File not found: ${file}`);
+      return null;
+    }
+    try {
+      body = readFileSync(file, 'utf-8');
+    } catch {
+      writeError(`Cannot read file: ${file}`);
+      return null;
+    }
+  } else if (inline !== undefined) {
+    body = inline;
+  } else {
+    writeError(emptyMessage);
+    return null;
+  }
+
+  const trimmed = body.trim();
+  if (trimmed === '') {
+    writeError(emptyMessage);
+    return null;
+  }
+
+  return trimmed;
+}
+
+// Parses `--max-chars <n>`: any non-negative integer, where 0 means "no limit".
+function parseNonNegativeInt(raw: string): number | null {
+  if (!/^\d+$/.test(raw)) {
+    return null;
+  }
+  const n = Number.parseInt(raw, 10);
+  return Number.isFinite(n) ? n : null;
+}
+
+// Shortens a comment body to `limit` characters, marking the cut with an
+// ellipsis so a truncated comment can never be mistaken for the whole text.
+function truncateContent(text: string, limit: number): string {
+  if (limit <= 0 || text.length <= limit) {
+    return text;
+  }
+  return `${text.slice(0, limit)} […]`;
 }
 
 interface ResolvedPrCommandContext {
@@ -269,6 +364,26 @@ function threadStatusLabel(status: string): string {
   return isThreadResolved(status) ? 'resolved' : status;
 }
 
+// Applies the output-shaping filters to a single thread: drops Azure DevOps
+// system comments (--exclude-system) and shortens bodies (--max-chars).
+// Returns null when filtering left the thread with nothing to show, so a
+// purely system-generated thread disappears instead of printing an empty
+// header.
+function shapeThreadForOutput(
+  thread: ActiveCommentThread,
+  opts: { excludeSystem: boolean; maxChars: number },
+): ActiveCommentThread | null {
+  const comments: ActivePullRequestComment[] = thread.comments
+    .filter((comment) => !opts.excludeSystem || comment.commentType !== 'system')
+    .map((comment) => ({ ...comment, content: truncateContent(comment.content, opts.maxChars) }));
+
+  if (opts.excludeSystem && comments.length === 0) {
+    return null;
+  }
+
+  return { ...thread, comments };
+}
+
 function formatThreads(prId: number, title: string, threads: ActiveCommentThread[]): string {
   const lines = [`Comment threads for pull request #${prId}: ${title}`];
 
@@ -290,7 +405,10 @@ async function resolvePrCommandContext(
 ): Promise<ResolvedPrCommandContext> {
   const requireBranch = resolveOpts.requireBranch ?? true;
   const context = resolveContext(options);
-  const repo = detectRepoName();
+  // An explicit --repo skips the git remote lookup entirely, so the command
+  // works outside a checkout of the target repository.
+  const explicitRepo = options.repo?.trim();
+  const repo = explicitRepo ? explicitRepo : detectRepoName();
   // When the caller is targeting a PR by explicit number we skip the git
   // branch lookup entirely — it's unnecessary and would fail loudly on
   // detached HEAD or a branch that can't be resolved.
@@ -308,10 +426,8 @@ async function resolvePrCommandContext(
 export function createPrStatusCommand(): Command {
   const command = new Command('status');
 
-  command
+  withCommonPrOptions(command)
     .description('Check pull requests for the current branch')
-    .option('--org <org>', 'Azure DevOps organization')
-    .option('--project <project>', 'Azure DevOps project')
     .option('--json', 'output JSON')
     .action(async (options: PrCommandOptions) => {
       validateOrgProjectPair(options);
@@ -366,18 +482,17 @@ export function createPrStatusCommand(): Command {
 export function createPrOpenCommand(): Command {
   const command = new Command('open');
 
-  command
+  withCommonPrOptions(command)
     .description('Open a pull request from the current branch to develop')
     .option('--title <title>', 'pull request title')
     .option('--description <description>', 'pull request description')
-    .option('--org <org>', 'Azure DevOps organization')
-    .option('--project <project>', 'Azure DevOps project')
     .option('--json', 'output JSON')
     .action(async (options: {
       title?: string;
       description?: string;
       org?: string;
       project?: string;
+      repo?: string;
       json?: boolean;
     }) => {
       validateOrgProjectPair(options);
@@ -446,14 +561,14 @@ export function createPrOpenCommand(): Command {
 export function createPrCommentsCommand(): Command {
   const command = new Command('comments');
 
-  configureUnwrappedHelp(command)
+  withCommonPrOptions(configureUnwrappedHelp(command))
     .description('List pull request comment threads for the current branch')
-    .option('--org <org>', 'Azure DevOps organization')
-    .option('--project <project>', 'Azure DevOps project')
     .option('--pr-number <N>', PR_NUMBER_HELP)
     .option('--hide-resolved', 'hide threads whose status is resolved / won\'t fix / closed / by design')
     .option('--exclude-resolved', 'alias of --hide-resolved: exclude resolved / won\'t fix / closed / by design threads')
     .option('--code-related-only', 'show only threads anchored to a file/line; omit general discussion threads')
+    .option('--exclude-system', 'omit Azure DevOps system comments (branch updates, reviewer votes, build events)')
+    .option('--max-chars <N>', 'truncate each comment body to N characters (0 = no limit, the default)')
     .option('--json', 'output JSON')
     .action(async (options: PrCommandOptions) => {
       validateOrgProjectPair(options);
@@ -466,6 +581,16 @@ export function createPrCommentsCommand(): Command {
           writeError(`Invalid --pr-number "${options.prNumber}"; expected a positive integer.`);
           return;
         }
+      }
+
+      let maxChars = 0;
+      if (options.maxChars !== undefined) {
+        const parsed = parseNonNegativeInt(options.maxChars);
+        if (parsed === null) {
+          writeError(`Invalid --max-chars "${options.maxChars}"; expected a non-negative integer.`);
+          return;
+        }
+        maxChars = parsed;
       }
 
       try {
@@ -510,13 +635,19 @@ export function createPrCommentsCommand(): Command {
         // neither is set.
         const hideResolved = options.hideResolved === true || options.excludeResolved === true;
         const codeRelatedOnly = options.codeRelatedOnly === true;
+        const excludeSystem = options.excludeSystem === true;
 
         const allThreads = await getPullRequestThreads(resolved.context, resolved.repo, resolved.pat, pullRequest.id);
-        const threads = allThreads.filter(
-          (thread) =>
-            (!hideResolved || !isThreadResolved(thread.status)) &&
-            (!codeRelatedOnly || thread.threadContext !== null),
-        );
+        const threads = allThreads
+          .filter(
+            (thread) =>
+              (!hideResolved || !isThreadResolved(thread.status)) &&
+              (!codeRelatedOnly || thread.threadContext !== null),
+          )
+          .map((thread) => shapeThreadForOutput(thread, { excludeSystem, maxChars }))
+          // A thread whose comments were all system-generated has nothing left
+          // to show, so it drops out of the listing entirely.
+          .filter((thread): thread is ActiveCommentThread => thread !== null);
         const result: PullRequestCommentsResult = { branch: branchLabel, pullRequest, threads };
 
         if (options.json) {
@@ -525,13 +656,16 @@ export function createPrCommentsCommand(): Command {
         }
 
         if (threads.length === 0) {
-          if (allThreads.length > 0 && (hideResolved || codeRelatedOnly)) {
+          if (allThreads.length > 0 && (hideResolved || codeRelatedOnly || excludeSystem)) {
             const filters: string[] = [];
             if (codeRelatedOnly) {
               filters.push('code-related');
             }
             if (hideResolved) {
               filters.push('unresolved');
+            }
+            if (excludeSystem) {
+              filters.push('non-system');
             }
             process.stdout.write(
               `Pull request #${pullRequest.id} has no ${filters.join(' ')} comment threads (filtered from ${allThreads.length} thread${allThreads.length === 1 ? '' : 's'}).\n`,
@@ -549,6 +683,8 @@ export function createPrCommentsCommand(): Command {
     });
 
   command.addCommand(createPrCommentsReplyCommand());
+  command.addCommand(createPrCommentsAddCommand());
+  command.addCommand(createPrCommentsEditCommand());
   return command;
 }
 
@@ -556,25 +692,24 @@ export function createPrCommentsCommand(): Command {
 // target PR (by --pr-number or current branch), the resolved context, and
 // the raw threadId after validation. Callers use this to look up the
 // current thread status before deciding whether to PATCH.
-interface ResolvedThreadTarget {
+interface ResolvedPullRequestTarget {
   context: AzdoContext;
   repo: string;
   pat: AuthCredential;
   pullRequest: BranchPullRequestMatch;
+}
+
+interface ResolvedThreadTarget extends ResolvedPullRequestTarget {
   threadId: number;
 }
 
-async function resolveThreadTarget(
-  threadIdRaw: string,
+// Resolves the pull request a write command targets: either the explicit
+// --pr-number or the single open PR of the current branch. Returns null when
+// resolution failed — the error is already on stderr and the exit code set.
+async function resolvePullRequestTarget(
   options: PrCommandOptions,
-): Promise<ResolvedThreadTarget | null> {
+): Promise<ResolvedPullRequestTarget | null> {
   validateOrgProjectPair(options);
-
-  const threadId = parsePositivePrNumber(threadIdRaw);
-  if (threadId === null) {
-    writeError(`Invalid thread id "${threadIdRaw}"; expected a positive integer.`);
-    return null;
-  }
 
   let explicitPrId: number | null = null;
   if (options.prNumber !== undefined) {
@@ -613,7 +748,28 @@ async function resolveThreadTarget(
     pullRequest = pullRequests[0];
   }
 
-  return { context: resolved.context, repo: resolved.repo, pat: resolved.pat, pullRequest, threadId };
+  return { context: resolved.context, repo: resolved.repo, pat: resolved.pat, pullRequest };
+}
+
+async function resolveThreadTarget(
+  threadIdRaw: string,
+  options: PrCommandOptions,
+): Promise<ResolvedThreadTarget | null> {
+  // The thread id is validated before any network call, so a typo never costs
+  // a round trip.
+  const threadId = parsePositivePrNumber(threadIdRaw);
+  if (threadId === null) {
+    validateOrgProjectPair(options);
+    writeError(`Invalid thread id "${threadIdRaw}"; expected a positive integer.`);
+    return null;
+  }
+
+  const target = await resolvePullRequestTarget(options);
+  if (target === null) {
+    return null;
+  }
+
+  return { ...target, threadId };
 }
 
 interface ThreadStateChangeResult {
@@ -699,11 +855,9 @@ async function runThreadStateChange(
 
 export function createPrCommentResolveCommand(): Command {
   const command = new Command('comment-resolve');
-  configureUnwrappedHelp(command)
+  withCommonPrOptions(configureUnwrappedHelp(command))
     .description('Mark a pull request comment thread as resolved')
     .argument('<threadId>', 'numeric id of the thread to resolve')
-    .option('--org <org>', 'Azure DevOps organization')
-    .option('--project <project>', 'Azure DevOps project')
     .option('--pr-number <N>', PR_NUMBER_HELP)
     .option('--json', 'output JSON')
     .action(async (threadIdRaw: string, options: PrCommandOptions) => {
@@ -714,11 +868,9 @@ export function createPrCommentResolveCommand(): Command {
 
 export function createPrCommentReopenCommand(): Command {
   const command = new Command('comment-reopen');
-  configureUnwrappedHelp(command)
+  withCommonPrOptions(configureUnwrappedHelp(command))
     .description('Reopen (set to active) a previously resolved pull request comment thread')
     .argument('<threadId>', 'numeric id of the thread to reopen')
-    .option('--org <org>', 'Azure DevOps organization')
-    .option('--project <project>', 'Azure DevOps project')
     .option('--pr-number <N>', PR_NUMBER_HELP)
     .option('--json', 'output JSON')
     .action(async (threadIdRaw: string, options: PrCommandOptions) => {
@@ -737,15 +889,16 @@ interface PrCommentReplyResult {
 
 async function runCommentReply(
   threadIdRaw: string,
-  text: string,
+  text: string | undefined,
   options: PrCommandOptions,
 ): Promise<void> {
   let context: AzdoContext | undefined;
 
   try {
-    const trimmedText = text.trim();
-    if (!trimmedText) {
-      writeError('Reply text must not be empty.');
+    // Keeps the 029 contract wording when no body was supplied at all, while
+    // accepting the same inline-or---file input as the authoring commands.
+    const trimmedText = resolveCommentBody(text, options.file, 'Reply text must not be empty.');
+    if (trimmedText === null) {
       return;
     }
 
@@ -789,46 +942,419 @@ async function runCommentReply(
   }
 }
 
-export function createPrCommentsReplyCommand(): Command {
-  const command = new Command('reply');
-  configureUnwrappedHelp(command)
-    .description('Post a reply to a pull request comment thread')
+// Both the canonical `pr comments reply` and its `pr comment-reply` alias are
+// registered from this one definition, so the two can never drift apart.
+function buildCommentReplyCommand(name: string, description: string): Command {
+  const command = new Command(name);
+  withCommonPrOptions(configureUnwrappedHelp(command))
+    .description(description)
     .argument('<threadId>', 'numeric id of the thread to reply to')
-    .argument('<text>', 'text of the reply')
-    .option('--org <org>', 'Azure DevOps organization')
-    .option('--project <project>', 'Azure DevOps project')
+    .argument('[text]', 'text of the reply; omit when using --file')
+    .option('--file <path>', 'read the reply body from a UTF-8 file instead of the inline argument')
     .option('--pr-number <N>', PR_NUMBER_HELP)
     .option('--json', 'output JSON')
-    .action(async (threadIdRaw: string, text: string, options: PrCommandOptions) => {
+    .action(async (threadIdRaw: string, text: string | undefined, options: PrCommandOptions) => {
       await runCommentReply(threadIdRaw, text, options);
     });
   return command;
 }
 
+export function createPrCommentsReplyCommand(): Command {
+  return buildCommentReplyCommand('reply', 'Post a reply to a pull request comment thread');
+}
+
 export function createPrCommentReplyCommand(): Command {
-  const command = new Command('comment-reply');
-  configureUnwrappedHelp(command)
-    .description('Post a reply to a pull request comment thread (alias of "azdo pr comments reply")')
-    .argument('<threadId>', 'numeric id of the thread to reply to')
-    .argument('<text>', 'text of the reply')
-    .option('--org <org>', 'Azure DevOps organization')
-    .option('--project <project>', 'Azure DevOps project')
+  return buildCommentReplyCommand(
+    'comment-reply',
+    'Post a reply to a pull request comment thread (alias of "azdo pr comments reply")',
+  );
+}
+
+// Thread statuses accepted by `pr comments add --status`. Omitting the flag
+// posts a plain, non-resolvable overview comment.
+const CREATABLE_THREAD_STATUSES: CreatableThreadStatus[] = [
+  'active',
+  'fixed',
+  'wontFix',
+  'closed',
+  'byDesign',
+  'pending',
+];
+
+// Flat JSON shape emitted by `azdo pr comments add --json` and its alias. On a
+// dry run `threadId` / `commentId` are null: nothing was created, so there are
+// no server-assigned ids to report.
+interface PrCommentAddResult {
+  pullRequestId: number;
+  threadId: number | null;
+  commentId: number | null;
+  status: string | null;
+  content: string;
+  dryRun: boolean;
+}
+
+async function runCommentAdd(
+  text: string | undefined,
+  options: PrCommandOptions,
+): Promise<void> {
+  let context: AzdoContext | undefined;
+
+  try {
+    const body = resolveCommentBody(text, options.file);
+    if (body === null) {
+      return;
+    }
+
+    let status: CreatableThreadStatus | undefined;
+    if (options.status !== undefined) {
+      const match = CREATABLE_THREAD_STATUSES.find((candidate) => candidate === options.status);
+      if (match === undefined) {
+        writeError(
+          `Invalid --status "${options.status}"; expected one of ${CREATABLE_THREAD_STATUSES.join(', ')}.`,
+        );
+        return;
+      }
+      status = match;
+    }
+
+    const target = await resolvePullRequestTarget(options);
+    if (target === null) {
+      return;
+    }
+    context = target.context;
+
+    if (options.dryRun === true) {
+      const dryResult: PrCommentAddResult = {
+        pullRequestId: target.pullRequest.id,
+        threadId: null,
+        commentId: null,
+        status: status ?? null,
+        content: body,
+        dryRun: true,
+      };
+      if (options.json) {
+        process.stdout.write(`${JSON.stringify(dryResult, null, 2)}\n`);
+        return;
+      }
+      const statusSuffix = status === undefined ? '' : ` with status ${status}`;
+      process.stdout.write(
+        `Dry run: would post a new comment thread${statusSuffix} on pull request #${target.pullRequest.id} (${body.length} chars).\n${body}\n`,
+      );
+      return;
+    }
+
+    const thread = await createPullRequestThread(
+      target.context,
+      target.repo,
+      target.pat,
+      target.pullRequest.id,
+      body,
+      status,
+    );
+    const created = thread.comments[0];
+    const result: PrCommentAddResult = {
+      pullRequestId: target.pullRequest.id,
+      threadId: thread.id,
+      commentId: created?.id ?? null,
+      status: thread.status,
+      content: created?.content ?? body,
+      dryRun: false,
+    };
+
+    if (options.json) {
+      process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+      return;
+    }
+
+    process.stdout.write(
+      `Comment posted to pull request #${target.pullRequest.id} (thread #${thread.id}).\n`,
+    );
+  } catch (err) {
+    handlePrCommandError(err, context, 'write');
+  }
+}
+
+function buildCommentAddCommand(name: string, description: string): Command {
+  const command = new Command(name);
+  withCommonPrOptions(configureUnwrappedHelp(command))
+    .description(description)
+    .argument('[text]', 'body of the new comment; omit when using --file')
+    .option('--file <path>', 'read the comment body from a UTF-8 file instead of the inline argument')
+    .option(
+      '--status <status>',
+      `thread status (${CREATABLE_THREAD_STATUSES.join(' | ')}); omit for a plain, non-resolvable comment`,
+    )
+    .option('--dry-run', 'resolve the target pull request and print what would be posted, without writing anything')
     .option('--pr-number <N>', PR_NUMBER_HELP)
     .option('--json', 'output JSON')
-    .action(async (threadIdRaw: string, text: string, options: PrCommandOptions) => {
-      await runCommentReply(threadIdRaw, text, options);
+    .action(async (text: string | undefined, options: PrCommandOptions) => {
+      await runCommentAdd(text, options);
     });
+  return command;
+}
+
+export function createPrCommentsAddCommand(): Command {
+  return buildCommentAddCommand('add', 'Post a new comment thread on the pull request overview');
+}
+
+export function createPrCommentAddCommand(): Command {
+  return buildCommentAddCommand(
+    'comment-add',
+    'Post a new comment thread on the pull request overview (alias of "azdo pr comments add")',
+  );
+}
+
+// Flat JSON shape emitted by `azdo pr comments edit --json` and its alias.
+// `previousContent` lets a caller diff or roll back what was replaced.
+interface PrCommentEditResult {
+  pullRequestId: number;
+  threadId: number;
+  commentId: number;
+  previousContent: string;
+  content: string;
+  dryRun: boolean;
+}
+
+async function runCommentEdit(
+  threadIdRaw: string,
+  text: string | undefined,
+  options: PrCommandOptions,
+): Promise<void> {
+  let context: AzdoContext | undefined;
+
+  try {
+    const body = resolveCommentBody(text, options.file);
+    if (body === null) {
+      return;
+    }
+
+    let explicitCommentId: number | null = null;
+    if (options.commentId !== undefined) {
+      explicitCommentId = parsePositivePrNumber(options.commentId);
+      if (explicitCommentId === null) {
+        writeError(`Invalid --comment-id "${options.commentId}"; expected a positive integer.`);
+        return;
+      }
+    }
+
+    const target = await resolveThreadTarget(threadIdRaw, options);
+    if (target === null) {
+      return;
+    }
+    context = target.context;
+
+    let thread: ActiveCommentThread;
+    try {
+      thread = await getPullRequestThread(
+        target.context,
+        target.repo,
+        target.pat,
+        target.pullRequest.id,
+        target.threadId,
+      );
+    } catch (err) {
+      if (err instanceof Error && err.message.startsWith('NOT_FOUND')) {
+        writeError(`Thread #${target.threadId} not found on pull request #${target.pullRequest.id}.`);
+        return;
+      }
+      throw err;
+    }
+
+    // Without --comment-id the thread's first comment is edited: it is the one
+    // that created the thread, which is what a "correct my own post" flow means.
+    const existing = explicitCommentId === null
+      ? [...thread.comments].sort((a, b) => a.id - b.id)[0]
+      : thread.comments.find((comment) => comment.id === explicitCommentId);
+
+    if (existing === undefined) {
+      if (explicitCommentId === null) {
+        writeError(`Thread #${target.threadId} on pull request #${target.pullRequest.id} has no editable comment.`);
+      } else {
+        writeError(`Comment #${explicitCommentId} not found in thread #${target.threadId} on pull request #${target.pullRequest.id}.`);
+      }
+      return;
+    }
+
+    if (options.dryRun === true) {
+      const dryResult: PrCommentEditResult = {
+        pullRequestId: target.pullRequest.id,
+        threadId: target.threadId,
+        commentId: existing.id,
+        previousContent: existing.content,
+        content: body,
+        dryRun: true,
+      };
+      if (options.json) {
+        process.stdout.write(`${JSON.stringify(dryResult, null, 2)}\n`);
+        return;
+      }
+      process.stdout.write(
+        `Dry run: would replace comment #${existing.id} in thread #${target.threadId} on pull request #${target.pullRequest.id} (${existing.content.length} chars -> ${body.length} chars).\n${body}\n`,
+      );
+      return;
+    }
+
+    const updated = await updateThreadComment(
+      target.context,
+      target.repo,
+      target.pat,
+      target.pullRequest.id,
+      target.threadId,
+      existing.id,
+      body,
+    );
+
+    const result: PrCommentEditResult = {
+      pullRequestId: target.pullRequest.id,
+      threadId: target.threadId,
+      commentId: updated.id,
+      previousContent: existing.content,
+      content: updated.content,
+      dryRun: false,
+    };
+
+    if (options.json) {
+      process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+      return;
+    }
+
+    process.stdout.write(
+      `Comment #${updated.id} updated in thread #${target.threadId} on pull request #${target.pullRequest.id}.\n`,
+    );
+  } catch (err) {
+    handlePrCommandError(err, context, 'write');
+  }
+}
+
+function buildCommentEditCommand(name: string, description: string): Command {
+  const command = new Command(name);
+  withCommonPrOptions(configureUnwrappedHelp(command))
+    .description(description)
+    .argument('<threadId>', 'numeric id of the thread holding the comment')
+    .argument('[text]', 'new comment body; omit when using --file')
+    .option('--comment-id <N>', 'numeric id of the comment to edit; defaults to the thread\'s first comment')
+    .option('--file <path>', 'read the new body from a UTF-8 file instead of the inline argument')
+    .option('--dry-run', 'print the current and replacement bodies, without writing anything')
+    .option('--pr-number <N>', PR_NUMBER_HELP)
+    .option('--json', 'output JSON')
+    .action(async (threadIdRaw: string, text: string | undefined, options: PrCommandOptions) => {
+      await runCommentEdit(threadIdRaw, text, options);
+    });
+  return command;
+}
+
+export function createPrCommentsEditCommand(): Command {
+  return buildCommentEditCommand('edit', 'Edit an existing pull request comment in place');
+}
+
+export function createPrCommentEditCommand(): Command {
+  return buildCommentEditCommand(
+    'comment-edit',
+    'Edit an existing pull request comment in place (alias of "azdo pr comments edit")',
+  );
+}
+
+const LIST_STATUS_VALUES = ['active', 'completed', 'abandoned', 'all'] as const;
+const DEFAULT_LIST_TOP = 25;
+
+interface PrListResult {
+  repository: string;
+  branch: string | null;
+  status: string;
+  pullRequests: BranchPullRequestMatch[];
+}
+
+function formatPullRequestListEntry(pullRequest: BranchPullRequestMatch): string {
+  return [
+    `#${pullRequest.id} [${pullRequest.status}] ${pullRequest.title}`,
+    `  ${formatBranchName(pullRequest.sourceRefName)} -> ${formatBranchName(pullRequest.targetRefName)}`,
+    `  Author: ${pullRequest.createdBy ?? 'Unknown'}`,
+    `  ${pullRequest.url ?? '—'}`,
+  ].join('\n');
+}
+
+export function createPrListCommand(): Command {
+  const command = new Command('list');
+
+  withCommonPrOptions(configureUnwrappedHelp(command))
+    .description('List pull requests in the repository, optionally filtered by source branch')
+    .option('--branch <name>', 'only pull requests whose source branch is this one (with or without the refs/heads/ prefix)')
+    .option('--status <status>', `pull request status filter (${LIST_STATUS_VALUES.join(' | ')})`, 'active')
+    .option('--top <N>', `maximum number of pull requests to return (default ${DEFAULT_LIST_TOP})`)
+    .option('--json', 'output JSON')
+    .action(async (options: PrCommandOptions & { branch?: string; top?: string }) => {
+      validateOrgProjectPair(options);
+
+      const status = options.status ?? 'active';
+      if (!LIST_STATUS_VALUES.some((candidate) => candidate === status)) {
+        writeError(`Invalid --status "${status}"; expected one of ${LIST_STATUS_VALUES.join(', ')}.`);
+        return;
+      }
+
+      let top = DEFAULT_LIST_TOP;
+      if (options.top !== undefined) {
+        const parsed = parsePositivePrNumber(options.top);
+        if (parsed === null) {
+          writeError(`Invalid --top "${options.top}"; expected a positive integer.`);
+          return;
+        }
+        top = parsed;
+      }
+
+      // The branch filter is explicit here — `pr list` never falls back to the
+      // current branch, because that is exactly what `pr status` already does.
+      const branch = options.branch?.trim().replace(/^refs\/heads\//, '') || null;
+
+      let context: AzdoContext | undefined;
+
+      try {
+        const resolved = await resolvePrCommandContext(options, { requireBranch: false });
+        context = resolved.context;
+
+        const pullRequests = await listRepositoryPullRequests(resolved.context, resolved.repo, resolved.pat, {
+          sourceBranch: branch ?? undefined,
+          status,
+          top,
+        });
+
+        const result: PrListResult = {
+          repository: resolved.repo,
+          branch,
+          status,
+          pullRequests,
+        };
+
+        if (options.json) {
+          process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+          return;
+        }
+
+        if (pullRequests.length === 0) {
+          const branchSuffix = branch === null ? '' : ` for branch ${branch}`;
+          process.stdout.write(`No ${status} pull request found in ${resolved.repo}${branchSuffix}.\n`);
+          return;
+        }
+
+        process.stdout.write(`${pullRequests.map(formatPullRequestListEntry).join('\n\n')}\n`);
+      } catch (err) {
+        handlePrCommandError(err, context, 'read');
+      }
+    });
+
   return command;
 }
 
 export function createPrCommand(): Command {
   const command = new Command('pr');
   command.description('Manage Azure DevOps pull requests');
+  command.addCommand(createPrListCommand());
   command.addCommand(createPrStatusCommand());
   command.addCommand(createPrOpenCommand());
   command.addCommand(createPrCommentsCommand());
   command.addCommand(createPrCommentResolveCommand());
   command.addCommand(createPrCommentReopenCommand());
   command.addCommand(createPrCommentReplyCommand());
+  command.addCommand(createPrCommentAddCommand());
+  command.addCommand(createPrCommentEditCommand());
   return command;
 }
