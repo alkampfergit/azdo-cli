@@ -19,6 +19,7 @@ vi.mock('../../src/services/git-remote.js', () => ({
 
 vi.mock('../../src/services/auth.js', () => ({
   requireAuthCredential: vi.fn(),
+  describeResolvedCredential: vi.fn(() => null),
 }));
 
 vi.mock('../../src/services/context.js', () => ({
@@ -111,7 +112,7 @@ describe('pr comments command --pr-number', () => {
     await run(['--pr-number', '9999999']);
 
     expect(getStderr()).toContain('Pull request #9999999 not found in test-org/test-project/repo-name');
-    expect(getExitCode()).toBe(1);
+    expect(getExitCode()).toBe(3);
   });
 
   it('falls back to branch lookup when --pr-number is absent', async () => {
@@ -263,6 +264,10 @@ describe('pr comments command', () => {
               author: 'Alice',
               content: 'Please fix this',
               publishedAt: '2026-03-27T00:00:00Z',
+              // Additive truncation metadata: always reported, so a --json
+              // consumer never has to sniff the body for the " […]" marker.
+              truncated: false,
+              originalLength: 15,
             },
           ],
         },

@@ -1,5 +1,5 @@
 import type { AuthCredential } from '../types/work-item.js';
-import type { AuthDiagnosticReport } from '../types/auth-diagnostics.js';
+import type { AuthDiagnosticReport, AuthIdentity, AzdoConnectionData } from '../types/auth-diagnostics.js';
 import { authHeaders, fetchRaw } from './azdo-client.js';
 
 interface ConnectivityResult {
@@ -28,6 +28,35 @@ export async function runConnectivityTest(org: string, cred: AuthCredential): Pr
   return { status: 'failed', error };
 }
 
+// Resolves the identity behind a credential via the connectionData endpoint,
+// which works for both PAT and OAuth tokens and needs no scope beyond the one
+// already used to connect. Best-effort: any failure yields null rather than
+// derailing the diagnosis.
+export async function resolveCredentialIdentity(
+  org: string,
+  cred: AuthCredential,
+): Promise<AuthIdentity | null> {
+  const url = `https://dev.azure.com/${encodeURIComponent(org)}/_apis/connectionData?api-version=7.1`;
+  try {
+    const result = await fetchRaw(url, { headers: authHeaders(cred) });
+    if (result.status < 200 || result.status >= 300) {
+      return null;
+    }
+    const parsed = JSON.parse(result.body) as AzdoConnectionData;
+    const user = parsed.authenticatedUser;
+    if (user === undefined) {
+      return null;
+    }
+    return {
+      displayName: user.providerDisplayName ?? null,
+      uniqueName: user.properties?.Account?.$value ?? null,
+      id: user.id ?? null,
+    };
+  } catch {
+    return null;
+  }
+}
+
 export async function diagnoseAuth(
   org: string,
   project: string | null,
@@ -43,6 +72,7 @@ export async function diagnoseAuth(
       project,
       connectivityStatus: 'no-credentials',
       connectivityError: null,
+      identity: null,
     };
   }
 
@@ -51,6 +81,9 @@ export async function diagnoseAuth(
   const envVarName = process.env.AZDO_PAT ? 'AZDO_PAT' : 'dotenv';
   const sourceLabel = cred.source === 'env' ? `env:${envVarName}` : 'credential-store';
 
+  // Skipped when the connection already failed: the lookup would fail too.
+  const identity = connectivity.status === 'ok' ? await resolveCredentialIdentity(org, cred) : null;
+
   return {
     authType: cred.kind ?? 'pat',
     credentialSource: sourceLabel,
@@ -58,6 +91,7 @@ export async function diagnoseAuth(
     project,
     connectivityStatus: connectivity.status,
     connectivityError: connectivity.error,
+    identity,
   };
 }
 
@@ -82,6 +116,17 @@ export function formatDiagnosticReport(report: AuthDiagnosticReport, json: boole
     `Project:      ${report.project ?? '(not set)'}`,
     `Connectivity: ${connectivityLine}`,
   ];
+
+  // Truthiness rather than `!== null`: a report built before this field
+  // existed carries `undefined`, and a missing identity must never crash the
+  // formatter.
+  const identity = report.identity;
+  if (identity) {
+    lines.push(`Identity:     ${identity.displayName ?? '(unknown name)'} <${identity.uniqueName ?? '(unknown account)'}>`);
+    if (identity.id) {
+      lines.push(`Identity id:  ${identity.id}`);
+    }
+  }
 
   if (report.connectivityStatus === 'failed' && report.connectivityError !== null) {
     lines.push(`Error:        ${report.connectivityError}`);

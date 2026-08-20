@@ -14,6 +14,14 @@ the project uses [Semantic Versioning](https://semver.org/).
 
 _Targeting **0.15.0**. Working detail: [`docs/changelogs/unreleased.md`](docs/changelogs/unreleased.md)._
 
+- `azdo pr comments add` / `edit` (+ `comment-add`/`comment-edit` aliases): create a new PR thread, rewrite a comment in place; `--file`, `--status`, `--dry-run`.
+- `azdo pr list`: single-call PR lookup with `--branch`, `--status`, `--top`.
+- `azdo pr comments` gains `--exclude-system` and `--max-chars`; `reply` gains `--file`; `--repo` added to every `pr` subcommand.
+- Remove the four `scripts/*_pr_*.ps1` helpers — superseded by the commands above.
+- `azdo pr comments` gains `--thread <id>` and `--contains <text>`; `--json` comments carry `truncated`/`originalLength`, pull requests carry `createdByUniqueName`/`createdById`.
+- `pr` group exit codes: 3 = resource not found, 4 = not permitted (was: always 1); `azdo auth diagnose` reports the credential identity.
+- Fix `--json`/`--pr-number` being ignored on the nested `pr comments add|edit|reply` (a write could target the branch's PR instead of `--pr-number`); populate the previously always-`null` PR `url`; auth failures now name the token source.
+
 ## [0.14.1] - 2026-06-26 — ADO HTML-entity decode for markdown fields
 
 Patch: full HTML-entity decoding on non-HTML markdown field downloads; em dashes, blockquote markers, and all named/numeric entities are now decoded correctly.
