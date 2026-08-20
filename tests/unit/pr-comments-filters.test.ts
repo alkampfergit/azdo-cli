@@ -201,22 +201,16 @@ describe('pr comments --max-chars', () => {
     comments: [{ id: 70, author: 'Alice', content: 'abcdefghij', publishedAt: null, commentType: 'text' }],
   };
 
-  it('truncates comment bodies and marks the cut', async () => {
+  // 'abcdefghij' is 10 chars: 4 cuts it, 99 is longer than the body, and 0
+  // explicitly means "no limit".
+  it.each([
+    ['truncates and marks the cut', '4', 'abcd […]'],
+    ['leaves shorter bodies untouched', '99', 'abcdefghij'],
+    ['treats 0 as no limit', '0', 'abcdefghij'],
+  ])('%s', async (_label, maxChars, expected) => {
     vi.mocked(getPullRequestThreads).mockResolvedValue([longThread]);
-    await run(['--max-chars', '4', '--json']);
-    expect(JSON.parse(getStdout()).threads[0].comments[0].content).toBe('abcd […]');
-  });
-
-  it('leaves shorter bodies untouched', async () => {
-    vi.mocked(getPullRequestThreads).mockResolvedValue([longThread]);
-    await run(['--max-chars', '99', '--json']);
-    expect(JSON.parse(getStdout()).threads[0].comments[0].content).toBe('abcdefghij');
-  });
-
-  it('treats 0 as no limit', async () => {
-    vi.mocked(getPullRequestThreads).mockResolvedValue([longThread]);
-    await run(['--max-chars', '0', '--json']);
-    expect(JSON.parse(getStdout()).threads[0].comments[0].content).toBe('abcdefghij');
+    await run(['--max-chars', maxChars, '--json']);
+    expect(JSON.parse(getStdout()).threads[0].comments[0].content).toBe(expected);
   });
 
   it.each([['-1'], ['abc'], ['2.5']])('rejects an invalid value %s', async (raw) => {

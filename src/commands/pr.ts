@@ -407,8 +407,7 @@ async function resolvePrCommandContext(
   const context = resolveContext(options);
   // An explicit --repo skips the git remote lookup entirely, so the command
   // works outside a checkout of the target repository.
-  const explicitRepo = options.repo?.trim();
-  const repo = explicitRepo ? explicitRepo : detectRepoName();
+  const repo = options.repo?.trim() || detectRepoName();
   // When the caller is targeting a PR by explicit number we skip the git
   // branch lookup entirely — it's unnecessary and would fail loudly on
   // detached HEAD or a branch that can't be resolved.
@@ -1115,6 +1114,76 @@ interface PrCommentEditResult {
   dryRun: boolean;
 }
 
+// Fetches the thread holding the comment to edit, translating a 404 into the
+// thread-not-found message. Returns null when the error was already reported.
+async function fetchThreadForEdit(target: ResolvedThreadTarget): Promise<ActiveCommentThread | null> {
+  try {
+    return await getPullRequestThread(
+      target.context,
+      target.repo,
+      target.pat,
+      target.pullRequest.id,
+      target.threadId,
+    );
+  } catch (err) {
+    if (err instanceof Error && err.message.startsWith('NOT_FOUND')) {
+      writeError(`Thread #${target.threadId} not found on pull request #${target.pullRequest.id}.`);
+      return null;
+    }
+    throw err;
+  }
+}
+
+// Picks the comment to rewrite: the one named by --comment-id, or else the
+// thread's first comment — the one that created the thread, which is what a
+// "correct my own post" flow means. Returns null after reporting why nothing
+// matched.
+function selectEditableComment(
+  thread: ActiveCommentThread,
+  explicitCommentId: number | null,
+  target: ResolvedThreadTarget,
+): ActivePullRequestComment | null {
+  if (explicitCommentId !== null) {
+    const match = thread.comments.find((comment) => comment.id === explicitCommentId);
+    if (match === undefined) {
+      writeError(`Comment #${explicitCommentId} not found in thread #${target.threadId} on pull request #${target.pullRequest.id}.`);
+      return null;
+    }
+    return match;
+  }
+
+  const first = [...thread.comments].sort((a, b) => a.id - b.id)[0];
+  if (first === undefined) {
+    writeError(`Thread #${target.threadId} on pull request #${target.pullRequest.id} has no editable comment.`);
+    return null;
+  }
+  return first;
+}
+
+// Emits an edit result as JSON or as the one-line human summary; the dry-run
+// variant also prints the body that would have replaced the current one.
+function reportEditResult(result: PrCommentEditResult, json: boolean): void {
+  if (json) {
+    process.stdout.write(`${JSON.stringify(result, null, 2)}
+`);
+    return;
+  }
+
+  if (result.dryRun) {
+    process.stdout.write(
+      `Dry run: would replace comment #${result.commentId} in thread #${result.threadId} on pull request #${result.pullRequestId} (${result.previousContent.length} chars -> ${result.content.length} chars).
+${result.content}
+`,
+    );
+    return;
+  }
+
+  process.stdout.write(
+    `Comment #${result.commentId} updated in thread #${result.threadId} on pull request #${result.pullRequestId}.
+`,
+  );
+}
+
 async function runCommentEdit(
   threadIdRaw: string,
   text: string | undefined,
@@ -1143,53 +1212,27 @@ async function runCommentEdit(
     }
     context = target.context;
 
-    let thread: ActiveCommentThread;
-    try {
-      thread = await getPullRequestThread(
-        target.context,
-        target.repo,
-        target.pat,
-        target.pullRequest.id,
-        target.threadId,
-      );
-    } catch (err) {
-      if (err instanceof Error && err.message.startsWith('NOT_FOUND')) {
-        writeError(`Thread #${target.threadId} not found on pull request #${target.pullRequest.id}.`);
-        return;
-      }
-      throw err;
+    const thread = await fetchThreadForEdit(target);
+    if (thread === null) {
+      return;
     }
 
-    // Without --comment-id the thread's first comment is edited: it is the one
-    // that created the thread, which is what a "correct my own post" flow means.
-    const existing = explicitCommentId === null
-      ? [...thread.comments].sort((a, b) => a.id - b.id)[0]
-      : thread.comments.find((comment) => comment.id === explicitCommentId);
-
-    if (existing === undefined) {
-      if (explicitCommentId === null) {
-        writeError(`Thread #${target.threadId} on pull request #${target.pullRequest.id} has no editable comment.`);
-      } else {
-        writeError(`Comment #${explicitCommentId} not found in thread #${target.threadId} on pull request #${target.pullRequest.id}.`);
-      }
+    const existing = selectEditableComment(thread, explicitCommentId, target);
+    if (existing === null) {
       return;
     }
 
     if (options.dryRun === true) {
-      const dryResult: PrCommentEditResult = {
-        pullRequestId: target.pullRequest.id,
-        threadId: target.threadId,
-        commentId: existing.id,
-        previousContent: existing.content,
-        content: body,
-        dryRun: true,
-      };
-      if (options.json) {
-        process.stdout.write(`${JSON.stringify(dryResult, null, 2)}\n`);
-        return;
-      }
-      process.stdout.write(
-        `Dry run: would replace comment #${existing.id} in thread #${target.threadId} on pull request #${target.pullRequest.id} (${existing.content.length} chars -> ${body.length} chars).\n${body}\n`,
+      reportEditResult(
+        {
+          pullRequestId: target.pullRequest.id,
+          threadId: target.threadId,
+          commentId: existing.id,
+          previousContent: existing.content,
+          content: body,
+          dryRun: true,
+        },
+        options.json === true,
       );
       return;
     }
@@ -1204,22 +1247,16 @@ async function runCommentEdit(
       body,
     );
 
-    const result: PrCommentEditResult = {
-      pullRequestId: target.pullRequest.id,
-      threadId: target.threadId,
-      commentId: updated.id,
-      previousContent: existing.content,
-      content: updated.content,
-      dryRun: false,
-    };
-
-    if (options.json) {
-      process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
-      return;
-    }
-
-    process.stdout.write(
-      `Comment #${updated.id} updated in thread #${target.threadId} on pull request #${target.pullRequest.id}.\n`,
+    reportEditResult(
+      {
+        pullRequestId: target.pullRequest.id,
+        threadId: target.threadId,
+        commentId: updated.id,
+        previousContent: existing.content,
+        content: updated.content,
+        dryRun: false,
+      },
+      options.json === true,
     );
   } catch (err) {
     handlePrCommandError(err, context, 'write');
@@ -1254,7 +1291,7 @@ export function createPrCommentEditCommand(): Command {
   );
 }
 
-const LIST_STATUS_VALUES = ['active', 'completed', 'abandoned', 'all'] as const;
+const LIST_STATUS_VALUES: readonly string[] = ['active', 'completed', 'abandoned', 'all'];
 const DEFAULT_LIST_TOP = 25;
 
 interface PrListResult {
@@ -1286,7 +1323,7 @@ export function createPrListCommand(): Command {
       validateOrgProjectPair(options);
 
       const status = options.status ?? 'active';
-      if (!LIST_STATUS_VALUES.some((candidate) => candidate === status)) {
+      if (!LIST_STATUS_VALUES.includes(status)) {
         writeError(`Invalid --status "${status}"; expected one of ${LIST_STATUS_VALUES.join(', ')}.`);
         return;
       }
