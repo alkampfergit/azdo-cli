@@ -128,6 +128,8 @@ azdo pr comments --hide-resolved           # triage view — hide settled thread
 azdo pr comments --exclude-resolved        # alias of --hide-resolved
 azdo pr comments --code-related-only       # only threads anchored to a file/line
 azdo pr comments --exclude-system --max-chars 500   # human comments only, truncated
+azdo pr comments --thread 148              # just one thread (e.g. re-read after editing)
+azdo pr comments --contains '"kind":"plan"' # threads holding a literal substring
 azdo pr comments add --file plan.md        # NEW thread on the PR overview
 azdo pr comments edit 148 --file plan.md   # rewrite a comment in place
 azdo pr comments reply 148 "Done."         # reply inside an existing thread
@@ -166,7 +168,9 @@ work from outside a checkout of the target repository.
 - `--hide-resolved` (and its alias `--exclude-resolved`) drops threads whose backend state is settled (`fixed`, `wontFix`, `closed`, `byDesign`) — useful when triaging only the threads that still need attention
 - `--code-related-only` shows only threads anchored to a real file/line, omitting general discussion threads
 - `--exclude-system` drops Azure DevOps system comments (branch updates, reviewer votes, build events); a thread left with no comments disappears from the listing
-- `--max-chars <N>` truncates each comment body to N characters plus ` […]`; `0` (the default) means no limit — useful when feeding a long review into a limited context window
+- `--max-chars <N>` truncates each comment body to N characters plus ` […]`; `0` (the default) means no limit — useful when feeding a long review into a limited context window. In `--json` every comment also carries `truncated` and `originalLength`, so a cut body is never indistinguishable from a short one
+- `--thread <id>` returns just that thread — it is a **selector, not a filter**: a thread id absent from the pull request fails with exit 1 rather than printing an empty listing
+- `--contains <text>` keeps only threads holding a comment with that **literal, case-sensitive** substring (no regex). Matched against the full body *before* `--max-chars` truncates, so `--contains '"kind":"review-plan"' --max-chars 200` finds a marker that the cut would have hidden
 - The filters are independent and combinable; with none of them the output is unchanged. All are honoured in `--json` output, which also carries the PR `description` and each comment's `commentType`
 - Tolerant of Azure DevOps responses that omit `_links.web` (root cause of the original crash reported in issue #34)
 
@@ -180,7 +184,7 @@ work from outside a checkout of the target repository.
 **`azdo pr comments edit <threadId> [text]`** (alias: `azdo pr comment-edit`)
 - Rewrites an existing comment **in place**, keeping the thread, its id, and its position in the discussion — prefer it over a follow-up comment when correcting your own text
 - Edits the thread's first comment by default; `--comment-id <N>` targets another one
-- Same `--file` and `--dry-run` behaviour as `add`; `--json` also reports `previousContent`
+- Same `--file` and `--dry-run` behaviour as `add`; the dry run prints the replacement body plus a `13191 chars -> 4 chars` delta rather than dumping the current body, and `--json` reports `previousContent` for a real diff
 - Azure DevOps only lets a comment's own author edit it — another identity gets a permission error
 
 **`azdo pr comments reply <threadId> [text]`** (alias: `azdo pr comment-reply`)
@@ -196,6 +200,54 @@ work from outside a checkout of the target repository.
 - Mirror of `comment-resolve` — flips any settled thread back to `active`
 - Idempotent: exits 0 with "already active" when the thread is already open/pending
 - Same flags as `comment-resolve`
+
+### Pull request JSON fields
+
+- `url` is always populated: Azure DevOps omits `_links.web` from the pull request *list* response, so the CLI builds `https://dev.azure.com/<org>/<project>/_git/<repo>/pullrequest/<id>` itself instead of returning `null`
+- `description` carries the PR overview description (trimmed, `null` when empty)
+- `createdBy` stays the display name; `createdByUniqueName` (account, usually an email) and `createdById` (identity GUID) are the comparable identity fields — a display name is neither unique nor stable
+- each comment carries `commentType` (`text` / `system`), `truncated` and `originalLength`
+
+### Exit codes and failure diagnosis
+
+Every `pr` command exits **0** on success (a `--dry-run` included). Failures carry a code, so a
+caller can tell "not permitted" from "not found" without scraping stderr:
+
+| Code | Meaning |
+|------|---------|
+| `0` | Success, including a `--dry-run` and an idempotent no-op (`comment-resolve` on an already-resolved thread) |
+| `1` | Validation failure (bad `--pr-number`, `--thread`, `--status`, empty body, both inline text and `--file`), network error, or any other unexpected failure |
+| `3` | An addressed resource does not exist: the pull request behind `--pr-number`, the thread behind `--thread` / `<threadId>`, or the comment behind `--comment-id` |
+| `4` | Not permitted: authentication failure or permission denied (for example editing a comment authored by somebody else, which Azure DevOps rejects) |
+
+Branch **auto-detection** failures (no open PR for the current branch, or several) keep exit `1`:
+that is a resolution failure rather than a named resource that could not be found, and the code is
+pinned by the contract introduced in `019-fix-pr-command`.
+
+On an authentication failure the message names both the required scope and **which token was
+used**:
+
+```
+Error: Authentication failed. Check that your PAT is valid and has the "Code (Read & Write)" scope.
+  Token used: PAT from the AZDO_PAT environment variable (it takes precedence over the stored credential). Fix: give that token the scope above, or unset AZDO_PAT to fall back to the stored credential.
+```
+
+Note the two scopes: reads (`pr list`, `pr status`, `pr comments`) need **Code (Read)**, while
+`comments add` / `edit` / `reply` / `comment-resolve` / `comment-reopen` and `pr open` need
+**Code (Read & Write)**. A PAT scoped for Work Items only makes every `pr` command fail while
+`azdo get-item` keeps working. `azdo config --help` lists the credential resolution order, and
+`azdo auth diagnose` reports the credential actually in use — including **who it belongs to**:
+
+```bash
+azdo auth diagnose --json     # { authType, credentialSource, org, project, connectivityStatus,
+                              #   connectivityError, identity: { displayName, uniqueName, id } }
+```
+
+`identity` comes from the Azure DevOps `connectionData` endpoint and is the way to check that the
+token about to post a comment belongs to the pull request author: compare `identity.uniqueName`
+with `createdByUniqueName` from `azdo pr list --json` / `azdo pr comments --json`. It is `null`
+when there is no credential, when connectivity already failed, or when the lookup itself failed —
+the diagnosis never breaks because of it.
 
 ## Pipeline commands
 

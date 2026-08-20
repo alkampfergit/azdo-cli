@@ -25,6 +25,7 @@ vi.mock('../../src/services/git-remote.js', () => ({
 
 vi.mock('../../src/services/auth.js', () => ({
   requireAuthCredential: vi.fn(),
+  describeResolvedCredential: vi.fn(() => null),
 }));
 
 vi.mock('../../src/services/context.js', () => ({
@@ -231,5 +232,84 @@ describe('pr comments --repo', () => {
       expect.any(Object),
       12,
     );
+  });
+});
+
+describe('pr comments --thread', () => {
+  it('returns just the requested thread', async () => {
+    await run(['--thread', '3', '--json']);
+    expect(threadIdsFromJson()).toEqual([3]);
+  });
+
+  it('fails when the pull request has no such thread (selector, not filter)', async () => {
+    await run(['--thread', '999']);
+    expect(getStderr()).toContain('Thread #999 not found on pull request #12.');
+    expect(getExitCode()).toBe(3);
+  });
+
+  it.each([['abc'], ['0'], ['-2']])('rejects an invalid id %s before any network call', async (raw) => {
+    await run(['--thread', raw]);
+    expect(vi.mocked(getPullRequestThreads)).not.toHaveBeenCalled();
+    expect(getStderr()).toContain(`Invalid --thread "${raw}"`);
+    expect(getExitCode()).toBe(1);
+  });
+});
+
+describe('pr comments --contains', () => {
+  it('keeps only threads holding a matching comment', async () => {
+    await run(['--contains', 'LGTM', '--json']);
+    expect(threadIdsFromJson()).toEqual([3]);
+  });
+
+  it('is case-sensitive and literal, not a regex', async () => {
+    await run(['--contains', 'lgtm', '--json']);
+    expect(threadIdsFromJson()).toEqual([]);
+
+    vi.mocked(process.stdout.write).mockClear();
+    await run(['--contains', 'overall.*LGTM', '--json']);
+    expect(threadIdsFromJson()).toEqual([]);
+  });
+
+  it('matches the full body even when --max-chars truncates it', async () => {
+    vi.mocked(getPullRequestThreads).mockResolvedValue([
+      {
+        id: 9,
+        status: 'active',
+        threadContext: null,
+        line: null,
+        comments: [{ id: 90, author: 'Alice', content: 'prefix ' + '"kind":"review-plan"', publishedAt: null, commentType: 'text' }],
+      },
+    ]);
+
+    await run(['--contains', '"kind":"review-plan"', '--max-chars', '4', '--json']);
+
+    const [thread] = JSON.parse(getStdout()).threads;
+    expect(thread.id).toBe(9);
+    expect(thread.comments[0].content).toBe('pref […]');
+  });
+
+  it('names the matching filter when nothing survives', async () => {
+    await run(['--contains', 'nothing-here']);
+    expect(getStdout()).toContain('no matching comment threads');
+  });
+});
+
+describe('pr comments truncation metadata', () => {
+  it('reports truncated:false and the real length when nothing is cut', async () => {
+    vi.mocked(getPullRequestThreads).mockResolvedValue([generalActive]);
+    await run(['--json']);
+    const [comment] = JSON.parse(getStdout()).threads[0].comments;
+    expect(comment).toMatchObject({ truncated: false, originalLength: 'overall LGTM discussion'.length });
+  });
+
+  it('reports truncated:true and the pre-cut length when --max-chars bites', async () => {
+    vi.mocked(getPullRequestThreads).mockResolvedValue([generalActive]);
+    await run(['--max-chars', '7', '--json']);
+    const [comment] = JSON.parse(getStdout()).threads[0].comments;
+    expect(comment).toMatchObject({
+      content: 'overall […]',
+      truncated: true,
+      originalLength: 'overall LGTM discussion'.length,
+    });
   });
 });

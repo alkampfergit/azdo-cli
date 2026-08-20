@@ -136,12 +136,46 @@ export async function resolveAuthCredential(org: string): Promise<AuthCredential
   return null;
 }
 
+// The credential this process last resolved, remembered so that an
+// authentication failure can name the token it actually used instead of
+// leaving the caller to guess between AZDO_PAT, the OS credential store and a
+// .env file. A CLI invocation resolves at most one credential, so recording it
+// process-wide is accurate — the same pattern `trace-writer` and
+// `remote-warning` already use for process-scoped state.
+let lastResolvedCredential: { credential: AuthCredential; org: string } | null = null;
+
 export async function requireAuthCredential(org: string): Promise<AuthCredential> {
   const cred = await resolveAuthCredential(org);
   if (cred !== null) {
+    lastResolvedCredential = { credential: cred, org };
     return cred;
   }
   throw new CredentialMissingError(org);
+}
+
+/**
+ * Human-readable description of the credential the process is using, for
+ * error messages: which token was sent, and how to replace it. Returns null
+ * when nothing has been resolved yet (nothing useful to say).
+ */
+export function describeResolvedCredential(): string | null {
+  if (lastResolvedCredential === null) {
+    return null;
+  }
+
+  const { credential, org } = lastResolvedCredential;
+  if (credential.source === 'env') {
+    return 'Token used: PAT from the AZDO_PAT environment variable (it takes precedence over the stored credential). '
+      + 'Fix: give that token the scope above, or unset AZDO_PAT to fall back to the stored credential.';
+  }
+
+  if (credential.source === 'credential-store') {
+    const kind = credential.kind === 'oauth' ? 'OAuth access token' : 'PAT';
+    return `Token used: ${kind} stored for org "${org}" in the OS credential store. `
+      + `Fix: run \`azdo auth login --org ${org}\` with an account or token carrying the scope above.`;
+  }
+
+  return 'Token used: PAT entered at the prompt. Fix: re-enter a token carrying the scope above.';
 }
 
 export interface ValidatePatResult {

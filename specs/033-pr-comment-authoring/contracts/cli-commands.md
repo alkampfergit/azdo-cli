@@ -147,6 +147,8 @@ branch <branch>].`, exit 0.
 |------|---------|-----------|
 | `--exclude-system` | false | Drop Azure DevOps system comments; a thread left with no comments disappears |
 | `--max-chars <N>` | 0 | Truncate each comment body to N characters plus ` […]`; `0` means no limit |
+| `--thread <id>` | — | Return only that thread. A **selector, not a filter**: an id absent from the pull request exits 1 with `Thread #<id> not found on pull request #<pr>.` |
+| `--contains <text>` | — | Keep only threads holding a comment containing that literal, case-sensitive substring. Matched on the FULL body, before `--max-chars` truncates |
 
 Both are honoured in `--json`. With neither flag the output is unchanged from the previous release.
 When filters remove everything, the message names the applied filters, e.g. `Pull request #12 has no
@@ -184,6 +186,77 @@ Unchanged and reused verbatim from 019 / 023 / 029:
 - `Pull request #<N> not found in <org>/<project>/<repo>.`
 - `Thread #<id> not found on pull request #<pr>.`
 - `Reply text must not be empty.` *(reply only, when no body is supplied at all)*
+
+---
+
+## Consumer-report round (post-release feedback)
+
+### `pr comments --json` per-comment fields
+
+| Field | Always present | Meaning |
+|-------|----------------|---------|
+| `commentType` | yes | `text` / `system` as returned by Azure DevOps |
+| `truncated` | yes | Whether `--max-chars` cut this body — never inferred from the ` […]` marker |
+| `originalLength` | yes | Length before truncation |
+
+### Pull request JSON fields
+
+| Field | Behaviour |
+|-------|-----------|
+| `url` | Always populated. The PR *list* response omits `_links.web`, so the CLI builds `https://dev.azure.com/<org>/<project>/_git/<repo>/pullrequest/<id>` when the API link is absent. Previously always `null` on `pr list` |
+| `description` | Trimmed overview description, `null` when empty |
+| `createdBy` | Display name — unchanged |
+| `createdByUniqueName` | Author account (usually an email), `null` when absent |
+| `createdById` | Author identity GUID, `null` when absent |
+
+### Option plumbing (fixed)
+
+`pr comments` and its `add` / `edit` / `reply` subcommands both declare
+`--org`, `--project`, `--repo`, `--pr-number` and `--json`. Commander stores an option's value on
+the command that declared it, so in the nested form (`azdo pr comments add …`) the value landed on
+the parent and the subcommand never saw it: `--json` printed the human summary, and `--pr-number`
+silently fell back to the current branch's pull request — a write could land on a different PR than
+the one requested. The nested subcommands now read `optsWithGlobals()`. The `pr comment-add` /
+`comment-edit` / `comment-reply` aliases hang off `pr`, have no colliding ancestor, and were never
+affected.
+
+Regression coverage lives in `tests/unit/pr-command-tree.test.ts`, which drives the commands through
+a real `azdo pr …` tree; the per-command suites exercise the factories in isolation and cannot
+observe this class of bug.
+
+### Exit codes
+
+| Code | When |
+|------|------|
+| 0 | Success, dry runs and idempotent no-ops included |
+| 1 | Validation failure, network error, unexpected HTTP status |
+| 3 | Addressed resource missing: pull request (`--pr-number`), thread (`--thread` / `<threadId>`), comment (`--comment-id`) |
+| 4 | Not permitted: `AUTH_FAILED` or `PERMISSION_DENIED` |
+
+Branch auto-detection zero/multi-match stays at **1** — contract C-2/C-3 of `019-fix-pr-command`
+pins that code, and it is a resolution failure rather than a named resource that is absent.
+Covered by `tests/unit/pr-exit-codes.test.ts`, driven through a real `azdo pr …` tree.
+
+### Credential identity (`azdo auth diagnose`)
+
+`AuthDiagnosticReport` gains `identity: { displayName, uniqueName, id } | null`, resolved from
+`GET /_apis/connectionData`. It answers "does the token about to write belong to the PR author?" —
+compare `identity.uniqueName` with the pull request's `createdByUniqueName`. Null when there is no
+credential, when connectivity already failed (the lookup is skipped, saving a request), or when the
+lookup failed; diagnosing auth never breaks because of this extra call.
+
+### Authentication failure message
+
+Line 1 is unchanged from previous releases. A second, indented line names the credential actually
+used and how to replace it:
+
+```
+Error: Authentication failed. Check that your PAT is valid and has the "Code (Read & Write)" scope.
+  Token used: PAT from the AZDO_PAT environment variable (it takes precedence over the stored credential). Fix: give that token the scope above, or unset AZDO_PAT to fall back to the stored credential.
+```
+
+Sources reported: the `AZDO_PAT` environment variable, the OS credential store (naming the org, and
+distinguishing a PAT from an OAuth access token), or an interactive prompt.
 
 ## Backwards compatibility
 

@@ -13,6 +13,7 @@ vi.mock('../../src/services/git-remote.js', () => ({
 
 vi.mock('../../src/services/auth.js', () => ({
   requireAuthCredential: vi.fn(),
+  describeResolvedCredential: vi.fn(() => null),
 }));
 
 vi.mock('../../src/services/context.js', () => ({

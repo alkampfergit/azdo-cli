@@ -35,6 +35,7 @@ vi.mock('../../src/services/git-remote.js', () => ({
 
 vi.mock('../../src/services/auth.js', () => ({
   requireAuthCredential: vi.fn(),
+  describeResolvedCredential: vi.fn(() => null),
 }));
 
 vi.mock('../../src/services/context.js', () => ({
@@ -49,7 +50,7 @@ import {
   updateThreadComment,
 } from '../../src/services/pr-client.js';
 import { detectRepoName, getCurrentBranch } from '../../src/services/git-remote.js';
-import { requireAuthCredential } from '../../src/services/auth.js';
+import { describeResolvedCredential, requireAuthCredential } from '../../src/services/auth.js';
 import { resolveContext } from '../../src/services/context.js';
 
 const runAdd = createCommandRunner(createPrCommentsAddCommand);
@@ -269,7 +270,20 @@ describe('pr comments add', () => {
     await runAdd(['body', '--pr-number', '64']);
 
     expect(getStderr()).toContain('Code (Read & Write)');
-    expect(getExitCode()).toBe(1);
+    // 4 = not permitted (auth / permission), distinct from 3 = not found.
+    expect(getExitCode()).toBe(4);
+  });
+
+  it('names the token source under the scope hint, so the failure is actionable', async () => {
+    vi.mocked(createPullRequestThread).mockRejectedValue(new Error('AUTH_FAILED'));
+    vi.mocked(describeResolvedCredential).mockReturnValue('Token used: PAT from the AZDO_PAT environment variable.');
+
+    await runAdd(['body', '--pr-number', '64']);
+
+    const stderr = getStderr();
+    // First line unchanged from previous releases; the source line is additive.
+    expect(stderr).toContain('Authentication failed. Check that your PAT is valid and has the "Code (Read & Write)" scope.');
+    expect(stderr).toContain('Token used: PAT from the AZDO_PAT environment variable.');
   });
 
   it('the comment-add alias behaves identically', async () => {
@@ -318,7 +332,7 @@ describe('pr comments edit', () => {
 
     expect(vi.mocked(updateThreadComment)).not.toHaveBeenCalled();
     expect(getStderr()).toContain('Comment #999 not found in thread #148 on pull request #64.');
-    expect(getExitCode()).toBe(1);
+    expect(getExitCode()).toBe(3);
   });
 
   it('reports a thread that does not exist on the PR', async () => {
@@ -327,7 +341,7 @@ describe('pr comments edit', () => {
     await runEdit(['999', 'text', '--pr-number', '64']);
 
     expect(getStderr()).toContain('Thread #999 not found on pull request #64.');
-    expect(getExitCode()).toBe(1);
+    expect(getExitCode()).toBe(3);
   });
 
   it('rejects an invalid thread id before any network call', async () => {
@@ -377,7 +391,7 @@ describe('pr comments edit', () => {
     await runEdit(['148', 'new body', '--pr-number', '64']);
 
     expect(getStderr()).toContain('Access denied.');
-    expect(getExitCode()).toBe(1);
+    expect(getExitCode()).toBe(4);
   });
 
   it('the comment-edit alias behaves identically', async () => {

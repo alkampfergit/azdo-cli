@@ -58,6 +58,8 @@ describe('pr-client', () => {
           createdBy: 'Alice',
           url: 'https://example.test/pr/12',
           description: null,
+          createdByUniqueName: null,
+          createdById: null,
         },
       ]);
       expect(fetchSpy).toHaveBeenCalledWith(
@@ -110,7 +112,9 @@ describe('pr-client', () => {
         expect.objectContaining({
           id: 77,
           title: 'PR without web link',
-          url: null,
+          // No crash, and no null field either: the browser URL is built from
+          // org/project/repo/id when the API omits _links.web.
+          url: 'https://dev.azure.com/test-org/test-project/_git/repo-name/pullrequest/77',
         }),
       ]);
     });
@@ -136,7 +140,7 @@ describe('pr-client', () => {
       });
 
       const result = await listPullRequests(context, 'repo-name', 'pat', 'feature/y');
-      expect(result[0].url).toBeNull();
+      expect(result[0].url).toBe('https://dev.azure.com/test-org/test-project/_git/repo-name/pullrequest/78');
     });
   });
 
@@ -167,6 +171,8 @@ describe('pr-client', () => {
         createdBy: 'Alice',
         url: 'https://example.test/pr/64',
         description: null,
+        createdByUniqueName: null,
+        createdById: null,
       });
       expect(fetchSpy).toHaveBeenCalledWith(
         expect.stringContaining('/pullRequests/64'),
@@ -206,7 +212,7 @@ describe('pr-client', () => {
       });
 
       const result = await getPullRequestById(context, 'repo-name', 'pat', 77);
-      expect(result.url).toBeNull();
+      expect(result.url).toBe('https://dev.azure.com/test-org/test-project/_git/repo-name/pullrequest/77');
     });
   });
 
@@ -369,6 +375,8 @@ describe('pr-client', () => {
           createdBy: 'Alice',
           url: 'https://example.test/pr/22',
           description: null,
+          createdByUniqueName: null,
+          createdById: null,
         },
       });
     });
@@ -873,6 +881,33 @@ describe('pr-client', () => {
       } as unknown as Response);
       const [withoutDescription] = await listRepositoryPullRequests(context, 'repo-name', 'pat');
       expect(withoutDescription.description).toBeNull();
+    });
+  });
+
+  describe('author identity mapping', () => {
+    it('carries uniqueName and id when Azure DevOps returns them', async () => {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          pullRequestId: 4804,
+          title: 'Identity PR',
+          status: 'active',
+          sourceRefName: 'refs/heads/feature/z',
+          targetRefName: 'refs/heads/develop',
+          createdBy: {
+            displayName: 'William Verdolini',
+            uniqueName: 'william.verdolini@example.test',
+            id: '11111111-2222-3333-4444-555555555555',
+          },
+        }),
+      } as unknown as Response);
+
+      const result = await getPullRequestById(context, 'repo-name', 'pat', 4804);
+
+      expect(result.createdBy).toBe('William Verdolini');
+      expect(result.createdByUniqueName).toBe('william.verdolini@example.test');
+      expect(result.createdById).toBe('11111111-2222-3333-4444-555555555555');
     });
   });
 

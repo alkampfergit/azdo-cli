@@ -100,6 +100,47 @@ and delegates to the same builder.
 
 ---
 
+## `GET /_apis/connectionData` — identity behind the credential (new)
+
+Organization-scoped, so it does **not** sit under the repository base above:
+`https://dev.azure.com/{org}/_apis/connectionData?api-version=7.1`
+
+Service helper: `resolveCredentialIdentity(org, cred)` → `Promise<AuthIdentity | null>`
+(`src/services/auth-diagnostics.ts`), consumed by `azdo auth diagnose`.
+
+### Response (200)
+
+```json
+{
+  "authenticatedUser": {
+    "id": "11111111-2222-3333-4444-555555555555",
+    "providerDisplayName": "William Verdolini",
+    "properties": { "Account": { "$value": "william.verdolini@example.test" } }
+  }
+}
+```
+
+Mapped to `{ displayName, uniqueName, id }`, each field null when absent.
+
+### Notes
+
+Works for both PAT and OAuth credentials and requires no scope beyond the one already used to
+connect. Called only when the connectivity probe succeeded, and **every** failure path (non-2xx,
+missing `authenticatedUser`, unparseable body, thrown request) yields `null`: diagnosing
+authentication must never fail because of this call.
+
+---
+
+## URL built client-side, not fetched
+
+`buildPullRequestWebUrl(context, repo, prId)` produces
+`https://dev.azure.com/{org}/{project}/_git/{repo}/pullrequest/{id}` (each segment
+`encodeURIComponent`-escaped). It is not an API call: it fills the mapped `url` when Azure DevOps
+omits `_links.web`, which the pull request **list** response always does. The API's own link is still
+preferred when present.
+
+---
+
 ## Existing calls reused without modification
 
 - `GET /pullRequests/{prId}` — `getPullRequestById()` for `--pr-number`.

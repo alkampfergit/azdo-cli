@@ -18,6 +18,9 @@ _Targeting **0.15.0**. Working detail: [`docs/changelogs/unreleased.md`](docs/ch
 - `azdo pr list`: single-call PR lookup with `--branch`, `--status`, `--top`.
 - `azdo pr comments` gains `--exclude-system` and `--max-chars`; `reply` gains `--file`; `--repo` added to every `pr` subcommand.
 - Remove the four `scripts/*_pr_*.ps1` helpers — superseded by the commands above.
+- `azdo pr comments` gains `--thread <id>` and `--contains <text>`; `--json` comments carry `truncated`/`originalLength`, pull requests carry `createdByUniqueName`/`createdById`.
+- `pr` group exit codes: 3 = resource not found, 4 = not permitted (was: always 1); `azdo auth diagnose` reports the credential identity.
+- Fix `--json`/`--pr-number` being ignored on the nested `pr comments add|edit|reply` (a write could target the branch's PR instead of `--pr-number`); populate the previously always-`null` PR `url`; auth failures now name the token source.
 
 ## [0.14.1] - 2026-06-26 — ADO HTML-entity decode for markdown fields
 

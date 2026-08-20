@@ -65,6 +65,8 @@ azdo pr comments --pr-number 64         # any PR by number (skips branch lookup)
 azdo pr comments --pr-number 64 --hide-resolved      # or --exclude-resolved (alias)
 azdo pr comments --code-related-only    # only file/line-anchored threads
 azdo pr comments --exclude-system --max-chars 500    # human comments only, truncated
+azdo pr comments --thread 148           # a single thread, by id (selector: exit 1 if absent)
+azdo pr comments --contains '"kind":"review-plan"'   # threads holding a literal substring
 azdo pr status                          # PR checks (status + branch policies + pipeline builds) + code-comment counts
 azdo pr comment-resolve 17 --pr-number 64   # idempotent: exit 0 even when already resolved
 azdo pr comment-reopen 17  --pr-number 64

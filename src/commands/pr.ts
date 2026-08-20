@@ -29,7 +29,7 @@ import {
   postThreadComment,
   updateThreadComment,
 } from '../services/pr-client.js';
-import { requireAuthCredential } from '../services/auth.js';
+import { describeResolvedCredential, requireAuthCredential } from '../services/auth.js';
 import { resolveContext } from '../services/context.js';
 import { validateOrgProjectPair } from '../services/command-helpers.js';
 import { detectRepoName, getCurrentBranch } from '../services/git-remote.js';
@@ -44,6 +44,8 @@ interface PrCommandOptions {
   codeRelatedOnly?: boolean;
   excludeSystem?: boolean;
   maxChars?: string;
+  thread?: string;
+  contains?: string;
   prNumber?: string;
   commentId?: string;
   file?: string;
@@ -94,6 +96,18 @@ function withCommonPrOptions(command: Command): Command {
     .option('--org <org>', 'Azure DevOps organization')
     .option('--project <project>', 'Azure DevOps project')
     .option('--repo <name>', PR_REPO_HELP);
+}
+
+// Commander stores an option's value on the command that DECLARED it. Both
+// `pr comments` and its `add` / `edit` / `reply` subcommands declare
+// --org/--project/--repo/--pr-number/--json, so in the nested form
+// (`azdo pr comments add …`) the value lands on the parent and the
+// subcommand's own opts() never sees it — silently dropping --pr-number (the
+// command would then target the current branch's PR instead of the requested
+// one) and --json. Reading the merged view fixes the nested form; the
+// top-level aliases have no such ancestor and behave identically.
+function mergedPrOptions(command: Command): PrCommandOptions {
+  return command.optsWithGlobals() as PrCommandOptions;
 }
 
 // C-2 (FR-006): the exact zero-match auto-detection error. Emitted verbatim to
@@ -175,12 +189,21 @@ function parseNonNegativeInt(raw: string): number | null {
 }
 
 // Shortens a comment body to `limit` characters, marking the cut with an
-// ellipsis so a truncated comment can never be mistaken for the whole text.
-function truncateContent(text: string, limit: number): string {
+// ellipsis so a truncated comment can never be mistaken for the whole text in
+// human-readable output. `truncated` / `originalLength` carry the same fact in
+// --json, where sniffing for the ellipsis would mean parsing content to learn
+// something about the data.
+interface TruncatedContent {
+  content: string;
+  truncated: boolean;
+  originalLength: number;
+}
+
+function truncateContent(text: string, limit: number): TruncatedContent {
   if (limit <= 0 || text.length <= limit) {
-    return text;
+    return { content: text, truncated: false, originalLength: text.length };
   }
-  return `${text.slice(0, limit)} […]`;
+  return { content: `${text.slice(0, limit)} […]`, truncated: true, originalLength: text.length };
 }
 
 interface ResolvedPrCommandContext {
@@ -199,22 +222,43 @@ function formatBranchName(refName: string): string {
 // synchronous exit from inside an async .action() handler can race libuv's
 // async-handle close on Windows pwsh (observed in issue #34). Callers MUST
 // `return` after writeError() to avoid falling through to the happy path.
-function writeError(message: string): void {
+// Exit-code contract for the `pr` group (documented in docs/commands.md):
+//   0  success, dry runs included
+//   1  validation failure, or any other error (network, unexpected HTTP status)
+//   3  an addressed resource does not exist: pull request, thread, comment
+//   4  not permitted: authentication failure or permission denied
+// A caller can therefore tell "not permitted" from "not found" without
+// scraping stderr. Branch auto-detection zero/multi-match stays at 1: contract
+// C-2/C-3 (019) pins that code, and it is a resolution failure rather than a
+// named resource that could not be found.
+const EXIT_NOT_FOUND = 3;
+const EXIT_NOT_PERMITTED = 4;
+
+function writeError(message: string, exitCode = 1): void {
   process.stderr.write(`Error: ${message}\n`);
-  process.exitCode = 1;
+  process.exitCode = exitCode;
 }
 
 function handlePrCommandError(err: unknown, context?: AzdoContext, mode: 'read' | 'write' = 'read'): void {
   const error = err instanceof Error ? err : new Error(String(err));
 
   if (error.message === 'AUTH_FAILED') {
+    // The first line is unchanged from previous releases (callers match it);
+    // the token-source line is additive and is what makes the failure
+    // actionable — a PAT scoped for Work Items but not Code makes every `pr`
+    // command fail while `azdo get-item` keeps working, which reads as
+    // "the pr commands are broken" unless the message says which token it used.
     const scopeLabel = mode === 'write' ? 'Code (Read & Write)' : 'Code (Read)';
-    writeError(`Authentication failed. Check that your PAT is valid and has the "${scopeLabel}" scope.`);
+    writeError(`Authentication failed. Check that your PAT is valid and has the "${scopeLabel}" scope.`, EXIT_NOT_PERMITTED);
+    const credentialHint = describeResolvedCredential();
+    if (credentialHint !== null) {
+      process.stderr.write(`  ${credentialHint}\n`);
+    }
     return;
   }
 
   if (error.message === 'PERMISSION_DENIED') {
-    writeError(`Access denied. Your PAT may lack ${mode} permissions for project "${context?.project}".`);
+    writeError(`Access denied. Your PAT may lack ${mode} permissions for project "${context?.project}".`, EXIT_NOT_PERMITTED);
     return;
   }
 
@@ -224,7 +268,7 @@ function handlePrCommandError(err: unknown, context?: AzdoContext, mode: 'read' 
   }
 
   if (error.message.startsWith('NOT_FOUND')) {
-    writeError(`Azure DevOps repository not found in ${context?.org}/${context?.project}.`);
+    writeError(`Azure DevOps repository not found in ${context?.org}/${context?.project}.`, EXIT_NOT_FOUND);
     return;
   }
 
@@ -364,22 +408,36 @@ function threadStatusLabel(status: string): string {
   return isThreadResolved(status) ? 'resolved' : status;
 }
 
-// Applies the output-shaping filters to a single thread: drops Azure DevOps
-// system comments (--exclude-system) and shortens bodies (--max-chars).
-// Returns null when filtering left the thread with nothing to show, so a
-// purely system-generated thread disappears instead of printing an empty
-// header.
+// Applies the output-shaping filters to a single thread, in this order:
+//   1. drop Azure DevOps system comments (--exclude-system);
+//   2. keep the thread only if a surviving comment contains --contains;
+//   3. shorten the bodies that are left (--max-chars).
+// The substring test runs on the FULL body, before truncation, so a marker
+// beyond the --max-chars cut is still found — the two flags are routinely
+// combined to locate one thread cheaply.
+// Returns null when filtering left nothing to show, so a purely
+// system-generated (or non-matching) thread disappears instead of printing an
+// empty header.
 function shapeThreadForOutput(
   thread: ActiveCommentThread,
-  opts: { excludeSystem: boolean; maxChars: number },
+  opts: { excludeSystem: boolean; maxChars: number; contains?: string },
 ): ActiveCommentThread | null {
-  const comments: ActivePullRequestComment[] = thread.comments
-    .filter((comment) => !opts.excludeSystem || comment.commentType !== 'system')
-    .map((comment) => ({ ...comment, content: truncateContent(comment.content, opts.maxChars) }));
+  const kept = thread.comments.filter(
+    (comment) => !opts.excludeSystem || comment.commentType !== 'system',
+  );
 
-  if (opts.excludeSystem && comments.length === 0) {
+  if (opts.excludeSystem && kept.length === 0) {
     return null;
   }
+
+  if (opts.contains !== undefined && !kept.some((comment) => comment.content.includes(opts.contains!))) {
+    return null;
+  }
+
+  const comments: ActivePullRequestComment[] = kept.map((comment) => ({
+    ...comment,
+    ...truncateContent(comment.content, opts.maxChars),
+  }));
 
   return { ...thread, comments };
 }
@@ -568,6 +626,8 @@ export function createPrCommentsCommand(): Command {
     .option('--code-related-only', 'show only threads anchored to a file/line; omit general discussion threads')
     .option('--exclude-system', 'omit Azure DevOps system comments (branch updates, reviewer votes, build events)')
     .option('--max-chars <N>', 'truncate each comment body to N characters (0 = no limit, the default)')
+    .option('--thread <id>', 'show only the thread with this numeric id; fails when the pull request has no such thread')
+    .option('--contains <text>', 'show only threads holding a comment that contains this literal, case-sensitive substring (matched before --max-chars truncates)')
     .option('--json', 'output JSON')
     .action(async (options: PrCommandOptions) => {
       validateOrgProjectPair(options);
@@ -592,6 +652,15 @@ export function createPrCommentsCommand(): Command {
         maxChars = parsed;
       }
 
+      let threadFilter: number | null = null;
+      if (options.thread !== undefined) {
+        threadFilter = parsePositivePrNumber(options.thread);
+        if (threadFilter === null) {
+          writeError(`Invalid --thread "${options.thread}"; expected a positive integer.`);
+          return;
+        }
+      }
+
       try {
         const resolved = await resolvePrCommandContext(options, { requireBranch: explicitPrId === null });
         context = resolved.context;
@@ -604,7 +673,7 @@ export function createPrCommentsCommand(): Command {
             pullRequest = await getPullRequestById(resolved.context, resolved.repo, resolved.pat, explicitPrId);
           } catch (err) {
             if (err instanceof Error && err.message.startsWith('NOT_FOUND')) {
-              writeError(`Pull request #${explicitPrId} not found in ${resolved.context.org}/${resolved.context.project}/${resolved.repo}.`);
+              writeError(`Pull request #${explicitPrId} not found in ${resolved.context.org}/${resolved.context.project}/${resolved.repo}.`, EXIT_NOT_FOUND);
               return;
             }
             throw err;
@@ -636,14 +705,27 @@ export function createPrCommentsCommand(): Command {
         const codeRelatedOnly = options.codeRelatedOnly === true;
         const excludeSystem = options.excludeSystem === true;
 
-        const allThreads = await getPullRequestThreads(resolved.context, resolved.repo, resolved.pat, pullRequest.id);
+        const fetchedThreads = await getPullRequestThreads(resolved.context, resolved.repo, resolved.pat, pullRequest.id);
+
+        // --thread is a selector, not a filter: asking for a thread that isn't
+        // on this pull request is an error, not an empty listing, so a caller
+        // re-reading a thread after editing it notices immediately.
+        if (threadFilter !== null && !fetchedThreads.some((thread) => thread.id === threadFilter)) {
+          writeError(`Thread #${threadFilter} not found on pull request #${pullRequest.id}.`, EXIT_NOT_FOUND);
+          return;
+        }
+
+        const allThreads = threadFilter === null
+          ? fetchedThreads
+          : fetchedThreads.filter((thread) => thread.id === threadFilter);
+
         const threads = allThreads
           .filter(
             (thread) =>
               (!hideResolved || !isThreadResolved(thread.status)) &&
               (!codeRelatedOnly || thread.threadContext !== null),
           )
-          .map((thread) => shapeThreadForOutput(thread, { excludeSystem, maxChars }))
+          .map((thread) => shapeThreadForOutput(thread, { excludeSystem, maxChars, contains: options.contains }))
           // A thread whose comments were all system-generated has nothing left
           // to show, so it drops out of the listing entirely.
           .filter((thread): thread is ActiveCommentThread => thread !== null);
@@ -655,8 +737,11 @@ export function createPrCommentsCommand(): Command {
         }
 
         if (threads.length === 0) {
-          if (allThreads.length > 0 && (hideResolved || codeRelatedOnly || excludeSystem)) {
+          if (allThreads.length > 0 && (hideResolved || codeRelatedOnly || excludeSystem || options.contains !== undefined)) {
             const filters: string[] = [];
+            if (options.contains !== undefined) {
+              filters.push('matching');
+            }
             if (codeRelatedOnly) {
               filters.push('code-related');
             }
@@ -727,7 +812,7 @@ async function resolvePullRequestTarget(
       pullRequest = await getPullRequestById(resolved.context, resolved.repo, resolved.pat, explicitPrId);
     } catch (err) {
       if (err instanceof Error && err.message.startsWith('NOT_FOUND')) {
-        writeError(`Pull request #${explicitPrId} not found in ${resolved.context.org}/${resolved.context.project}/${resolved.repo}.`);
+        writeError(`Pull request #${explicitPrId} not found in ${resolved.context.org}/${resolved.context.project}/${resolved.repo}.`, EXIT_NOT_FOUND);
         return null;
       }
       throw err;
@@ -799,7 +884,7 @@ async function runThreadStateChange(
     const threads = await getPullRequestThreads(target.context, target.repo, target.pat, target.pullRequest.id);
     const thread = threads.find((t) => t.id === target.threadId);
     if (!thread) {
-      writeError(`Thread #${target.threadId} not found on pull request #${target.pullRequest.id}.`);
+      writeError(`Thread #${target.threadId} not found on pull request #${target.pullRequest.id}.`, EXIT_NOT_FOUND);
       return;
     }
 
@@ -910,7 +995,7 @@ async function runCommentReply(
     const threads = await getPullRequestThreads(target.context, target.repo, target.pat, target.pullRequest.id);
     const thread = threads.find((t) => t.id === target.threadId);
     if (!thread) {
-      writeError(`Thread #${target.threadId} not found on pull request #${target.pullRequest.id}.`);
+      writeError(`Thread #${target.threadId} not found on pull request #${target.pullRequest.id}.`, EXIT_NOT_FOUND);
       return;
     }
 
@@ -952,8 +1037,8 @@ function buildCommentReplyCommand(name: string, description: string): Command {
     .option('--file <path>', 'read the reply body from a UTF-8 file instead of the inline argument')
     .option('--pr-number <N>', PR_NUMBER_HELP)
     .option('--json', 'output JSON')
-    .action(async (threadIdRaw: string, text: string | undefined, options: PrCommandOptions) => {
-      await runCommentReply(threadIdRaw, text, options);
+    .action(async (threadIdRaw: string, text: string | undefined, _options: PrCommandOptions, command: Command) => {
+      await runCommentReply(threadIdRaw, text, mergedPrOptions(command));
     });
   return command;
 }
@@ -1086,8 +1171,8 @@ function buildCommentAddCommand(name: string, description: string): Command {
     .option('--dry-run', 'resolve the target pull request and print what would be posted, without writing anything')
     .option('--pr-number <N>', PR_NUMBER_HELP)
     .option('--json', 'output JSON')
-    .action(async (text: string | undefined, options: PrCommandOptions) => {
-      await runCommentAdd(text, options);
+    .action(async (text: string | undefined, _options: PrCommandOptions, command: Command) => {
+      await runCommentAdd(text, mergedPrOptions(command));
     });
   return command;
 }
@@ -1127,7 +1212,7 @@ async function fetchThreadForEdit(target: ResolvedThreadTarget): Promise<ActiveC
     );
   } catch (err) {
     if (err instanceof Error && err.message.startsWith('NOT_FOUND')) {
-      writeError(`Thread #${target.threadId} not found on pull request #${target.pullRequest.id}.`);
+      writeError(`Thread #${target.threadId} not found on pull request #${target.pullRequest.id}.`, EXIT_NOT_FOUND);
       return null;
     }
     throw err;
@@ -1146,7 +1231,7 @@ function selectEditableComment(
   if (explicitCommentId !== null) {
     const match = thread.comments.find((comment) => comment.id === explicitCommentId);
     if (match === undefined) {
-      writeError(`Comment #${explicitCommentId} not found in thread #${target.threadId} on pull request #${target.pullRequest.id}.`);
+      writeError(`Comment #${explicitCommentId} not found in thread #${target.threadId} on pull request #${target.pullRequest.id}.`, EXIT_NOT_FOUND);
       return null;
     }
     return match;
@@ -1154,7 +1239,7 @@ function selectEditableComment(
 
   const first = [...thread.comments].sort((a, b) => a.id - b.id)[0];
   if (first === undefined) {
-    writeError(`Thread #${target.threadId} on pull request #${target.pullRequest.id} has no editable comment.`);
+    writeError(`Thread #${target.threadId} on pull request #${target.pullRequest.id} has no editable comment.`, EXIT_NOT_FOUND);
     return null;
   }
   return first;
@@ -1271,11 +1356,11 @@ function buildCommentEditCommand(name: string, description: string): Command {
     .argument('[text]', 'new comment body; omit when using --file')
     .option('--comment-id <N>', 'numeric id of the comment to edit; defaults to the thread\'s first comment')
     .option('--file <path>', 'read the new body from a UTF-8 file instead of the inline argument')
-    .option('--dry-run', 'print the current and replacement bodies, without writing anything')
+    .option('--dry-run', 'print the replacement body plus the current/new lengths, without writing anything (--json also returns previousContent)')
     .option('--pr-number <N>', PR_NUMBER_HELP)
     .option('--json', 'output JSON')
-    .action(async (threadIdRaw: string, text: string | undefined, options: PrCommandOptions) => {
-      await runCommentEdit(threadIdRaw, text, options);
+    .action(async (threadIdRaw: string, text: string | undefined, _options: PrCommandOptions, command: Command) => {
+      await runCommentEdit(threadIdRaw, text, mergedPrOptions(command));
     });
   return command;
 }

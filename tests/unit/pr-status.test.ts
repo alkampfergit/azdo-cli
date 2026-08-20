@@ -20,6 +20,7 @@ vi.mock('../../src/services/git-remote.js', () => ({
 
 vi.mock('../../src/services/auth.js', () => ({
   requireAuthCredential: vi.fn(),
+  describeResolvedCredential: vi.fn(() => null),
 }));
 
 vi.mock('../../src/services/context.js', () => ({
@@ -177,11 +178,11 @@ describe('pr status command', () => {
     });
   });
 
-  it('prints an authentication error and exits with code 1', async () => {
+  it('prints an authentication error and exits with code 4 (not permitted)', async () => {
     vi.mocked(listPullRequests).mockRejectedValue(new Error('AUTH_FAILED'));
     await run([]);
     expect(getStderr()).toContain('Authentication failed');
-    expect(getExitCode()).toBe(1);
+    expect(getExitCode()).toBe(4);
   });
 
   it('reports checks as unavailable (not "none") when both check sources fail, without aborting', async () => {

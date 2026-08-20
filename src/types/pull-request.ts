@@ -11,6 +11,11 @@ export interface BranchPullRequestMatch {
   // callers that never read it stay valid; mapPullRequest() always sets it
   // (null when Azure DevOps returns none).
   description?: string | null;
+  // Author identity beyond the display name, which is neither unique nor
+  // stable and cannot be compared to a token's identity. `uniqueName` is the
+  // account (usually an email), `id` the Azure DevOps identity GUID.
+  createdByUniqueName?: string | null;
+  createdById?: string | null;
 }
 
 export interface PullRequestCheck {
@@ -77,6 +82,11 @@ export interface ActivePullRequestComment {
   // service-generated entries (branch updates, reviewer votes, build events).
   // Optional so existing fixtures stay valid; mapComment() always sets it.
   commentType?: string | null;
+  // Truncation metadata, always emitted by `pr comments` (whether or not
+  // --max-chars cut anything) so a --json consumer never has to sniff the
+  // content for the " […]" marker to tell a cut body from a short one.
+  truncated?: boolean;
+  originalLength?: number;
 }
 
 // Azure DevOps comment-thread status enum. The backend may return other
@@ -119,6 +129,8 @@ export interface AzdoPullRequest {
   targetRefName: string;
   createdBy?: {
     displayName?: string;
+    uniqueName?: string;
+    id?: string;
   };
   _links?: {
     web?: {

@@ -94,6 +94,58 @@
 
 ---
 
+## Phase 9: Follow-up round — consumer feedback (2026-08-20)
+
+**Purpose**: act on the report filed by the first real consumer of these commands. Every item was
+verified against the current code first; two were already fixed by the work above and were closed
+without changes.
+
+- [x] T031 Reproduce the reported "`--dry-run` ignores `--json`" through a real `azdo pr …` tree and
+      identify the root cause: options declared on both `pr comments` and its subcommands are stored
+      on the parent, so `--pr-number` (wrong PR targeted) and `--json` were both lost in the nested
+      form
+- [x] T032 Read `mergedPrOptions()` (`optsWithGlobals()`) in the `add` / `edit` / `reply` handlers
+- [x] T033 [P] Add `tests/unit/pr-command-tree.test.ts` — nested vs alias parity for `--pr-number`,
+      `--json` and `--repo` on all three subcommands
+- [x] T034 Build the pull request browser URL in `mapPullRequest()` (context threaded through) so
+      `url` is never null; update the three tests that pinned `null`
+- [x] T035 [P] Map `createdByUniqueName` / `createdById`, with raw `uniqueName` / `id` on
+      `AzdoPullRequest.createdBy`
+- [x] T036 [P] Add `--thread <id>` (selector, exit 3 when absent) and `--contains <text>` (literal,
+      case-sensitive, matched before truncation) to `pr comments`; name the `matching` filter in the
+      "everything filtered out" message
+- [x] T037 [P] Return `truncated` / `originalLength` from `truncateContent()` and emit them on every
+      comment
+- [x] T038 Introduce `EXIT_NOT_FOUND` (3) and `EXIT_NOT_PERMITTED` (4), give `writeError()` an exit
+      code parameter, and map every not-found / not-permitted path; leave the 019 C-2/C-3 codes at 1
+- [x] T039 [P] Add `tests/unit/pr-exit-codes.test.ts`; update the ten existing expectations that
+      asserted exit 1 for those paths
+- [x] T040 Remember the resolved credential in `services/auth.ts` and add
+      `describeResolvedCredential()`; print it under the scope line on AUTH_FAILED, keeping the first
+      line byte-identical
+- [x] T041 [P] Add `tests/unit/auth-credential-source.test.ts`; extend every auth mock factory with
+      the new export
+- [x] T042 [P] Add `resolveCredentialIdentity()` (connectionData) and `identity` to
+      `AuthDiagnosticReport` + formatter; skip the lookup when connectivity failed
+- [x] T043 [P] Cover the identity path in `tests/unit/auth-diagnostics.test.ts` (mapping, partial
+      payload, every failure mode, skip-on-failed-connectivity)
+- [x] T044 [P] Document the credential resolution order in `azdo config --help`
+- [x] T045 Correct the `comments edit --dry-run` help text to match what it prints
+- [x] T046 Docs: exit-code table, JSON field reference and identity block in `docs/commands.md`;
+      new flags in `README.md`; `docs/changelogs/unreleased.md` + `CHANGELOG.md`; contract, spec,
+      plan, research, data-model and this file
+- [x] T047 Run `npm test` (992 unit tests green: typecheck, lint, build, unit, integration)
+
+### Closed without changes
+
+- The report's "the message always says `Code (Read)`" — already fixed by the work above:
+  `add` / `edit` / `reply` / `comment-resolve` / `comment-reopen` / `open` report
+  `Code (Read & Write)` through `handlePrCommandError(err, context, 'write')`.
+- The request to print the current body on `edit --dry-run` — declined; the help text was wrong, not
+  the behaviour. `--json` returns `previousContent` for a real diff.
+
+---
+
 ## Dependencies & Execution Order
 
 - Phase 2 blocks every later phase.
@@ -101,6 +153,8 @@
 - US3 (Phase 5) and US4 (Phase 6) touch different code paths and can run in parallel with each other.
 - US5 (Phase 7) touches every command factory, so it lands after the new commands exist to avoid churn.
 - T029 (script deletion) lands only after the equivalent commands are green.
+- Phase 9 is a follow-up round on the same branch: T032 (option plumbing) comes first because
+  the bug can misdirect a write; T033 gates it; the rest are independent of each other.
 
 ## Parallel Opportunities
 
@@ -112,7 +166,9 @@ Phase 8: T025, T026, T027, T028 in parallel
 
 ## Notes
 
-- No new runtime dependencies.
+- No new runtime dependencies, in either round.
 - `--dry-run` is the only affordance without precedent in the repository; see `research.md` §8.
 - Existing command output is unchanged when none of the new flags is passed — asserted by the
   "no new flags" regression test in `pr-comments-filters.test.ts`.
+- Phase 9 changes two observable behaviours on purpose: `url` is no longer `null`, and failures
+  carry exit code 3 / 4 instead of 1. Both were requested; see `spec.md` FR-013 / FR-018.

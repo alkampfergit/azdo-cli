@@ -1,5 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
-import { diagnoseAuth, formatDiagnosticReport, runConnectivityTest } from '../../src/services/auth-diagnostics.js';
+import {
+  diagnoseAuth,
+  formatDiagnosticReport,
+  resolveCredentialIdentity,
+  runConnectivityTest,
+} from '../../src/services/auth-diagnostics.js';
 import type { AuthDiagnosticReport } from '../../src/types/auth-diagnostics.js';
 import type { AuthCredential } from '../../src/types/work-item.js';
 
@@ -71,6 +76,88 @@ describe('diagnoseAuth', () => {
   });
 });
 
+const CONNECTION_DATA = JSON.stringify({
+  authenticatedUser: {
+    id: '11111111-2222-3333-4444-555555555555',
+    providerDisplayName: 'William Verdolini',
+    properties: { Account: { $value: 'william.verdolini@example.test' } },
+  },
+});
+
+// Answering "is this token the pull request author?" needs a comparable
+// identity; a display name is neither unique nor stable.
+describe('resolveCredentialIdentity', () => {
+  it('maps the connectionData payload', async () => {
+    fetchRawMock.mockResolvedValue({ status: 200, body: CONNECTION_DATA });
+
+    const identity = await resolveCredentialIdentity('myorg', mockPatCred);
+
+    expect(identity).toEqual({
+      displayName: 'William Verdolini',
+      uniqueName: 'william.verdolini@example.test',
+      id: '11111111-2222-3333-4444-555555555555',
+    });
+    expect(fetchRawMock).toHaveBeenCalledWith(
+      expect.stringContaining('/_apis/connectionData'),
+      expect.any(Object),
+    );
+  });
+
+  it('returns nulls per field when the payload is partial', async () => {
+    fetchRawMock.mockResolvedValue({ status: 200, body: '{"authenticatedUser":{"id":"abc"}}' });
+
+    await expect(resolveCredentialIdentity('myorg', mockPatCred)).resolves.toEqual({
+      displayName: null,
+      uniqueName: null,
+      id: 'abc',
+    });
+  });
+
+  it.each([
+    ['a non-2xx response', { status: 403, body: '' }],
+    ['a body without authenticatedUser', { status: 200, body: '{}' }],
+    ['an unparseable body', { status: 200, body: 'not json' }],
+  ])('returns null on %s rather than failing the diagnosis', async (_case, response) => {
+    fetchRawMock.mockResolvedValue(response);
+    await expect(resolveCredentialIdentity('myorg', mockPatCred)).resolves.toBeNull();
+  });
+
+  it('returns null when the request throws', async () => {
+    fetchRawMock.mockRejectedValue(new Error('boom'));
+    await expect(resolveCredentialIdentity('myorg', mockPatCred)).resolves.toBeNull();
+  });
+});
+
+describe('diagnoseAuth identity', () => {
+  it('includes the identity when connectivity succeeded', async () => {
+    fetchRawMock.mockReset();
+    fetchRawMock
+      .mockResolvedValueOnce({ status: 200, body: '{"value":[]}' })
+      .mockResolvedValueOnce({ status: 200, body: CONNECTION_DATA });
+
+    const report = await diagnoseAuth('myorg', 'proj', async () => mockPatCred);
+
+    expect(report.identity?.uniqueName).toBe('william.verdolini@example.test');
+  });
+
+  it('skips the identity lookup when connectivity already failed', async () => {
+    fetchRawMock.mockReset();
+    fetchRawMock.mockResolvedValue({ status: 401, body: '' });
+
+    const report = await diagnoseAuth('myorg', 'proj', async () => mockPatCred);
+
+    expect(report.connectivityStatus).toBe('failed');
+    expect(report.identity).toBeNull();
+    // One call only: no point asking who we are on a connection that failed.
+    expect(fetchRawMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('reports a null identity when there is no credential at all', async () => {
+    const report = await diagnoseAuth('myorg', null, async () => null);
+    expect(report.identity).toBeNull();
+  });
+});
+
 describe('formatDiagnosticReport', () => {
   const okReport: AuthDiagnosticReport = {
     authType: 'pat',
@@ -79,6 +166,7 @@ describe('formatDiagnosticReport', () => {
     project: 'myproj',
     connectivityStatus: 'ok',
     connectivityError: null,
+    identity: null,
   };
 
   it('formats human-readable report', () => {
@@ -120,6 +208,25 @@ describe('formatDiagnosticReport', () => {
     const text = formatDiagnosticReport(noCredReport, false);
     expect(text).toContain('(none)');
     expect(text).toContain('no credentials found');
+  });
+
+  it('prints the credential identity when it was resolved', () => {
+    const withIdentity: AuthDiagnosticReport = {
+      ...okReport,
+      identity: {
+        displayName: 'William Verdolini',
+        uniqueName: 'william.verdolini@example.test',
+        id: '11111111-2222-3333-4444-555555555555',
+      },
+    };
+    const text = formatDiagnosticReport(withIdentity, false);
+    expect(text).toContain('Identity:     William Verdolini <william.verdolini@example.test>');
+    expect(text).toContain('Identity id:  11111111-2222-3333-4444-555555555555');
+  });
+
+  it('omits the identity lines when it could not be resolved', () => {
+    const text = formatDiagnosticReport(okReport, false);
+    expect(text).not.toContain('Identity:');
   });
 
   it('shows (not set) for null project', () => {

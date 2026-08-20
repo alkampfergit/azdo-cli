@@ -29,6 +29,7 @@ vi.mock('../../src/services/git-remote.js', () => ({
 
 vi.mock('../../src/services/auth.js', () => ({
   requireAuthCredential: vi.fn(),
+  describeResolvedCredential: vi.fn(() => null),
 }));
 
 vi.mock('../../src/services/context.js', () => ({
@@ -139,7 +140,7 @@ describe('pr comments reply', () => {
     await run(['148', 'text', '--pr-number', '64']);
 
     expect(getStderr()).toContain('Thread #148 not found on pull request #64.');
-    expect(getExitCode()).toBe(1);
+    expect(getExitCode()).toBe(3);
   });
 
   it('honours --repo instead of the origin remote', async () => {

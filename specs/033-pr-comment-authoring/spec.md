@@ -167,12 +167,48 @@ confirm it targets that repository.
 - **FR-011**: The four PowerShell scripts MUST be deleted; no Azure DevOps capability ships as a
   script in this repository.
 
+#### Follow-up round: consumer feedback (2026-08-20)
+
+Raised by the first real consumer of these commands — a Claude Code skill that resolves the PR from
+the branch, reads the discussion, posts a ~13k-character plan as a new overview thread, and later
+edits that comment in place. Its stated constraint: `--json` must be machine-parseable and existing
+output lines must stay stable, so every change below is additive.
+
+- **FR-012**: Options declared on both `pr comments` and its `add` / `edit` / `reply` subcommands
+  MUST take effect in the nested form as well as through the top-level aliases. In particular
+  `--pr-number` MUST NOT silently fall back to the current branch's pull request, and `--json` MUST
+  NOT be ignored.
+- **FR-013**: The mapped pull request `url` MUST always be populated; the CLI MUST build the browser
+  URL when Azure DevOps omits `_links.web` (which the pull request *list* response does) instead of
+  emitting `null`.
+- **FR-014**: The mapped pull request MUST expose a comparable author identity
+  (`createdByUniqueName`, `createdById`) alongside the existing display name.
+- **FR-015**: `azdo auth diagnose` MUST report the identity behind the credential in use, so a
+  caller can verify the token belongs to the PR author before posting. The lookup MUST be
+  best-effort: never fatal, and skipped when connectivity has already failed.
+- **FR-016**: `azdo pr comments` MUST support `--thread <id>` (a selector: an absent id fails) and
+  `--contains <text>` (literal, case-sensitive, matched on the full body before `--max-chars`
+  truncates).
+- **FR-017**: Each comment in `pr comments --json` MUST report `truncated` and `originalLength`, so
+  a truncated body is never identified by sniffing for the ellipsis marker.
+- **FR-018**: The `pr` group MUST use distinct exit codes so a caller can tell "not permitted" from
+  "not found" without reading stderr: `3` for an absent addressed resource, `4` for auth failure or
+  permission denied, `1` otherwise. Codes pinned by earlier contracts MUST NOT change.
+- **FR-019**: An authentication failure MUST name the credential actually used and how to replace
+  it, keeping the existing first line intact; `azdo config --help` MUST document the credential
+  resolution order and the fact that only `AZDO_PAT` is read.
+- **FR-020**: `--help` text MUST describe what a command actually prints (`comments edit --dry-run`
+  claimed to print the current body while printing a length delta).
+
 ### Key Entities
 
 - **Comment thread** — a PR discussion thread; created by `comments add`, targeted by id everywhere else.
 - **Comment** — one message inside a thread, identified by `commentId`, carrying a `commentType`
   (`text` / `system`) used by `--exclude-system`.
-- **Pull request** — now also carries `description`, which `pr list --json` and `pr comments --json` expose.
+- **Pull request** — now also carries `description`, an always-populated `url`, and the author
+  identity fields `createdByUniqueName` / `createdById`, all exposed through `--json`.
+- **Credential identity** — display name, account (`uniqueName`) and GUID behind the token in use,
+  reported by `azdo auth diagnose`; the value a caller compares against the PR author.
 
 ## Success Criteria *(mandatory)*
 
@@ -183,6 +219,11 @@ confirm it targets that repository.
 - **SC-003**: Existing `pr` command output is unchanged when none of the new flags is passed.
 - **SC-004**: `pr list` issues exactly one Azure DevOps request per invocation.
 - **SC-005**: `npm test` passes, including new unit coverage for every new command and flag.
+- **SC-006**: Every option shared between `pr comments` and its subcommands takes effect in both the
+  nested and the alias form, asserted by a suite that drives a real `azdo pr` command tree.
+- **SC-007**: No `--json` field requires parsing prose to interpret: truncation, author identity and
+  the pull request URL are explicit fields.
+- **SC-008**: A caller can distinguish "not permitted" from "not found" from the exit code alone.
 
 ## Assumptions
 
@@ -194,6 +235,21 @@ confirm it targets that repository.
 - The separate `AZDO_WI_PAT` variable used by the scripts is not carried over: the CLI already reads
   `AZDO_PAT` and the OS credential store, and callers who need a distinct token can set `AZDO_PAT`
   for the invocation.
+
+### Session 2026-08-20 (consumer feedback)
+
+- Q: Cover "which identity owns the token?" with a new `azdo whoami`? → A: No — extend
+  `azdo auth diagnose --json` with an `identity` block. That command already reports auth type,
+  source and connectivity, so identity belongs there rather than in new top-level surface.
+- Q: Distinct exit codes, or a machine-readable error object in `--json`? → A: Distinct exit codes on
+  the `pr` group (`3` not found, `4` not permitted). Precedent: `pipeline wait` already uses
+  meaningful codes. Callers that only test `!= 0` are unaffected.
+- Q: Should `pr comments edit --dry-run` print the current body, as its help claimed? → A: No. On a
+  13k-character comment that is noise; the help text was corrected, the length delta kept, and
+  `--json` returns `previousContent` for a real diff.
+- Q: Should the branch auto-detection zero/multi-match move to exit `3`? → A: No. Contract C-2/C-3 of
+  `019-fix-pr-command` pins exit `1`, and it is a resolution failure rather than an addressed
+  resource that is missing.
 
 ## Clarifications
 

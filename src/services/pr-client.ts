@@ -92,7 +92,19 @@ function buildPullRequestBuildsUrl(context: AzdoContext, prId: number): URL {
   return url;
 }
 
-function mapPullRequest(repo: string, pullRequest: AzdoPullRequest): BranchPullRequestMatch {
+// Azure DevOps returns `_links.web` only on some payloads — the pull request
+// LIST response omits it — so the browser URL is built deterministically and
+// the API's own link is preferred whenever it is present. Callers were
+// otherwise left to rebuild this string themselves from a null field.
+function buildPullRequestWebUrl(context: AzdoContext, repo: string, prId: number): string {
+  return `https://dev.azure.com/${encodeURIComponent(context.org)}/${encodeURIComponent(context.project)}/_git/${encodeURIComponent(repo)}/pullrequest/${prId}`;
+}
+
+function mapPullRequest(
+  context: AzdoContext,
+  repo: string,
+  pullRequest: AzdoPullRequest,
+): BranchPullRequestMatch {
   return {
     id: pullRequest.pullRequestId,
     title: pullRequest.title,
@@ -101,8 +113,10 @@ function mapPullRequest(repo: string, pullRequest: AzdoPullRequest): BranchPullR
     targetRefName: pullRequest.targetRefName,
     status: pullRequest.status,
     createdBy: pullRequest.createdBy?.displayName ?? null,
-    url: pullRequest._links?.web?.href ?? null,
+    url: pullRequest._links?.web?.href ?? buildPullRequestWebUrl(context, repo, pullRequest.pullRequestId),
     description: pullRequest.description?.trim() || null,
+    createdByUniqueName: pullRequest.createdBy?.uniqueName ?? null,
+    createdById: pullRequest.createdBy?.id ?? null,
   };
 }
 
@@ -342,7 +356,7 @@ export async function getPullRequestById(
 
   const response = await fetchWithErrors(url.toString(), { headers: authHeaders(cred) });
   const data = await readJsonResponse<AzdoPullRequest>(response);
-  return mapPullRequest(repo, data);
+  return mapPullRequest(context, repo, data);
 }
 
 export async function listPullRequests(
@@ -357,7 +371,7 @@ export async function listPullRequests(
     { headers: authHeaders(cred) },
   );
   const data = await readJsonResponse<AzdoPrListResponse>(response);
-  return data.value.map((pullRequest) => mapPullRequest(repo, pullRequest));
+  return data.value.map((pullRequest) => mapPullRequest(context, repo, pullRequest));
 }
 
 // Repository-wide pull request listing used by `azdo pr list`. Unlike
@@ -376,7 +390,7 @@ export async function listRepositoryPullRequests(
   });
   const response = await fetchWithErrors(url.toString(), { headers: authHeaders(cred) });
   const data = await readJsonResponse<AzdoPrListResponse>(response);
-  return data.value.map((pullRequest) => mapPullRequest(repo, pullRequest));
+  return data.value.map((pullRequest) => mapPullRequest(context, repo, pullRequest));
 }
 
 export async function getPullRequestChecks(
@@ -504,7 +518,7 @@ export async function openPullRequest(
     branch: sourceBranch,
     targetBranch: 'develop',
     created: true,
-    pullRequest: mapPullRequest(repo, data),
+    pullRequest: mapPullRequest(context, repo, data),
   };
 }
 

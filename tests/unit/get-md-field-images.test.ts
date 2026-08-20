@@ -10,7 +10,10 @@ vi.mock('../../src/services/azdo-client.js', () => ({
   getWorkItemFieldValue: vi.fn(),
   downloadAttachment: vi.fn(),
 }));
-vi.mock('../../src/services/auth.js', () => ({ requireAuthCredential: vi.fn() }));
+vi.mock('../../src/services/auth.js', () => ({
+  requireAuthCredential: vi.fn(),
+  describeResolvedCredential: vi.fn(() => null),
+}));
 vi.mock('../../src/services/context.js', () => ({ resolveContext: vi.fn() }));
 
 import { getWorkItemFieldValue, downloadAttachment } from '../../src/services/azdo-client.js';

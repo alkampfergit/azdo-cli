@@ -29,6 +29,17 @@
 - [x] Feature meets measurable outcomes defined in Success Criteria
 - [x] No implementation details leak into specification
 
+## Follow-up round: consumer feedback (2026-08-20)
+
+- [x] Every reported item verified against the current code before acting
+- [x] Items already fixed by this feature closed explicitly, not silently
+- [x] Declined item (print the current body on `edit --dry-run`) recorded with its reason
+- [x] Requirements added as FR-012..FR-020 rather than edited into the original set
+- [x] Decisions requiring the owner's call (identity surface, exit-code scheme) recorded in
+      Clarifications
+- [x] Observable changes (`url` no longer null, new exit codes) called out in the plan's risk table
+      and in the changelog
+
 ## Notes
 
 - FR-011 (delete the PowerShell scripts) is a repository-hygiene requirement rather than a user-facing
