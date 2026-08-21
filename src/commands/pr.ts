@@ -1603,7 +1603,7 @@ async function runReviewerAdd(
     const isRequired = options.required === true;
     const existingReviewers = await getPullRequestReviewers(target.context, target.repo, target.pat, target.pullRequest.id);
     const existing = existingReviewers.find((reviewer) => reviewer.id === identity.id);
-    const noop = existing !== undefined && existing.isRequired === isRequired;
+    const noop = existing?.isRequired === isRequired;
 
     const added = noop
       ? existing
