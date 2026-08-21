@@ -36,7 +36,7 @@ export async function resolveCredentialIdentity(
   org: string,
   cred: AuthCredential,
 ): Promise<AuthIdentity | null> {
-  const url = `https://dev.azure.com/${encodeURIComponent(org)}/_apis/connectionData?api-version=7.1`;
+  const url = `https://dev.azure.com/${encodeURIComponent(org)}/_apis/connectionData?api-version=7.1-preview`;
   try {
     const result = await fetchRaw(url, { headers: authHeaders(cred) });
     if (result.status < 200 || result.status >= 300) {

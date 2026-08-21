@@ -13,3 +13,5 @@
 ### Changed
 
 ### Fixed
+
+- **`resolveCredentialIdentity` (`azdo auth diagnose`)** — the `connectionData` call used `api-version=7.1` instead of the required `api-version=7.1-preview`, so it always 400'd and silently resolved to `null`; `azdo auth diagnose --json` always reported `identity: null` regardless of credential validity. Found while adding a reviewer integration test that needed the authenticated identity (#82, #83)
