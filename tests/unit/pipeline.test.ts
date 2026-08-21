@@ -16,6 +16,7 @@ vi.mock('../../src/services/pipeline-client.js', () => ({
 
 vi.mock('../../src/services/auth.js', () => ({
   requireAuthCredential: vi.fn(),
+  describeResolvedCredential: vi.fn(() => null),
 }));
 
 vi.mock('../../src/services/context.js', () => ({
@@ -159,22 +160,16 @@ describe('pipeline get-runs', () => {
 });
 
 describe('pipeline wait — exit code reflects result', () => {
-  it('exits 0 on success', async () => {
-    vi.mocked(getBuildStatus).mockResolvedValue({ state: 'completed', result: 'succeeded' });
+  // One row per completed result. The timeout case below is not part of this
+  // table: it passes different arguments and asserts on stdout too.
+  it.each<[string, number]>([
+    ['succeeded', 0],
+    ['failed', 1],
+    ['canceled', 2],
+  ])('a %s run exits %d', async (result, expected) => {
+    vi.mocked(getBuildStatus).mockResolvedValue({ state: 'completed', result });
     await run(['wait', '100']);
-    expect(getExitCode()).toBe(0);
-  });
-
-  it('exits 1 on failure', async () => {
-    vi.mocked(getBuildStatus).mockResolvedValue({ state: 'completed', result: 'failed' });
-    await run(['wait', '100']);
-    expect(getExitCode()).toBe(1);
-  });
-
-  it('exits 2 on cancel', async () => {
-    vi.mocked(getBuildStatus).mockResolvedValue({ state: 'completed', result: 'canceled' });
-    await run(['wait', '100']);
-    expect(getExitCode()).toBe(2);
+    expect(getExitCode()).toBe(expected);
   });
 
   it('exits 124 on timeout without canceling the run', async () => {

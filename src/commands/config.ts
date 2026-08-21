@@ -126,6 +126,26 @@ export function createConfigCommand(): Command {
   const config = new Command('config');
   config.description('Manage CLI settings');
 
+  // Credentials deliberately live outside this file (`config list` never shows
+  // a token), so `config --help` is where a user looks for "which token is the
+  // CLI using?" and finds nothing. Spelling the resolution order out here is
+  // what turns an auth failure into something diagnosable.
+  config.addHelpText(
+    'after',
+    [
+      '',
+      'Credentials are NOT stored in the configuration file. They are resolved in this order:',
+      '  1. the AZDO_PAT environment variable (wins over everything below)',
+      '  2. the OS credential store, per organization (see `azdo auth login`)',
+      '  3. a .env file with AZDO_PAT, searched upwards from the working directory',
+      '',
+      'Only AZDO_PAT is read — AZURE_DEVOPS_PAT, AZURE_DEVOPS_EXT_PAT and AZDO_TOKEN are ignored.',
+      'A pull request command needs a credential with the Code (Read) scope, or Code (Read & Write)',
+      'to post, edit or resolve comments; Work Items scopes alone are not enough.',
+      'Run `azdo auth diagnose` to see which credential is in use.',
+    ].join('\n'),
+  );
+
   const set = new Command('set');
   set
     .description('Set a configuration value')

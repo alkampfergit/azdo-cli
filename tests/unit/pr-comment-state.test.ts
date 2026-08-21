@@ -29,6 +29,7 @@ vi.mock('../../src/services/git-remote.js', () => ({
 
 vi.mock('../../src/services/auth.js', () => ({
   requireAuthCredential: vi.fn(),
+  describeResolvedCredential: vi.fn(() => null),
 }));
 
 vi.mock('../../src/services/context.js', () => ({
@@ -156,7 +157,8 @@ describe('pr comment-resolve command', () => {
 
     expect(vi.mocked(patchThreadStatus)).not.toHaveBeenCalled();
     expect(getStderr()).toContain('Thread #17 not found on pull request #64');
-    expect(getExitCode()).toBe(1);
+    // 3 = addressed resource not found (see the exit-code contract in pr.ts).
+    expect(getExitCode()).toBe(3);
   });
 
   it('rejects invalid --pr-number without crashing', async () => {
