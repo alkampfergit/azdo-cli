@@ -118,7 +118,7 @@ Single project — `src/`, `tests/` at repository root (see plan.md Project Stru
 
 - [X] T025 [P] Update `docs/commands.md` with `pr work-items link|unlink`, `pr reviewers add|remove`, and the `pr open` `--description`-becomes-optional behavior change
 - [X] T026 Review and update `README.md` to reflect the new commands and usage examples (constitution Development Workflow requirement)
-- [ ] T027 Manually run through [quickstart.md](quickstart.md)'s verification checklist against a real Azure DevOps project
+- [X] T027 Manually run through [quickstart.md](quickstart.md)'s verification checklist against a real Azure DevOps project — done via CLI + a new self-healing integration test (`tests/integration/pull-requests.test.ts`); work-item link/unlink and reviewer add/remove/noop mechanics all verified live. Found and flagged one real-world limitation: `resolveReviewerIdentity`'s Identities-API call (vssps.dev.azure.com) 401s for at least one Code(R/W)-scoped PAT/org even though the reviewer PUT/DELETE itself succeeds — see docs/commands.md and the PR report Notes
 - [X] T028 [P] Full verification pass: `npm run lint && npm run typecheck && npm test && npm run build` (zero errors/warnings per constitution IV)
 
 ---

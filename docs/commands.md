@@ -180,6 +180,7 @@ work from outside a checkout of the target repository.
 - `add` defaults to an **optional** reviewer; `--required` marks them required instead. Re-adding an existing reviewer with a different `--required` value updates their required/optional flag in place — no duplicate entry. Re-adding with the *same* flag is a no-op (exit 0, `noop: true` in `--json`, no write issued)
 - `remove` is idempotent: removing someone who isn't currently a reviewer is a no-op (exit 0, `noop: true` in `--json`)
 - An identity that cannot be resolved (zero or multiple matches) fails (exit `1`) naming the input
+- Identity resolution calls the legacy Identities API (`vssps.dev.azure.com/.../identities`), a separate host/authorization boundary from the rest of `pr`. Some organizations reject this call for PATs that otherwise have full **Code (Read & Write)** scope, surfacing as an authentication error from `pr reviewers add`/`remove` even though the underlying reviewer add/remove call would have succeeded. If you hit this, the PAT (or org policy) needs explicit access to that legacy endpoint — there is currently no workaround in the CLI itself
 - `--json` returns `{ pullRequestId, reviewer: { id, displayName, uniqueName, isRequired } | null, noop }`
 
 **`azdo pr comments`**
