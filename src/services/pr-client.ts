@@ -5,6 +5,9 @@ import type {
   ActiveCommentThread,
   ActivePullRequestComment,
   AzdoCreatedComment,
+  AzdoIdentity,
+  AzdoIdentityListResponse,
+  AzdoIdentityRefWithVote,
   AzdoPolicyEvaluation,
   AzdoPolicyEvaluationListResponse,
   AzdoPrListResponse,
@@ -12,15 +15,21 @@ import type {
   AzdoProject,
   AzdoPullRequest,
   AzdoPullRequestStatus,
+  AzdoRepository,
   AzdoThread,
   AzdoThreadListResponse,
+  AzdoWorkItem,
+  AzdoWorkItemRelation,
   BranchPullRequestMatch,
   CreatableThreadStatus,
   PostedPrComment,
   PullRequestCheck,
   PullRequestOpenRequest,
   PullRequestOpenResult,
+  PullRequestTemplate,
   PullRequestThreadCreateRequest,
+  Reviewer,
+  WorkItemLink,
 } from '../types/pull-request.js';
 
 function buildPullRequestsUrl(
@@ -466,13 +475,29 @@ export async function getPullRequestBuilds(
   }));
 }
 
+// Composes the final PR description from the operator's (optional) input and
+// a resolved template (FR-012–FR-014): template alone, text-then-template,
+// text alone, or — when neither is available — `null` (caller must reject).
+function composeDescription(description: string | undefined, template: PullRequestTemplate | null): string | null {
+  if (description !== undefined && template !== null) {
+    return `${description}\n\n${template.content}`;
+  }
+  if (description !== undefined) {
+    return description;
+  }
+  if (template !== null) {
+    return template.content;
+  }
+  return null;
+}
+
 export async function openPullRequest(
   context: AzdoContext,
   repo: string,
   cred: AuthCredential,
   sourceBranch: string,
   title: string,
-  description: string,
+  description?: string,
 ): Promise<PullRequestOpenResult> {
   const existing = await listPullRequests(context, repo, cred, sourceBranch, {
     status: 'active',
@@ -492,11 +517,21 @@ export async function openPullRequest(
     throw new Error(`AMBIGUOUS_PRS:${existing.map((pullRequest) => pullRequest.id).join(',')}`);
   }
 
+  const repository = await getRepository(context, repo, cred);
+  const defaultBranch = repository.defaultBranch
+    ? repository.defaultBranch.replace(/^refs\/heads\//, '')
+    : 'develop';
+  const template = await resolvePullRequestTemplate(context, repo, cred, defaultBranch, 'develop');
+  const finalDescription = composeDescription(description, template);
+  if (finalDescription === null) {
+    throw new Error('DESCRIPTION_REQUIRED');
+  }
+
   const payload: PullRequestOpenRequest = {
     sourceRefName: `refs/heads/${sourceBranch}`,
     targetRefName: 'refs/heads/develop',
     title,
-    description,
+    description: finalDescription,
   };
 
   const url = new URL(
@@ -666,4 +701,356 @@ export async function postThreadComment(
     content: data.content ?? content,
     publishedAt: data.publishedDate ?? null,
   };
+}
+
+// --- Work item links (034-pr-link-review) --------------------------------
+
+function buildRepositoryUrl(context: AzdoContext, repo: string): URL {
+  const url = new URL(
+    `https://dev.azure.com/${encodeURIComponent(context.org)}/${encodeURIComponent(context.project)}/_apis/git/repositories/${encodeURIComponent(repo)}`,
+  );
+  url.searchParams.set('api-version', '7.1');
+  return url;
+}
+
+// Fetches the repository's GUID and default branch. The GUID is needed to
+// build the work-item artifact link URI; the default branch is where pull
+// request templates must be read from (never the PR's source/target branch).
+export async function getRepository(
+  context: AzdoContext,
+  repo: string,
+  cred: AuthCredential,
+): Promise<AzdoRepository> {
+  const response = await fetchWithErrors(buildRepositoryUrl(context, repo).toString(), {
+    headers: authHeaders(cred),
+  });
+  return readJsonResponse<AzdoRepository>(response);
+}
+
+export async function resolveRepositoryId(
+  context: AzdoContext,
+  repo: string,
+  cred: AuthCredential,
+): Promise<string> {
+  const repository = await getRepository(context, repo, cred);
+  return repository.id;
+}
+
+function buildWorkItemArtifactUri(projectId: string, repositoryId: string, prId: number): string {
+  return `vstfs:///Git/PullRequestId/${projectId}/${repositoryId}/${prId}`;
+}
+
+function buildWorkItemUrl(context: AzdoContext, workItemId: number): URL {
+  const url = new URL(
+    `https://dev.azure.com/${encodeURIComponent(context.org)}/${encodeURIComponent(context.project)}/_apis/wit/workitems/${workItemId}`,
+  );
+  url.searchParams.set('api-version', '7.1');
+  return url;
+}
+
+// Fetches a work item's relations. A 404 (work item does not exist) is left
+// to propagate as `NOT_FOUND` — reused by callers as FR-003's error.
+export async function getWorkItemRelations(
+  context: AzdoContext,
+  cred: AuthCredential,
+  workItemId: number,
+): Promise<AzdoWorkItemRelation[]> {
+  const url = buildWorkItemUrl(context, workItemId);
+  url.searchParams.set('$expand', 'relations');
+
+  const response = await fetchWithErrors(url.toString(), { headers: authHeaders(cred) });
+  const data = await readJsonResponse<AzdoWorkItem>(response);
+  return data.relations ?? [];
+}
+
+async function patchWorkItemRelations(
+  context: AzdoContext,
+  cred: AuthCredential,
+  workItemId: number,
+  operation: { op: 'add'; path: '/relations/-'; value: AzdoWorkItemRelation } | { op: 'remove'; path: string },
+): Promise<void> {
+  const url = buildWorkItemUrl(context, workItemId);
+  await fetchWithErrors(url.toString(), {
+    method: 'PATCH',
+    headers: {
+      ...authHeaders(cred),
+      'Content-Type': 'application/json-patch+json',
+    },
+    body: JSON.stringify([operation]),
+  });
+}
+
+interface WorkItemLinkResult extends WorkItemLink {
+  noop: boolean;
+}
+
+// Links a work item to a pull request by adding an ArtifactLink relation on
+// the work item (FR-001). Already-linked is a no-op (FR-005) — detected by
+// scanning the work item's existing relations before writing.
+export async function linkWorkItemToPullRequest(
+  context: AzdoContext,
+  repo: string,
+  cred: AuthCredential,
+  prId: number,
+  workItemId: number,
+): Promise<WorkItemLinkResult> {
+  const [projectId, repositoryId, relations] = await Promise.all([
+    resolveProjectId(context, cred),
+    resolveRepositoryId(context, repo, cred),
+    getWorkItemRelations(context, cred, workItemId),
+  ]);
+  const uri = buildWorkItemArtifactUri(projectId, repositoryId, prId);
+
+  const alreadyLinked = relations.some((relation) => relation.rel === 'ArtifactLink' && relation.url === uri);
+  if (alreadyLinked) {
+    return { pullRequestId: prId, workItemId, url: uri, noop: true };
+  }
+
+  await patchWorkItemRelations(context, cred, workItemId, {
+    op: 'add',
+    path: '/relations/-',
+    value: { rel: 'ArtifactLink', url: uri, attributes: { name: 'Pull Request' } },
+  });
+
+  return { pullRequestId: prId, workItemId, url: uri, noop: false };
+}
+
+// Unlinks a work item from a pull request by removing its ArtifactLink
+// relation (FR-002). Not-currently-linked is a no-op (FR-004) with no
+// network write beyond the relations lookup.
+export async function unlinkWorkItemFromPullRequest(
+  context: AzdoContext,
+  repo: string,
+  cred: AuthCredential,
+  prId: number,
+  workItemId: number,
+): Promise<WorkItemLinkResult> {
+  const [projectId, repositoryId, relations] = await Promise.all([
+    resolveProjectId(context, cred),
+    resolveRepositoryId(context, repo, cred),
+    getWorkItemRelations(context, cred, workItemId),
+  ]);
+  const uri = buildWorkItemArtifactUri(projectId, repositoryId, prId);
+
+  const index = relations.findIndex((relation) => relation.rel === 'ArtifactLink' && relation.url === uri);
+  if (index === -1) {
+    return { pullRequestId: prId, workItemId, url: uri, noop: true };
+  }
+
+  await patchWorkItemRelations(context, cred, workItemId, { op: 'remove', path: `/relations/${index}` });
+
+  return { pullRequestId: prId, workItemId, url: uri, noop: false };
+}
+
+// --- Reviewers (034-pr-link-review) ---------------------------------------
+
+function buildIdentitiesUrl(org: string, filterValue: string): URL {
+  const url = new URL(`https://vssps.dev.azure.com/${encodeURIComponent(org)}/_apis/identities`);
+  url.searchParams.set('searchFilter', 'General');
+  url.searchParams.set('filterValue', filterValue);
+  url.searchParams.set('api-version', '7.1');
+  return url;
+}
+
+// Resolves a reviewer's email/unique name to their identity GUID. Zero or
+// more-than-one match is treated identically — ambiguous input cannot be
+// safely resolved (FR-009) — and throws `RESOLVE_FAILED:<input>`, which
+// command code turns into the "could not be resolved" error naming the input.
+export async function resolveReviewerIdentity(
+  org: string,
+  cred: AuthCredential,
+  input: string,
+): Promise<AzdoIdentity> {
+  const response = await fetchWithErrors(buildIdentitiesUrl(org, input).toString(), {
+    headers: authHeaders(cred),
+  });
+  const data = await readJsonResponse<AzdoIdentityListResponse>(response);
+
+  if (data.value.length !== 1) {
+    throw new Error(`RESOLVE_FAILED:${input}`);
+  }
+
+  return data.value[0];
+}
+
+function buildPullRequestReviewerUrl(context: AzdoContext, repo: string, prId: number, reviewerId: string): URL {
+  const url = new URL(
+    `https://dev.azure.com/${encodeURIComponent(context.org)}/${encodeURIComponent(context.project)}/_apis/git/repositories/${encodeURIComponent(repo)}/pullRequests/${prId}/reviewers/${encodeURIComponent(reviewerId)}`,
+  );
+  url.searchParams.set('api-version', '7.1');
+  return url;
+}
+
+function mapReviewer(data: AzdoIdentityRefWithVote): Reviewer {
+  return {
+    id: data.id,
+    displayName: data.displayName ?? null,
+    uniqueName: data.uniqueName ?? null,
+    isRequired: data.isRequired ?? false,
+    vote: data.vote ?? 0,
+  };
+}
+
+// Lists a pull request's current reviewers — used to detect no-ops for
+// `pr reviewers remove` (FR-010) without relying on a DELETE's error shape.
+export async function getPullRequestReviewers(
+  context: AzdoContext,
+  repo: string,
+  cred: AuthCredential,
+  prId: number,
+): Promise<Reviewer[]> {
+  const url = new URL(
+    `https://dev.azure.com/${encodeURIComponent(context.org)}/${encodeURIComponent(context.project)}/_apis/git/repositories/${encodeURIComponent(repo)}/pullRequests/${prId}/reviewers`,
+  );
+  url.searchParams.set('api-version', '7.1');
+
+  const response = await fetchWithErrors(url.toString(), { headers: authHeaders(cred) });
+  const data = await readJsonResponse<{ value: AzdoIdentityRefWithVote[] }>(response);
+  return data.value.map(mapReviewer);
+}
+
+// Adds a reviewer, or updates an existing one's required/optional flag in
+// place (FR-007, FR-011). `vote` is always sent as 0 — Azure DevOps requires
+// this when one identity adds another as a reviewer.
+export async function addOrUpdatePullRequestReviewer(
+  context: AzdoContext,
+  repo: string,
+  cred: AuthCredential,
+  prId: number,
+  reviewerId: string,
+  isRequired: boolean,
+): Promise<Reviewer> {
+  const response = await fetchWithErrors(buildPullRequestReviewerUrl(context, repo, prId, reviewerId).toString(), {
+    method: 'PUT',
+    headers: {
+      ...authHeaders(cred),
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ vote: 0, isRequired }),
+  });
+  const data = await readJsonResponse<AzdoIdentityRefWithVote>(response);
+  return mapReviewer(data);
+}
+
+interface ReviewerRemoveResult {
+  reviewer: Reviewer | null;
+  noop: boolean;
+}
+
+// Removes a reviewer (FR-008). Removing someone who is not currently a
+// reviewer is a no-op (FR-010), checked against the current list first so
+// Azure DevOps's own 404 never has to be interpreted as "not a reviewer".
+export async function removePullRequestReviewer(
+  context: AzdoContext,
+  repo: string,
+  cred: AuthCredential,
+  prId: number,
+  reviewerId: string,
+): Promise<ReviewerRemoveResult> {
+  const reviewers = await getPullRequestReviewers(context, repo, cred, prId);
+  const existing = reviewers.find((reviewer) => reviewer.id === reviewerId);
+  if (existing === undefined) {
+    return { reviewer: null, noop: true };
+  }
+
+  await fetchWithErrors(buildPullRequestReviewerUrl(context, repo, prId, reviewerId).toString(), {
+    method: 'DELETE',
+    headers: authHeaders(cred),
+  });
+
+  return { reviewer: existing, noop: false };
+}
+
+// --- Pull request templates (034-pr-link-review) --------------------------
+
+// The four candidate roots pull request templates may live under, in the
+// order Azure DevOps itself searches them (research.md §3).
+const TEMPLATE_ROOTS: readonly string[] = ['.azuredevops', '.vsts', 'docs', ''];
+const TEMPLATE_EXTENSIONS: readonly string[] = ['.md', '.txt'];
+
+function joinTemplatePath(root: string, relative: string): string {
+  return root === '' ? relative : `${root}/${relative}`;
+}
+
+// Branch-specific template candidates for `branch`, most- to least-specific:
+// `feature/foo/december` yields `feature/foo/december`, `feature/foo`,
+// `feature` (multi-level fallback, up to 10 levels per the platform docs).
+function branchTemplateSegments(branch: string): string[] {
+  const parts = branch.split('/').filter((part) => part.length > 0).slice(0, 10);
+  const segments: string[] = [];
+  for (let i = parts.length; i > 0; i -= 1) {
+    segments.push(parts.slice(0, i).join('/'));
+  }
+  return segments;
+}
+
+async function fetchRepositoryItemContent(
+  context: AzdoContext,
+  repo: string,
+  cred: AuthCredential,
+  path: string,
+  branch: string,
+): Promise<string | null> {
+  const url = new URL(
+    `https://dev.azure.com/${encodeURIComponent(context.org)}/${encodeURIComponent(context.project)}/_apis/git/repositories/${encodeURIComponent(repo)}/items`,
+  );
+  url.searchParams.set('path', path);
+  url.searchParams.set('versionDescriptor.version', branch);
+  url.searchParams.set('versionDescriptor.versionType', 'branch');
+  url.searchParams.set('includeContent', 'true');
+  url.searchParams.set('api-version', '7.1');
+
+  let response: Response;
+  try {
+    response = await fetchWithErrors(url.toString(), {
+      headers: { ...authHeaders(cred), Accept: 'text/plain' },
+    });
+  } catch (err) {
+    // A missing candidate path is not an error — the search continues to
+    // the next candidate (contracts/api-calls.md §7). Any other failure
+    // (auth, permission, network) propagates.
+    if (err instanceof Error && err.message.startsWith('NOT_FOUND')) {
+      return null;
+    }
+    throw err;
+  }
+
+  return response.text();
+}
+
+// Resolves a repository-defined pull request description template for
+// `pr open` (FR-012/FR-013): branch-specific first (multi-level fallback,
+// across all four candidate roots), then the repository-wide default,
+// always read from the repository's default branch. Returns null when no
+// template exists anywhere in the search.
+export async function resolvePullRequestTemplate(
+  context: AzdoContext,
+  repo: string,
+  cred: AuthCredential,
+  defaultBranch: string,
+  targetBranch: string,
+): Promise<PullRequestTemplate | null> {
+  for (const segment of branchTemplateSegments(targetBranch)) {
+    for (const root of TEMPLATE_ROOTS) {
+      for (const ext of TEMPLATE_EXTENSIONS) {
+        const path = joinTemplatePath(root, `pull_request_template/branches/${segment}${ext}`);
+        const content = await fetchRepositoryItemContent(context, repo, cred, path, defaultBranch);
+        if (content !== null) {
+          return { path, content, kind: 'branch' };
+        }
+      }
+    }
+  }
+
+  for (const root of TEMPLATE_ROOTS) {
+    for (const ext of TEMPLATE_EXTENSIONS) {
+      const path = joinTemplatePath(root, `pull_request_template${ext}`);
+      const content = await fetchRepositoryItemContent(context, repo, cred, path, defaultBranch);
+      if (content !== null) {
+        return { path, content, kind: 'default' };
+      }
+    }
+  }
+
+  return null;
 }

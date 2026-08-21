@@ -260,3 +260,73 @@ export interface AzdoPolicyEvaluation {
     };
   };
 }
+
+// A pull request reviewer, resolved and reported by `pr reviewers add|remove`.
+// `vote` mirrors Azure DevOps's read-only vote value (0 = no vote); this
+// feature never sets it to anything but 0 when adding/updating a reviewer.
+export interface Reviewer {
+  id: string;
+  displayName: string | null;
+  uniqueName: string | null;
+  isRequired: boolean;
+  vote: number;
+}
+
+// Result of a work item link/unlink operation. `url` is the artifact URI
+// used to find/remove the underlying relation; not surfaced in command output.
+export interface WorkItemLink {
+  pullRequestId: number;
+  workItemId: number;
+  url: string;
+}
+
+// A resolved pull request description template, used by `pr open` when
+// `--description` is omitted. `kind` records which resolution rule matched.
+export interface PullRequestTemplate {
+  path: string;
+  content: string;
+  kind: 'branch' | 'default';
+}
+
+// Minimal shape of GET .../_apis/git/repositories/{repo}. `id` builds the
+// work-item artifact link URI (projectId/repositoryId/prId); `defaultBranch`
+// is where pull request templates must be read from (never the PR's source
+// or target branch — see research.md).
+export interface AzdoRepository {
+  id: string;
+  defaultBranch?: string;
+}
+
+// GET https://vssps.dev.azure.com/{org}/_apis/identities?searchFilter=General&filterValue=...
+export interface AzdoIdentityListResponse {
+  value: AzdoIdentity[];
+}
+
+export interface AzdoIdentity {
+  id: string;
+  providerDisplayName?: string;
+  properties?: {
+    Account?: { $value?: string };
+  };
+}
+
+// IdentityRefWithVote — the reviewers endpoint's request/response shape.
+export interface AzdoIdentityRefWithVote {
+  id: string;
+  displayName?: string;
+  uniqueName?: string;
+  isRequired?: boolean;
+  vote?: number;
+}
+
+// Minimal work item shape needed to read/patch its `relations` array.
+export interface AzdoWorkItem {
+  id: number;
+  relations?: AzdoWorkItemRelation[];
+}
+
+export interface AzdoWorkItemRelation {
+  rel: string;
+  url: string;
+  attributes?: { name?: string };
+}
