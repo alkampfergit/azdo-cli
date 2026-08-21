@@ -1018,6 +1018,51 @@ async function fetchRepositoryItemContent(
   return response.text();
 }
 
+// Candidate branch-specific template paths, most- to least-specific branch
+// segment, across all four candidate roots and both file extensions.
+function branchTemplateCandidates(targetBranch: string): string[] {
+  const paths: string[] = [];
+  for (const segment of branchTemplateSegments(targetBranch)) {
+    for (const root of TEMPLATE_ROOTS) {
+      for (const ext of TEMPLATE_EXTENSIONS) {
+        paths.push(joinTemplatePath(root, `pull_request_template/branches/${segment}${ext}`));
+      }
+    }
+  }
+  return paths;
+}
+
+// Candidate default-template paths across all four candidate roots and both
+// file extensions.
+function defaultTemplateCandidates(): string[] {
+  const paths: string[] = [];
+  for (const root of TEMPLATE_ROOTS) {
+    for (const ext of TEMPLATE_EXTENSIONS) {
+      paths.push(joinTemplatePath(root, `pull_request_template${ext}`));
+    }
+  }
+  return paths;
+}
+
+// Fetches each candidate path in order and returns the first one that
+// resolves to real content, tagged with `kind`; null if none do.
+async function firstMatchingTemplate(
+  context: AzdoContext,
+  repo: string,
+  cred: AuthCredential,
+  defaultBranch: string,
+  candidates: string[],
+  kind: PullRequestTemplate['kind'],
+): Promise<PullRequestTemplate | null> {
+  for (const path of candidates) {
+    const content = await fetchRepositoryItemContent(context, repo, cred, path, defaultBranch);
+    if (content !== null) {
+      return { path, content, kind };
+    }
+  }
+  return null;
+}
+
 // Resolves a repository-defined pull request description template for
 // `pr open` (FR-012/FR-013): branch-specific first (multi-level fallback,
 // across all four candidate roots), then the repository-wide default,
@@ -1030,27 +1075,12 @@ export async function resolvePullRequestTemplate(
   defaultBranch: string,
   targetBranch: string,
 ): Promise<PullRequestTemplate | null> {
-  for (const segment of branchTemplateSegments(targetBranch)) {
-    for (const root of TEMPLATE_ROOTS) {
-      for (const ext of TEMPLATE_EXTENSIONS) {
-        const path = joinTemplatePath(root, `pull_request_template/branches/${segment}${ext}`);
-        const content = await fetchRepositoryItemContent(context, repo, cred, path, defaultBranch);
-        if (content !== null) {
-          return { path, content, kind: 'branch' };
-        }
-      }
-    }
+  const branchMatch = await firstMatchingTemplate(
+    context, repo, cred, defaultBranch, branchTemplateCandidates(targetBranch), 'branch',
+  );
+  if (branchMatch !== null) {
+    return branchMatch;
   }
 
-  for (const root of TEMPLATE_ROOTS) {
-    for (const ext of TEMPLATE_EXTENSIONS) {
-      const path = joinTemplatePath(root, `pull_request_template${ext}`);
-      const content = await fetchRepositoryItemContent(context, repo, cred, path, defaultBranch);
-      if (content !== null) {
-        return { path, content, kind: 'default' };
-      }
-    }
-  }
-
-  return null;
+  return firstMatchingTemplate(context, repo, cred, defaultBranch, defaultTemplateCandidates(), 'default');
 }
