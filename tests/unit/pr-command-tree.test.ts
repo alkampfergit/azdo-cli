@@ -18,6 +18,7 @@ vi.mock('../../src/services/pr-client.js', async (importOriginal) => {
     unlinkWorkItemFromPullRequest: vi.fn(),
     resolveReviewerIdentity: vi.fn(),
     addOrUpdatePullRequestReviewer: vi.fn(),
+    getPullRequestReviewers: vi.fn(),
     removePullRequestReviewer: vi.fn(),
   };
 });
@@ -45,6 +46,7 @@ import {
   unlinkWorkItemFromPullRequest,
   resolveReviewerIdentity,
   addOrUpdatePullRequestReviewer,
+  getPullRequestReviewers,
   removePullRequestReviewer,
 } from '../../src/services/pr-client.js';
 import { detectRepoName, getCurrentBranch } from '../../src/services/git-remote.js';
@@ -101,6 +103,7 @@ beforeEach(() => {
   vi.mocked(unlinkWorkItemFromPullRequest).mockResolvedValue({ pullRequestId: 4804, workItemId: 1234, url: 'vstfs:///Git/PullRequestId/p/r/4804', noop: false });
   vi.mocked(resolveReviewerIdentity).mockResolvedValue({ id: 'identity-guid', providerDisplayName: 'Jane Reviewer' });
   vi.mocked(addOrUpdatePullRequestReviewer).mockResolvedValue({ id: 'identity-guid', displayName: 'Jane Reviewer', uniqueName: 'jane@example.com', isRequired: false, vote: 0 });
+  vi.mocked(getPullRequestReviewers).mockResolvedValue([]);
   vi.mocked(removePullRequestReviewer).mockResolvedValue({ reviewer: { id: 'identity-guid', displayName: 'Jane Reviewer', uniqueName: 'jane@example.com', isRequired: false, vote: 0 }, noop: false });
 });
 
@@ -246,5 +249,20 @@ describe('pr reviewers add|remove — nested option plumbing', () => {
 
     expect(vi.mocked(addOrUpdatePullRequestReviewer)).not.toHaveBeenCalled();
     expect(getExitCode()).toBe(1);
+  });
+
+  it('treats re-adding a reviewer with the same required/optional flag as a no-op (no PUT)', async () => {
+    vi.mocked(getPullRequestReviewers).mockResolvedValue([
+      { id: 'identity-guid', displayName: 'Jane Reviewer', uniqueName: 'jane@example.com', isRequired: true, vote: 0 },
+    ]);
+
+    await runTree(['pr', 'reviewers', 'add', 'jane@example.com', '--pr-number', '4804', '--required', '--json']);
+
+    expect(vi.mocked(addOrUpdatePullRequestReviewer)).not.toHaveBeenCalled();
+    expect(JSON.parse(getStdout())).toEqual({
+      pullRequestId: 4804,
+      reviewer: { id: 'identity-guid', displayName: 'Jane Reviewer', uniqueName: 'jane@example.com', isRequired: true },
+      noop: true,
+    });
   });
 });

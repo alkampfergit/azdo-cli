@@ -770,7 +770,7 @@ async function patchWorkItemRelations(
   operation: { op: 'add'; path: '/relations/-'; value: AzdoWorkItemRelation } | { op: 'remove'; path: string },
 ): Promise<void> {
   const url = buildWorkItemUrl(context, workItemId);
-  await fetchWithErrors(url.toString(), {
+  const response = await fetchWithErrors(url.toString(), {
     method: 'PATCH',
     headers: {
       ...authHeaders(cred),
@@ -778,6 +778,9 @@ async function patchWorkItemRelations(
     },
     body: JSON.stringify([operation]),
   });
+  if (!response.ok) {
+    throw new Error(`HTTP_${response.status}`);
+  }
 }
 
 interface WorkItemLinkResult extends WorkItemLink {
@@ -953,10 +956,13 @@ export async function removePullRequestReviewer(
     return { reviewer: null, noop: true };
   }
 
-  await fetchWithErrors(buildPullRequestReviewerUrl(context, repo, prId, reviewerId).toString(), {
+  const response = await fetchWithErrors(buildPullRequestReviewerUrl(context, repo, prId, reviewerId).toString(), {
     method: 'DELETE',
     headers: authHeaders(cred),
   });
+  if (!response.ok) {
+    throw new Error(`HTTP_${response.status}`);
+  }
 
   return { reviewer: existing, noop: false };
 }
@@ -998,6 +1004,7 @@ async function fetchRepositoryItemContent(
   url.searchParams.set('versionDescriptor.version', branch);
   url.searchParams.set('versionDescriptor.versionType', 'branch');
   url.searchParams.set('includeContent', 'true');
+  url.searchParams.set('$format', 'text');
   url.searchParams.set('api-version', '7.1');
 
   let response: Response;
@@ -1013,6 +1020,10 @@ async function fetchRepositoryItemContent(
       return null;
     }
     throw err;
+  }
+
+  if (!response.ok) {
+    throw new Error(`HTTP_${response.status}`);
   }
 
   return response.text();

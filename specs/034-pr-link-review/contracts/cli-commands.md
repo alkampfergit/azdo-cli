@@ -79,7 +79,7 @@ shape.
 
 | Code | When |
 | --- | --- |
-| 0 | added, or required/optional flag updated on an existing reviewer (FR-011) |
+| 0 | added, required/optional flag updated on an existing reviewer (FR-011), or already exactly as requested (no-op, `noop: true`) |
 | 1 | reviewer identity cannot be resolved (FR-009) — `Reviewer "<input>" could not be resolved to an Azure DevOps identity.`; ambiguous (multiple matches) uses the same message |
 | 3 | pull request not found |
 | 4 | auth/permission failure |

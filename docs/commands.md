@@ -177,7 +177,7 @@ work from outside a checkout of the target repository.
 
 **`azdo pr reviewers add <reviewer>`** / **`azdo pr reviewers remove <reviewer>`**
 - `<reviewer>` is an email or Azure DevOps unique name, resolved to an identity via the Identities API
-- `add` defaults to an **optional** reviewer; `--required` marks them required instead. Re-adding an existing reviewer with a different `--required` value updates their required/optional flag in place — no duplicate entry
+- `add` defaults to an **optional** reviewer; `--required` marks them required instead. Re-adding an existing reviewer with a different `--required` value updates their required/optional flag in place — no duplicate entry. Re-adding with the *same* flag is a no-op (exit 0, `noop: true` in `--json`, no write issued)
 - `remove` is idempotent: removing someone who isn't currently a reviewer is a no-op (exit 0, `noop: true` in `--json`)
 - An identity that cannot be resolved (zero or multiple matches) fails (exit `1`) naming the input
 - `--json` returns `{ pullRequestId, reviewer: { id, displayName, uniqueName, isRequired } | null, noop }`

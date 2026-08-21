@@ -32,6 +32,7 @@ import {
   unlinkWorkItemFromPullRequest,
   resolveReviewerIdentity,
   addOrUpdatePullRequestReviewer,
+  getPullRequestReviewers,
   removePullRequestReviewer,
 } from '../services/pr-client.js';
 import { describeResolvedCredential, requireAuthCredential } from '../services/auth.js';
@@ -1600,23 +1601,36 @@ async function runReviewerAdd(
     }
 
     const isRequired = options.required === true;
-    const added = await addOrUpdatePullRequestReviewer(
-      target.context,
-      target.repo,
-      target.pat,
-      target.pullRequest.id,
-      identity.id,
-      isRequired,
-    );
+    const existingReviewers = await getPullRequestReviewers(target.context, target.repo, target.pat, target.pullRequest.id);
+    const existing = existingReviewers.find((reviewer) => reviewer.id === identity.id);
+    const noop = existing !== undefined && existing.isRequired === isRequired;
+
+    const added = noop
+      ? existing
+      : await addOrUpdatePullRequestReviewer(
+        target.context,
+        target.repo,
+        target.pat,
+        target.pullRequest.id,
+        identity.id,
+        isRequired,
+      );
 
     const result: PrReviewerResult = {
       pullRequestId: target.pullRequest.id,
       reviewer: { id: added.id, displayName: added.displayName, uniqueName: added.uniqueName, isRequired: added.isRequired },
-      noop: false,
+      noop,
     };
 
     if (options.json) {
       process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+      return;
+    }
+
+    if (noop) {
+      const label = added.displayName ?? added.uniqueName ?? reviewer;
+      const kind = added.isRequired ? 'required' : 'optional';
+      process.stdout.write(`${label} is already a ${kind} reviewer on pull request #${target.pullRequest.id}.\n`);
       return;
     }
 

@@ -515,7 +515,7 @@ describe('pr-client', () => {
   });
 
   describe('linkWorkItemToPullRequest / unlinkWorkItemFromPullRequest', () => {
-    function mockLinkFetch(existingRelations: Array<{ rel: string; url: string }>): void {
+    function mockLinkFetch(existingRelations: Array<{ rel: string; url: string }>, patchStatus = 200): void {
       vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
         const url = String(input);
         const method = init?.method ?? 'GET';
@@ -530,7 +530,7 @@ describe('pr-client', () => {
           return { ok: true, status: 200, json: async () => ({ id: 1234, relations: existingRelations }) } as Response;
         }
         if (url.includes('/workitems/1234') && method === 'PATCH') {
-          return { ok: true, status: 200, json: async () => ({ id: 1234 }) } as Response;
+          return { ok: patchStatus < 400, status: patchStatus, json: async () => ({ id: 1234 }) } as Response;
         }
         throw new Error(`unexpected fetch: ${method} ${url}`);
       });
@@ -572,6 +572,12 @@ describe('pr-client', () => {
 
       expect(result.noop).toBe(true);
       expect(fetchSpy).not.toHaveBeenCalledWith(expect.stringContaining('/workitems/1234'), expect.objectContaining({ method: 'PATCH' }));
+    });
+
+    it('rejects when the PATCH returns a non-OK status other than 401/403/404', async () => {
+      mockLinkFetch([], 500);
+
+      await expect(linkWorkItemToPullRequest(context, 'repo-name', 'pat', 77, 1234)).rejects.toThrow('HTTP_500');
     });
   });
 
@@ -674,6 +680,22 @@ describe('pr-client', () => {
       expect(fetchSpy).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ method: 'DELETE' }));
     });
 
+    it('rejects when the DELETE returns a non-OK status other than 401/403/404', async () => {
+      vi.spyOn(globalThis, 'fetch').mockImplementation(async (_input, init) => {
+        if ((init?.method ?? 'GET') === 'DELETE') {
+          return { ok: false, status: 409, json: async () => ({}) } as Response;
+        }
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ value: [{ id: 'identity-guid', displayName: 'Jane', uniqueName: 'jane@example.com', isRequired: false, vote: 0 }] }),
+        } as Response;
+      });
+
+      await expect(removePullRequestReviewer(context, 'repo-name', 'pat', 77, 'identity-guid'))
+        .rejects.toThrow('HTTP_409');
+    });
+
     it('treats removing a non-reviewer as a no-op (FR-010) without calling DELETE', async () => {
       const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
         ok: true,
@@ -727,6 +749,24 @@ describe('pr-client', () => {
       mockTemplateFetch(null);
 
       await expect(resolvePullRequestTemplate(context, 'repo-name', 'pat', 'develop', 'develop')).resolves.toBeNull();
+    });
+
+    it('requests the raw text format explicitly ($format=text)', async () => {
+      const fetchSpy = mockTemplateFetch({ path: 'docs/pull_request_template/branches/develop.md', content: 'Branch template' });
+
+      await resolvePullRequestTemplate(context, 'repo-name', 'pat', 'develop', 'develop');
+
+      expect(fetchSpy).toHaveBeenCalledWith(
+        expect.stringContaining('%24format=text'),
+        expect.any(Object),
+      );
+    });
+
+    it('aborts the search on a non-404 failure instead of treating it as "no template"', async () => {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue({ ok: false, status: 500, headers: { get: () => null } } as unknown as Response);
+
+      await expect(resolvePullRequestTemplate(context, 'repo-name', 'pat', 'develop', 'develop'))
+        .rejects.toThrow('HTTP_500');
     });
   });
 
