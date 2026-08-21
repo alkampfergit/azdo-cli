@@ -14,6 +14,11 @@ vi.mock('../../src/services/pr-client.js', async (importOriginal) => {
     createPullRequestThread: vi.fn(),
     updateThreadComment: vi.fn(),
     postThreadComment: vi.fn(),
+    linkWorkItemToPullRequest: vi.fn(),
+    unlinkWorkItemFromPullRequest: vi.fn(),
+    resolveReviewerIdentity: vi.fn(),
+    addOrUpdatePullRequestReviewer: vi.fn(),
+    removePullRequestReviewer: vi.fn(),
   };
 });
 
@@ -36,6 +41,11 @@ import {
   listPullRequests,
   postThreadComment,
   updateThreadComment,
+  linkWorkItemToPullRequest,
+  unlinkWorkItemFromPullRequest,
+  resolveReviewerIdentity,
+  addOrUpdatePullRequestReviewer,
+  removePullRequestReviewer,
 } from '../../src/services/pr-client.js';
 import { detectRepoName, getCurrentBranch } from '../../src/services/git-remote.js';
 import { requireAuthCredential } from '../../src/services/auth.js';
@@ -87,6 +97,11 @@ beforeEach(() => {
   });
   vi.mocked(updateThreadComment).mockResolvedValue({ id: 3, author: 'Alice', content: 'new', publishedAt: null });
   vi.mocked(postThreadComment).mockResolvedValue({ id: 9, author: 'Alice', content: 'reply', publishedAt: null });
+  vi.mocked(linkWorkItemToPullRequest).mockResolvedValue({ pullRequestId: 4804, workItemId: 1234, url: 'vstfs:///Git/PullRequestId/p/r/4804', noop: false });
+  vi.mocked(unlinkWorkItemFromPullRequest).mockResolvedValue({ pullRequestId: 4804, workItemId: 1234, url: 'vstfs:///Git/PullRequestId/p/r/4804', noop: false });
+  vi.mocked(resolveReviewerIdentity).mockResolvedValue({ id: 'identity-guid', providerDisplayName: 'Jane Reviewer' });
+  vi.mocked(addOrUpdatePullRequestReviewer).mockResolvedValue({ id: 'identity-guid', displayName: 'Jane Reviewer', uniqueName: 'jane@example.com', isRequired: false, vote: 0 });
+  vi.mocked(removePullRequestReviewer).mockResolvedValue({ reviewer: { id: 'identity-guid', displayName: 'Jane Reviewer', uniqueName: 'jane@example.com', isRequired: false, vote: 0 }, noop: false });
 });
 
 afterEach(() => {
@@ -159,5 +174,77 @@ describe('pr comments reply — nested vs alias option plumbing', () => {
       commentId: 9,
       content: 'reply',
     });
+  });
+});
+
+describe('pr work-items link|unlink — nested option plumbing', () => {
+  it('honours --pr-number, --repo, and --json on link', async () => {
+    await runTree(['pr', 'work-items', 'link', '1234', '--pr-number', '4804', '--repo', 'other-repo', '--json']);
+
+    expect(vi.mocked(getPullRequestById)).toHaveBeenCalledWith(expect.any(Object), 'other-repo', expect.any(Object), 4804);
+    expect(vi.mocked(detectRepoName)).not.toHaveBeenCalled();
+    expect(vi.mocked(linkWorkItemToPullRequest)).toHaveBeenCalledWith(expect.any(Object), 'other-repo', expect.any(Object), 4804, 1234);
+    expect(JSON.parse(getStdout())).toEqual({ pullRequestId: 4804, workItemId: 1234, noop: false });
+    expect(getExitCode()).toBe(0);
+  });
+
+  it('honours --pr-number and --json on unlink', async () => {
+    await runTree(['pr', 'work-items', 'unlink', '1234', '--pr-number', '4804', '--json']);
+
+    expect(vi.mocked(getPullRequestById)).toHaveBeenCalledWith(expect.any(Object), 'repo-name', expect.any(Object), 4804);
+    expect(vi.mocked(unlinkWorkItemFromPullRequest)).toHaveBeenCalledWith(expect.any(Object), 'repo-name', expect.any(Object), 4804, 1234);
+    expect(JSON.parse(getStdout())).toEqual({ pullRequestId: 4804, workItemId: 1234, noop: false });
+  });
+
+  it('rejects a non-numeric work item id', async () => {
+    await runTree(['pr', 'work-items', 'link', 'abc', '--pr-number', '4804']);
+
+    expect(vi.mocked(linkWorkItemToPullRequest)).not.toHaveBeenCalled();
+    expect(getExitCode()).toBe(1);
+  });
+});
+
+describe('pr reviewers add|remove — nested option plumbing', () => {
+  it('honours --pr-number, --repo, --required, and --json on add', async () => {
+    await runTree(['pr', 'reviewers', 'add', 'jane@example.com', '--pr-number', '4804', '--repo', 'other-repo', '--required', '--json']);
+
+    expect(vi.mocked(getPullRequestById)).toHaveBeenCalledWith(expect.any(Object), 'other-repo', expect.any(Object), 4804);
+    expect(vi.mocked(resolveReviewerIdentity)).toHaveBeenCalledWith('test-org', expect.any(Object), 'jane@example.com');
+    expect(vi.mocked(addOrUpdatePullRequestReviewer)).toHaveBeenCalledWith(
+      expect.any(Object), 'other-repo', expect.any(Object), 4804, 'identity-guid', true,
+    );
+    expect(JSON.parse(getStdout())).toEqual({
+      pullRequestId: 4804,
+      reviewer: { id: 'identity-guid', displayName: 'Jane Reviewer', uniqueName: 'jane@example.com', isRequired: false },
+      noop: false,
+    });
+  });
+
+  it('defaults to optional when --required is omitted', async () => {
+    await runTree(['pr', 'reviewers', 'add', 'jane@example.com', '--pr-number', '4804']);
+
+    expect(vi.mocked(addOrUpdatePullRequestReviewer)).toHaveBeenCalledWith(
+      expect.any(Object), 'repo-name', expect.any(Object), 4804, 'identity-guid', false,
+    );
+  });
+
+  it('honours --pr-number and --json on remove', async () => {
+    await runTree(['pr', 'reviewers', 'remove', 'jane@example.com', '--pr-number', '4804', '--json']);
+
+    expect(vi.mocked(removePullRequestReviewer)).toHaveBeenCalledWith(expect.any(Object), 'repo-name', expect.any(Object), 4804, 'identity-guid');
+    expect(JSON.parse(getStdout())).toEqual({
+      pullRequestId: 4804,
+      reviewer: { id: 'identity-guid', displayName: 'Jane Reviewer', uniqueName: 'jane@example.com', isRequired: false },
+      noop: false,
+    });
+  });
+
+  it('reports an unresolvable reviewer identity with exit code 1', async () => {
+    vi.mocked(resolveReviewerIdentity).mockRejectedValue(new Error('RESOLVE_FAILED:nobody@example.com'));
+
+    await runTree(['pr', 'reviewers', 'add', 'nobody@example.com', '--pr-number', '4804']);
+
+    expect(vi.mocked(addOrUpdatePullRequestReviewer)).not.toHaveBeenCalled();
+    expect(getExitCode()).toBe(1);
   });
 });
