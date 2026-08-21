@@ -12,15 +12,21 @@ the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-_Targeting **0.15.0**. Working detail: [`docs/changelogs/unreleased.md`](docs/changelogs/unreleased.md)._
+_Targeting **0.16.0**. Working detail: [`docs/changelogs/unreleased.md`](docs/changelogs/unreleased.md)._
+
+## [0.15.0] - 2026-08-21 — PR comment authoring & diagnostics
+
+`azdo pr comments add`/`edit` create and rewrite PR comment threads, `pr list`
+adds single-call PR lookup, and comment output gains filtering, truncation
+metadata, and clearer auth/permission diagnostics.
+→ [details](docs/changelogs/0.15.0.md)
 
 - `azdo pr comments add` / `edit` (+ `comment-add`/`comment-edit` aliases): create a new PR thread, rewrite a comment in place; `--file`, `--status`, `--dry-run`.
 - `azdo pr list`: single-call PR lookup with `--branch`, `--status`, `--top`.
-- `azdo pr comments` gains `--exclude-system` and `--max-chars`; `reply` gains `--file`; `--repo` added to every `pr` subcommand.
-- Remove the four `scripts/*_pr_*.ps1` helpers — superseded by the commands above.
-- `azdo pr comments` gains `--thread <id>` and `--contains <text>`; `--json` comments carry `truncated`/`originalLength`, pull requests carry `createdByUniqueName`/`createdById`.
+- `azdo pr comments` gains `--exclude-system`, `--max-chars`, `--thread <id>`, `--contains <text>`; `reply` gains `--file`; `--repo` added to every `pr` subcommand.
 - `pr` group exit codes: 3 = resource not found, 4 = not permitted (was: always 1); `azdo auth diagnose` reports the credential identity.
-- Fix `--json`/`--pr-number` being ignored on the nested `pr comments add|edit|reply` (a write could target the branch's PR instead of `--pr-number`); populate the previously always-`null` PR `url`; auth failures now name the token source.
+- Fix `--json`/`--pr-number` being ignored on the nested `pr comments add|edit|reply`; populate the previously always-`null` PR `url`; auth failures now name the token source.
+- Remove the four `scripts/*_pr_*.ps1` helpers — superseded by the commands above.
 
 ## [0.14.1] - 2026-06-26 — ADO HTML-entity decode for markdown fields
 
