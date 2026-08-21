@@ -122,6 +122,12 @@ azdo pr list                               # active PRs in the repository (one A
 azdo pr list --branch feature/x --json     # which PR belongs to this branch?
 azdo pr status                             # list PRs for current branch + checks
 azdo pr open --title "…" --description "…"      # open PR targeting develop
+azdo pr open --title "…"                   # description from a repo-defined PR template, if one exists
+azdo pr work-items link 1234 --pr-number 64    # link a work item to a PR
+azdo pr work-items unlink 1234 --pr-number 64  # unlink it
+azdo pr reviewers add jane@example.com --pr-number 64             # add optional reviewer
+azdo pr reviewers add jane@example.com --pr-number 64 --required # add/promote to required
+azdo pr reviewers remove jane@example.com --pr-number 64          # remove a reviewer
 azdo pr comments                           # list threads for current branch's PR
 azdo pr comments --pr-number 64            # list threads for any PR by number
 azdo pr comments --hide-resolved           # triage view — hide settled threads
@@ -156,10 +162,25 @@ work from outside a checkout of the target repository.
 - `--json` includes a `checks` array (with `source`) and a `codeCommentCounts` object per PR
 
 **`azdo pr open`**
-- Requires `--title` and `--description`
+- Requires `--title`; `--description` is optional
+- When `--description` is omitted, looks for a repository-defined pull request template — Azure DevOps's own `pull_request_template[/branches/<branch>].md` convention, checked under `.azuredevops/`, `.vsts/`, `docs/`, and the repository root, always read from the repository's **default** branch (never the PR's source/target branch). Branch-specific templates fall back from the most-specific branch segment down to the least (`feature/foo/december` → `feature/foo` → `feature`), then the repository-wide default template
+- When both `--description` and a template apply, the description is the supplied text followed by the template content; with neither, the command fails exactly as before (`--description is required for pull request creation.`)
 - Always targets `develop`
 - Reuses an existing active PR if one already matches the branch and target
 - Fails when run from `develop` or when multiple active PRs exist
+
+**`azdo pr work-items link <workItemId>`** / **`azdo pr work-items unlink <workItemId>`**
+- Adds or removes an `ArtifactLink` relation between the work item and the target pull request — the same mechanism the Azure DevOps web UI uses when linking a work item from the PR **Overview** tab
+- Idempotent: linking an already-linked work item, or unlinking one that isn't linked, is a no-op (exit 0, `noop: true` in `--json`)
+- A nonexistent work item id fails (exit `3`) naming the id
+- Shares `--pr-number`, `--org`, `--project`, `--repo`, and `--json` with the rest of `pr`; `--json` returns `{ pullRequestId, workItemId, noop }`
+
+**`azdo pr reviewers add <reviewer>`** / **`azdo pr reviewers remove <reviewer>`**
+- `<reviewer>` is an email or Azure DevOps unique name, resolved to an identity via the Identities API
+- `add` defaults to an **optional** reviewer; `--required` marks them required instead. Re-adding an existing reviewer with a different `--required` value updates their required/optional flag in place — no duplicate entry
+- `remove` is idempotent: removing someone who isn't currently a reviewer is a no-op (exit 0, `noop: true` in `--json`)
+- An identity that cannot be resolved (zero or multiple matches) fails (exit `1`) naming the input
+- `--json` returns `{ pullRequestId, reviewer: { id, displayName, uniqueName, isRequired } | null, noop }`
 
 **`azdo pr comments`**
 - Lists every comment thread on the target PR with a bracketed status indicator (`[active]`, `[pending]`, `[resolved]`) next to each thread title
@@ -216,7 +237,7 @@ caller can tell "not permitted" from "not found" without scraping stderr:
 | Code | Meaning |
 |------|---------|
 | `0` | Success, including a `--dry-run` and an idempotent no-op (`comment-resolve` on an already-resolved thread) |
-| `1` | Validation failure (bad `--pr-number`, `--thread`, `--status`, empty body, both inline text and `--file`), network error, or any other unexpected failure |
+| `1` | Validation failure (bad `--pr-number`, `--thread`, `--status`, empty body, both inline text and `--file`, invalid work item id, an unresolvable reviewer identity), network error, or any other unexpected failure |
 | `3` | An addressed resource does not exist: the pull request behind `--pr-number`, the thread behind `--thread` / `<threadId>`, or the comment behind `--comment-id` |
 | `4` | Not permitted: authentication failure or permission denied (for example editing a comment authored by somebody else, which Azure DevOps rejects) |
 
@@ -233,8 +254,10 @@ Error: Authentication failed. Check that your PAT is valid and has the "Code (Re
 ```
 
 Note the two scopes: reads (`pr list`, `pr status`, `pr comments`) need **Code (Read)**, while
-`comments add` / `edit` / `reply` / `comment-resolve` / `comment-reopen` and `pr open` need
-**Code (Read & Write)**. A PAT scoped for Work Items only makes every `pr` command fail while
+`comments add` / `edit` / `reply` / `comment-resolve` / `comment-reopen`, `pr open`, and
+`pr reviewers add` / `remove` need **Code (Read & Write)**. `pr work-items link` / `unlink` also
+need **Work Items (Read & Write)**, since the link is written on the work item, not the pull
+request. A PAT scoped for Work Items only makes every other `pr` command fail while
 `azdo get-item` keeps working. `azdo config --help` lists the credential resolution order, and
 `azdo auth diagnose` reports the credential actually in use — including **who it belongs to**:
 
