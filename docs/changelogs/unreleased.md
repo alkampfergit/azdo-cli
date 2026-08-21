@@ -6,6 +6,10 @@
 
 ### Added
 
+- **`azdo pr work-items link|unlink <id>`** — link or unlink a work item to/from a pull request (#82, #83)
+- **`azdo pr reviewers add|remove <reviewer>`** — add a reviewer as required (`--required`) or optional, or remove one (#82, #83)
+- **`azdo pr open` template support** — when `--description` is omitted, uses a repository-defined pull request template (Azure DevOps's `pull_request_template[/branches/<branch>].md` convention) if one exists; if both are present, the supplied text is followed by the template content (#82, #83)
+
 ### Changed
 
 ### Fixed
