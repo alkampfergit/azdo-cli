@@ -12,7 +12,18 @@ the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-_Targeting **0.16.0**. Working detail: [`docs/changelogs/unreleased.md`](docs/changelogs/unreleased.md)._
+_Targeting **0.17.0**. Working detail: [`docs/changelogs/unreleased.md`](docs/changelogs/unreleased.md)._
+
+## [0.16.0] - 2026-08-24 — PR work-item links, reviewer management & template-aware creation
+
+`azdo pr work-items link|unlink` and `azdo pr reviewers add|remove` land, plus
+template-aware `pr open`; fixes a null-identity bug in `auth diagnose` and a
+confusing reviewer-add auth error.
+→ [details](docs/changelogs/0.16.0.md)
+
+- `azdo pr work-items link|unlink`, `azdo pr reviewers add|remove`, and template-aware `pr open` (#82).
+- Fix: `azdo auth diagnose` no longer always reports a null identity (#82).
+- Fix: `pr reviewers add|remove` now reports a specific, actionable error when the PAT is missing the "Identity (Read)" scope (#82).
 
 ## [0.15.0] - 2026-08-21 — PR comment authoring & diagnostics
 

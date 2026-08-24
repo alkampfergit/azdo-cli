@@ -101,6 +101,13 @@ describe('resolveCredentialIdentity', () => {
       expect.stringContaining('/_apis/connectionData'),
       expect.any(Object),
     );
+    // connectionData is a preview API — api-version=7.1 (without the
+    // -preview suffix) 400s with VssInvalidPreviewVersionException, which
+    // silently resolved to `null` here until this was caught.
+    expect(fetchRawMock).toHaveBeenCalledWith(
+      expect.stringContaining('api-version=7.1-preview'),
+      expect.any(Object),
+    );
   });
 
   it('returns nulls per field when the payload is partial', async () => {

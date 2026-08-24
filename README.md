@@ -14,7 +14,7 @@ Azure DevOps CLI focused on work item read/write workflows.
 - Read and post work item comments (`comments`)
 - Read/write rich-text fields as markdown (`get-md-field`, `set-md-field`)
 - Download images embedded in rich-text fields, optionally resized for LLM use (`get-item`/`get-md-field` `--download-images`, `--resize-images`)
-- Check branch pull request status, open PRs to `develop`, list PR comment threads for any PR (`--pr-number`), and resolve/reopen threads from the CLI (`pr`)
+- Check branch pull request status, open PRs to `develop` (optionally pre-filled from a repository-defined template), list PR comment threads for any PR (`--pr-number`), resolve/reopen threads, link/unlink work items, and add/remove required or optional reviewers — all from the CLI (`pr`)
 - Persist org/project/default fields in local config (`config`)
 - List all fields of a work item (`list-fields`)
 - Authenticate per Azure DevOps organization with `azdo auth login` — OAuth (Microsoft Entra) by default, or a Personal Access Token via `--use-pat` (or the `AZDO_PAT` env var). Credentials are stored in the OS credential store. Inspect with `azdo auth status`, remove with `azdo auth logout`. Diagnose auth problems with `azdo auth diagnose`. See [docs/authentication.md](docs/authentication.md).
@@ -78,6 +78,17 @@ azdo pr comments edit 148 --file plan.md --pr-number 64        # rewrite it in p
 azdo pr comments reply 148 "Great suggestion, I'll address it."          # human-readable output
 azdo pr comments reply 148 "Done." --pr-number 64 --json                 # JSON: { pullRequestId, threadId, commentId, content }
 azdo pr comment-reply 148 "Done."  --pr-number 64                        # flat alias, identical behaviour
+
+# Open a pull request — description from a repo template when you don't pass one
+azdo pr open --title "Fix the thing" --description "Because X was broken"
+azdo pr open --title "Fix the thing"   # uses docs/pull_request_template[/branches/<branch>].md if present
+
+# Link/unlink a work item, add/remove reviewers
+azdo pr work-items link 1234 --pr-number 64
+azdo pr work-items unlink 1234 --pr-number 64
+azdo pr reviewers add jane@example.com --pr-number 64             # optional by default
+azdo pr reviewers add jane@example.com --pr-number 64 --required  # required (or promotes in place)
+azdo pr reviewers remove jane@example.com --pr-number 64
 
 # Any pr subcommand can target another repository
 azdo pr comments --repo other-repo --pr-number 12

@@ -15,6 +15,15 @@ import {
   postThreadComment,
   resolveProjectId,
   updateThreadComment,
+  resolveRepositoryId,
+  getWorkItemRelations,
+  linkWorkItemToPullRequest,
+  unlinkWorkItemFromPullRequest,
+  resolveReviewerIdentity,
+  addOrUpdatePullRequestReviewer,
+  getPullRequestReviewers,
+  removePullRequestReviewer,
+  resolvePullRequestTemplate,
 } from '../../src/services/pr-client.js';
 
 const context: AzdoContext = { org: 'test-org', project: 'test-project' };
@@ -300,26 +309,47 @@ describe('pr-client', () => {
   });
 
   describe('openPullRequest', () => {
+    // Routes by URL/method instead of call order, since resolving the
+    // repository + searching for a pull request template now happens
+    // between the existing-PR lookup and the create POST.
+    function mockOpenPullRequestFetch(opts: { templateContent?: string } = {}): ReturnType<typeof vi.spyOn> {
+      return vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+        const url = String(input);
+        const method = init?.method ?? 'GET';
+
+        if (url.includes('/pullrequests?') && method === 'GET') {
+          return { ok: true, status: 200, json: async () => ({ count: 0, value: [] }) } as Response;
+        }
+        if (url.includes('/repositories/repo-name?')) {
+          return { ok: true, status: 200, json: async () => ({ id: 'repo-guid', defaultBranch: 'refs/heads/develop' }) } as Response;
+        }
+        if (url.includes('/repositories/repo-name/items?')) {
+          if (opts.templateContent !== undefined && url.includes('pull_request_template.md')) {
+            return { ok: true, status: 200, text: async () => opts.templateContent! } as Response;
+          }
+          return { ok: false, status: 404, headers: { get: () => null } } as unknown as Response;
+        }
+        if (url.includes('/pullrequests?') && method === 'POST') {
+          return {
+            ok: true,
+            status: 201,
+            json: async () => ({
+              pullRequestId: 34,
+              title: 'New PR',
+              status: 'active',
+              sourceRefName: 'refs/heads/feature/test',
+              targetRefName: 'refs/heads/develop',
+              createdBy: { displayName: 'Alice' },
+              _links: { web: { href: 'https://example.test/pr/34' } },
+            }),
+          } as Response;
+        }
+        throw new Error(`unexpected fetch: ${method} ${url}`);
+      });
+    }
+
     it('creates a pull request when no active PR already exists', async () => {
-      const fetchSpy = vi.spyOn(globalThis, 'fetch')
-        .mockResolvedValueOnce({
-          ok: true,
-          status: 200,
-          json: async () => ({ count: 0, value: [] }),
-        } as Response)
-        .mockResolvedValueOnce({
-          ok: true,
-          status: 201,
-          json: async () => ({
-            pullRequestId: 34,
-            title: 'New PR',
-            status: 'active',
-            sourceRefName: 'refs/heads/feature/test',
-            targetRefName: 'refs/heads/develop',
-            createdBy: { displayName: 'Alice' },
-            _links: { web: { href: 'https://example.test/pr/34' } },
-          }),
-        });
+      const fetchSpy = mockOpenPullRequestFetch();
 
       const result = await openPullRequest(context, 'repo-name', 'pat', 'feature/test', 'New PR', 'Description');
 
@@ -337,6 +367,35 @@ describe('pr-client', () => {
           }),
         }),
       );
+    });
+
+    it('uses a repository-defined template when --description is omitted (FR-012)', async () => {
+      mockOpenPullRequestFetch({ templateContent: 'Template body' });
+
+      const result = await openPullRequest(context, 'repo-name', 'pat', 'feature/test', 'New PR');
+
+      expect(result.created).toBe(true);
+    });
+
+    it('appends the template after the supplied description (FR-014)', async () => {
+      const fetchSpy = mockOpenPullRequestFetch({ templateContent: 'Template body' });
+
+      await openPullRequest(context, 'repo-name', 'pat', 'feature/test', 'New PR', 'My summary');
+
+      expect(fetchSpy).toHaveBeenLastCalledWith(
+        expect.any(String),
+        expect.objectContaining({
+          method: 'POST',
+          body: expect.stringContaining('My summary\\n\\nTemplate body'),
+        }),
+      );
+    });
+
+    it('rejects with DESCRIPTION_REQUIRED when neither --description nor a template exist (FR-013)', async () => {
+      mockOpenPullRequestFetch();
+
+      await expect(openPullRequest(context, 'repo-name', 'pat', 'feature/test', 'New PR'))
+        .rejects.toThrow('DESCRIPTION_REQUIRED');
     });
 
     it('reuses an existing active pull request', async () => {
@@ -410,6 +469,311 @@ describe('pr-client', () => {
 
       await expect(openPullRequest(context, 'repo-name', 'pat', 'feature/test', 'Title', 'Description'))
         .rejects.toThrow('AMBIGUOUS_PRS:22,23');
+    });
+  });
+
+  describe('resolveRepositoryId', () => {
+    it('returns the repository GUID', async () => {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({ id: 'repo-guid', defaultBranch: 'refs/heads/develop' }),
+      });
+
+      await expect(resolveRepositoryId(context, 'repo-name', 'pat')).resolves.toBe('repo-guid');
+    });
+  });
+
+  describe('getWorkItemRelations', () => {
+    it('returns the relations array', async () => {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({ id: 1234, relations: [{ rel: 'ArtifactLink', url: 'vstfs:///Git/PullRequestId/p/r/1' }] }),
+      });
+
+      await expect(getWorkItemRelations(context, 'pat', 1234)).resolves.toEqual([
+        { rel: 'ArtifactLink', url: 'vstfs:///Git/PullRequestId/p/r/1' },
+      ]);
+    });
+
+    it('returns an empty array when the work item has no relations', async () => {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({ id: 1234 }),
+      });
+
+      await expect(getWorkItemRelations(context, 'pat', 1234)).resolves.toEqual([]);
+    });
+
+    it('propagates NOT_FOUND for a nonexistent work item', async () => {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue({ ok: false, status: 404 } as Response);
+
+      await expect(getWorkItemRelations(context, 'pat', 9999)).rejects.toThrow('NOT_FOUND');
+    });
+  });
+
+  describe('linkWorkItemToPullRequest / unlinkWorkItemFromPullRequest', () => {
+    function mockLinkFetch(existingRelations: Array<{ rel: string; url: string }>, patchStatus = 200): void {
+      vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+        const url = String(input);
+        const method = init?.method ?? 'GET';
+
+        if (url.includes('/projects/')) {
+          return { ok: true, status: 200, json: async () => ({ id: 'project-guid' }) } as Response;
+        }
+        if (url.includes('/repositories/repo-name?')) {
+          return { ok: true, status: 200, json: async () => ({ id: 'repo-guid' }) } as Response;
+        }
+        if (url.includes('/workitems/1234') && method === 'GET') {
+          return { ok: true, status: 200, json: async () => ({ id: 1234, relations: existingRelations }) } as Response;
+        }
+        if (url.includes('/workitems/1234') && method === 'PATCH') {
+          return { ok: patchStatus < 400, status: patchStatus, json: async () => ({ id: 1234 }) } as Response;
+        }
+        throw new Error(`unexpected fetch: ${method} ${url}`);
+      });
+    }
+
+    const artifactUri = 'vstfs:///Git/PullRequestId/project-guid/repo-guid/77';
+
+    it('links a work item not yet linked (FR-001)', async () => {
+      mockLinkFetch([]);
+
+      const result = await linkWorkItemToPullRequest(context, 'repo-name', 'pat', 77, 1234);
+
+      expect(result).toEqual({ pullRequestId: 77, workItemId: 1234, url: artifactUri, noop: false });
+    });
+
+    it('treats an already-linked work item as a no-op (FR-005)', async () => {
+      mockLinkFetch([{ rel: 'ArtifactLink', url: artifactUri }]);
+      const fetchSpy = vi.spyOn(globalThis, 'fetch');
+
+      const result = await linkWorkItemToPullRequest(context, 'repo-name', 'pat', 77, 1234);
+
+      expect(result.noop).toBe(true);
+      expect(fetchSpy).not.toHaveBeenCalledWith(expect.stringContaining('/workitems/1234'), expect.objectContaining({ method: 'PATCH' }));
+    });
+
+    it('unlinks a linked work item (FR-002)', async () => {
+      mockLinkFetch([{ rel: 'ArtifactLink', url: artifactUri }]);
+
+      const result = await unlinkWorkItemFromPullRequest(context, 'repo-name', 'pat', 77, 1234);
+
+      expect(result).toEqual({ pullRequestId: 77, workItemId: 1234, url: artifactUri, noop: false });
+    });
+
+    it('treats an unlinked work item as a no-op on unlink (FR-004)', async () => {
+      mockLinkFetch([]);
+      const fetchSpy = vi.spyOn(globalThis, 'fetch');
+
+      const result = await unlinkWorkItemFromPullRequest(context, 'repo-name', 'pat', 77, 1234);
+
+      expect(result.noop).toBe(true);
+      expect(fetchSpy).not.toHaveBeenCalledWith(expect.stringContaining('/workitems/1234'), expect.objectContaining({ method: 'PATCH' }));
+    });
+
+    it('rejects when the PATCH returns a non-OK status other than 401/403/404', async () => {
+      mockLinkFetch([], 500);
+
+      await expect(linkWorkItemToPullRequest(context, 'repo-name', 'pat', 77, 1234)).rejects.toThrow('HTTP_500');
+    });
+  });
+
+  describe('resolveReviewerIdentity', () => {
+    it('resolves a single matching identity', async () => {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({ value: [{ id: 'identity-guid', providerDisplayName: 'Jane Reviewer' }] }),
+      });
+
+      await expect(resolveReviewerIdentity('test-org', 'pat', 'jane@example.com')).resolves.toEqual({
+        id: 'identity-guid',
+        providerDisplayName: 'Jane Reviewer',
+      });
+    });
+
+    it('rejects when there are zero matches (FR-009)', async () => {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue({ ok: true, status: 200, json: async () => ({ value: [] }) });
+
+      await expect(resolveReviewerIdentity('test-org', 'pat', 'nobody@example.com'))
+        .rejects.toThrow('RESOLVE_FAILED:nobody@example.com');
+    });
+
+    it('rejects when the input is ambiguous (multiple matches)', async () => {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({ value: [{ id: 'a' }, { id: 'b' }] }),
+      });
+
+      await expect(resolveReviewerIdentity('test-org', 'pat', 'ambiguous'))
+        .rejects.toThrow('RESOLVE_FAILED:ambiguous');
+    });
+
+    it('translates a 401 into IDENTITY_SCOPE_MISSING (legacy Identities API needs a separate PAT scope)', async () => {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue({ ok: false, status: 401 });
+
+      await expect(resolveReviewerIdentity('test-org', 'pat', 'jane@example.com'))
+        .rejects.toThrow('IDENTITY_SCOPE_MISSING');
+    });
+  });
+
+  describe('addOrUpdatePullRequestReviewer / removePullRequestReviewer', () => {
+    it('adds a reviewer as optional by default', async () => {
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({ id: 'identity-guid', displayName: 'Jane', uniqueName: 'jane@example.com', isRequired: false, vote: 0 }),
+      });
+
+      const result = await addOrUpdatePullRequestReviewer(context, 'repo-name', 'pat', 77, 'identity-guid', false);
+
+      expect(result).toEqual({ id: 'identity-guid', displayName: 'Jane', uniqueName: 'jane@example.com', isRequired: false, vote: 0 });
+      expect(fetchSpy).toHaveBeenCalledWith(
+        expect.stringContaining('/reviewers/identity-guid'),
+        expect.objectContaining({ method: 'PUT', body: JSON.stringify({ vote: 0, isRequired: false }) }),
+      );
+    });
+
+    it('promotes an existing reviewer to required in place (FR-011)', async () => {
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({ id: 'identity-guid', displayName: 'Jane', uniqueName: 'jane@example.com', isRequired: true, vote: 0 }),
+      });
+
+      const result = await addOrUpdatePullRequestReviewer(context, 'repo-name', 'pat', 77, 'identity-guid', true);
+
+      expect(result.isRequired).toBe(true);
+      expect(fetchSpy).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({ body: JSON.stringify({ vote: 0, isRequired: true }) }),
+      );
+    });
+
+    it('lists current reviewers', async () => {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({ value: [{ id: 'identity-guid', displayName: 'Jane', uniqueName: 'jane@example.com', isRequired: false, vote: 0 }] }),
+      });
+
+      await expect(getPullRequestReviewers(context, 'repo-name', 'pat', 77)).resolves.toEqual([
+        { id: 'identity-guid', displayName: 'Jane', uniqueName: 'jane@example.com', isRequired: false, vote: 0 },
+      ]);
+    });
+
+    it('removes an existing reviewer (FR-008)', async () => {
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (_input, init) => {
+        if ((init?.method ?? 'GET') === 'DELETE') {
+          return { ok: true, status: 204, json: async () => ({}) } as Response;
+        }
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ value: [{ id: 'identity-guid', displayName: 'Jane', uniqueName: 'jane@example.com', isRequired: false, vote: 0 }] }),
+        } as Response;
+      });
+
+      const result = await removePullRequestReviewer(context, 'repo-name', 'pat', 77, 'identity-guid');
+
+      expect(result).toEqual({
+        reviewer: { id: 'identity-guid', displayName: 'Jane', uniqueName: 'jane@example.com', isRequired: false, vote: 0 },
+        noop: false,
+      });
+      expect(fetchSpy).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ method: 'DELETE' }));
+    });
+
+    it('rejects when the DELETE returns a non-OK status other than 401/403/404', async () => {
+      vi.spyOn(globalThis, 'fetch').mockImplementation(async (_input, init) => {
+        if ((init?.method ?? 'GET') === 'DELETE') {
+          return { ok: false, status: 409, json: async () => ({}) } as Response;
+        }
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ value: [{ id: 'identity-guid', displayName: 'Jane', uniqueName: 'jane@example.com', isRequired: false, vote: 0 }] }),
+        } as Response;
+      });
+
+      await expect(removePullRequestReviewer(context, 'repo-name', 'pat', 77, 'identity-guid'))
+        .rejects.toThrow('HTTP_409');
+    });
+
+    it('treats removing a non-reviewer as a no-op (FR-010) without calling DELETE', async () => {
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({ value: [] }),
+      });
+
+      const result = await removePullRequestReviewer(context, 'repo-name', 'pat', 77, 'identity-guid');
+
+      expect(result).toEqual({ reviewer: null, noop: true });
+      expect(fetchSpy).not.toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ method: 'DELETE' }));
+    });
+  });
+
+  describe('resolvePullRequestTemplate', () => {
+    function mockTemplateFetch(found: { path: string; content: string } | null): ReturnType<typeof vi.spyOn> {
+      return vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+        const requestedPath = new URL(String(input)).searchParams.get('path');
+        if (found !== null && requestedPath === found.path) {
+          return { ok: true, status: 200, text: async () => found.content } as Response;
+        }
+        return { ok: false, status: 404, headers: { get: () => null } } as unknown as Response;
+      });
+    }
+
+    it('finds a branch-specific template under docs/pull_request_template/branches/ (FR-012)', async () => {
+      mockTemplateFetch({ path: 'docs/pull_request_template/branches/develop.md', content: 'Branch template' });
+
+      const result = await resolvePullRequestTemplate(context, 'repo-name', 'pat', 'develop', 'develop');
+
+      expect(result).toEqual({ path: 'docs/pull_request_template/branches/develop.md', content: 'Branch template', kind: 'branch' });
+    });
+
+    it('falls back through multi-level branch segments (feature/foo/december -> feature/foo -> feature)', async () => {
+      mockTemplateFetch({ path: 'docs/pull_request_template/branches/feature.md', content: 'Feature template' });
+
+      const result = await resolvePullRequestTemplate(context, 'repo-name', 'pat', 'develop', 'feature/foo/december');
+
+      expect(result).toEqual({ path: 'docs/pull_request_template/branches/feature.md', content: 'Feature template', kind: 'branch' });
+    });
+
+    it('falls back to the repository-wide default template (FR-013)', async () => {
+      mockTemplateFetch({ path: 'docs/pull_request_template.md', content: 'Default template' });
+
+      const result = await resolvePullRequestTemplate(context, 'repo-name', 'pat', 'develop', 'develop');
+
+      expect(result).toEqual({ path: 'docs/pull_request_template.md', content: 'Default template', kind: 'default' });
+    });
+
+    it('returns null when no template exists anywhere in the search', async () => {
+      mockTemplateFetch(null);
+
+      await expect(resolvePullRequestTemplate(context, 'repo-name', 'pat', 'develop', 'develop')).resolves.toBeNull();
+    });
+
+    it('requests the raw text format explicitly ($format=text)', async () => {
+      const fetchSpy = mockTemplateFetch({ path: 'docs/pull_request_template/branches/develop.md', content: 'Branch template' });
+
+      await resolvePullRequestTemplate(context, 'repo-name', 'pat', 'develop', 'develop');
+
+      expect(fetchSpy).toHaveBeenCalledWith(
+        expect.stringContaining('%24format=text'),
+        expect.any(Object),
+      );
+    });
+
+    it('aborts the search on a non-404 failure instead of treating it as "no template"', async () => {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue({ ok: false, status: 500, headers: { get: () => null } } as unknown as Response);
+
+      await expect(resolvePullRequestTemplate(context, 'repo-name', 'pat', 'develop', 'develop'))
+        .rejects.toThrow('HTTP_500');
     });
   });
 

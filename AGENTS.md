@@ -128,6 +128,8 @@ bd close <id>         # Complete work
 - TypeScript 5.x (strict mode), Node.js LTS + commander.js, native `fetch`, Node.js built-ins — no new dependencies (031-fix-project-url-encoding)
 - TypeScript 5.x (strict) + `node-html-markdown ^2.0.0` (existing), no new dependencies (032-fix-code-generics)
 - TypeScript 5.x (strict mode) + commander.js (CLI), native `fetch` (HTTP), `node:fs` for `--file` bodies — all existing, no new dependencies (033-pr-comment-authoring)
+- TypeScript 5.x (strict mode) — unchanged + commander.js, native `fetch` (via existing `fetchWithErrors`/`authHeaders`) — no new dependencies (034-pr-link-review)
+- N/A (all state lives in Azure DevOps) (034-pr-link-review)
 
 ## Recent Changes
 - 033-pr-comment-authoring: The `pr` group can now author comments, not just read and reply to them — `pr comments add` creates a new overview thread (`POST .../threads`), `pr comments edit` rewrites a comment in place (`PATCH .../threads/{t}/comments/{c}`), both with `--file` / `--dry-run` and top-level `comment-add` / `comment-edit` aliases. `pr list` answers "which PR is this branch?" in one call (`--branch`, `--status`, `--top`) where `pr status` costs three extra calls per PR. `pr comments` gains `--exclude-system` / `--max-chars`, `reply` gains `--file`, and every `pr` subcommand gains `--repo` (registered once via `withCommonPrOptions()`). Mapped PRs now carry `description`, mapped comments carry `commentType`. The four PowerShell helpers under `scripts/` were deleted: this repository ships Azure DevOps capability as CLI commands only, never as scripts. No new dependencies.
