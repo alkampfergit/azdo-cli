@@ -180,7 +180,7 @@ work from outside a checkout of the target repository.
 - `add` defaults to an **optional** reviewer; `--required` marks them required instead. Re-adding an existing reviewer with a different `--required` value updates their required/optional flag in place — no duplicate entry. Re-adding with the *same* flag is a no-op (exit 0, `noop: true` in `--json`, no write issued)
 - `remove` is idempotent: removing someone who isn't currently a reviewer is a no-op (exit 0, `noop: true` in `--json`)
 - An identity that cannot be resolved (zero or multiple matches) fails (exit `1`) naming the input
-- Identity resolution calls the legacy Identities API (`vssps.dev.azure.com/.../identities`), a separate host/authorization boundary from the rest of `pr`. Some organizations reject this call for PATs that otherwise have full **Code (Read & Write)** scope, surfacing as an authentication error from `pr reviewers add`/`remove` even though the underlying reviewer add/remove call would have succeeded. If you hit this, the PAT (or org policy) needs explicit access to that legacy endpoint — there is currently no workaround in the CLI itself
+- Identity resolution calls the legacy Identities API (`vssps.dev.azure.com/.../identities`), a separate host/authorization boundary from the rest of `pr`. It requires the PAT's **Identity (Read)** scope — a distinct scope category from **Code (Read & Write)**, which is the only scope every other `pr` call (including the reviewer add/remove write itself) needs. A PAT scoped for Code only fails here with `Could not resolve reviewer identity: your PAT is missing the "Identity (Read)" scope...` (exit `4`) even though the write would otherwise have succeeded. Fix: add **Identity (Read)** to the PAT alongside **Code (Read & Write)**
 - `--json` returns `{ pullRequestId, reviewer: { id, displayName, uniqueName, isRequired } | null, noop }`
 
 **`azdo pr comments`**
@@ -259,7 +259,8 @@ Note the two scopes: reads (`pr list`, `pr status`, `pr comments`) need **Code (
 `pr reviewers add` / `remove` need **Code (Read & Write)**. `pr work-items link` / `unlink` also
 need **Work Items (Read & Write)**, since the link is written on the work item, not the pull
 request. A PAT scoped for Work Items only makes every other `pr` command fail while
-`azdo get-item` keeps working. `azdo config --help` lists the credential resolution order, and
+`azdo get-item` keeps working. `pr reviewers add` / `remove` additionally need **Identity (Read)**
+for the reviewer-lookup step — see the identity-resolution note above. `azdo config --help` lists the credential resolution order, and
 `azdo auth diagnose` reports the credential actually in use — including **who it belongs to**:
 
 ```bash

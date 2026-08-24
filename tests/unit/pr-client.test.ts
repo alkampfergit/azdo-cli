@@ -612,6 +612,13 @@ describe('pr-client', () => {
       await expect(resolveReviewerIdentity('test-org', 'pat', 'ambiguous'))
         .rejects.toThrow('RESOLVE_FAILED:ambiguous');
     });
+
+    it('translates a 401 into IDENTITY_SCOPE_MISSING (legacy Identities API needs a separate PAT scope)', async () => {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue({ ok: false, status: 401 });
+
+      await expect(resolveReviewerIdentity('test-org', 'pat', 'jane@example.com'))
+        .rejects.toThrow('IDENTITY_SCOPE_MISSING');
+    });
   });
 
   describe('addOrUpdatePullRequestReviewer / removePullRequestReviewer', () => {

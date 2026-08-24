@@ -864,9 +864,21 @@ export async function resolveReviewerIdentity(
   cred: AuthCredential,
   input: string,
 ): Promise<AzdoIdentity> {
-  const response = await fetchWithErrors(buildIdentitiesUrl(org, input).toString(), {
-    headers: authHeaders(cred),
-  });
+  let response: Response;
+  try {
+    response = await fetchWithErrors(buildIdentitiesUrl(org, input).toString(), {
+      headers: authHeaders(cred),
+    });
+  } catch (err) {
+    // The legacy Identities API lives under vssps.dev.azure.com and requires
+    // the separate `vso.identity` ("Identity (Read)") PAT scope — a 401 here
+    // means the PAT is otherwise valid (Code scope works for every other `pr`
+    // call) but is missing that specific scope, not a generic auth failure.
+    if (err instanceof Error && err.message === 'AUTH_FAILED') {
+      throw new Error('IDENTITY_SCOPE_MISSING', { cause: err });
+    }
+    throw err;
+  }
   const data = await readJsonResponse<AzdoIdentityListResponse>(response);
 
   if (data.value.length !== 1) {

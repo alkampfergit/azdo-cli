@@ -264,6 +264,14 @@ function handlePrCommandError(err: unknown, context?: AzdoContext, mode: 'read' 
     return;
   }
 
+  if (error.message === 'IDENTITY_SCOPE_MISSING') {
+    writeError(
+      'Could not resolve reviewer identity: your PAT is missing the "Identity (Read)" scope required by the Azure DevOps identities API (separate from Code scope).',
+      EXIT_NOT_PERMITTED,
+    );
+    return;
+  }
+
   if (error.message === 'PERMISSION_DENIED') {
     writeError(`Access denied. Your PAT may lack ${mode} permissions for project "${context?.project}".`, EXIT_NOT_PERMITTED);
     return;
