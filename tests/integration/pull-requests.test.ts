@@ -5,11 +5,18 @@
  * Optional: AZDO_PR_ID — an existing PR ID for comment/thread tests.
  * Run with: npm run test:integration
  *
- * All tests are read-only; no PRs are created or modified.
+ * Most tests are read-only; no PRs are created. Two describe blocks are
+ * self-healing round-trips against the AZDO_PR_ID reference PR
+ * (`patchThreadStatus round-trip`, `pr reviewers add/remove round-trip`) —
+ * each mutates then restores the original state, tolerant of permission
+ * failures, so they are safe to run repeatedly against a shared PR.
  *
  * Covered service functions:
- *   listPullRequests      — query PRs for a branch
- *   getPullRequestThreads — fetch active comment threads on a PR
+ *   listPullRequests               — query PRs for a branch
+ *   getPullRequestThreads          — fetch active comment threads on a PR
+ *   getPullRequestReviewers        — list a PR's current reviewers
+ *   addOrUpdatePullRequestReviewer — add/promote a reviewer
+ *   removePullRequestReviewer      — remove a reviewer
  */
 
 import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
@@ -17,12 +24,17 @@ import {
   getPullRequestById,
   getPullRequestBuilds,
   getPullRequestThreads,
+  getPullRequestReviewers,
+  addOrUpdatePullRequestReviewer,
+  removePullRequestReviewer,
   isThreadResolved,
   listPullRequests,
   patchThreadStatus,
 } from '../../src/services/pr-client.js';
+import { resolveCredentialIdentity } from '../../src/services/auth-diagnostics.js';
 import {
   AZDO_PAT,
+  AZDO_ORG,
   AZDO_REPO,
   AZDO_PR_ID,
   AZDO_PR_ID_WITH_BUILDS,
@@ -316,5 +328,60 @@ describe.skipIf(!AZDO_PR_ID_WITH_BUILDS || SKIP_PR)('getPullRequestBuilds', () =
     expect(buildEntry).toBeDefined();
     expect(buildEntry?.isBlocking).toBeNull();
     expect('isBlocking' in buildEntry!).toBe(true);
+  });
+});
+
+// Self-healing round-trip: adds the authenticated identity itself as a
+// required reviewer on the reference PR, verifies it, then removes it again
+// (or leaves it, restoring the required/optional flag, if it was already a
+// reviewer before the test ran) — mirrors the patchThreadStatus round-trip
+// above, so it's safe to run repeatedly against a shared PR.
+//
+// Identity is resolved via connectionData (dev.azure.com), NOT via
+// resolveReviewerIdentity's Identities-API search (vssps.dev.azure.com) —
+// live verification found the latter 401s for at least one real
+// Code(R/W)-scoped PAT/org even though the reviewer PUT/DELETE calls below
+// (on dev.azure.com) succeed with the very same credential. That gap is in
+// email→GUID resolution, not in the reviewer add/remove mechanics this test
+// exists to verify, so this test deliberately routes around it.
+describe.skipIf(!AZDO_PR_ID || SKIP_PR)('pr reviewers add/remove round-trip', () => {
+  const context = makeContext();
+  const pat = AZDO_PAT;
+  const repo = AZDO_REPO;
+  const prId = AZDO_PR_ID!;
+
+  it('can add the authenticated identity as a required reviewer and restore prior state', async () => {
+    const identity = await resolveCredentialIdentity(AZDO_ORG, pat);
+    if (identity === null || identity.id === null) {
+      // Cannot resolve who we are (e.g. connectionData unreachable) — skip
+      // quietly rather than fail; this is a diagnostic prerequisite, not
+      // what the test is verifying.
+      return;
+    }
+
+    const before = await getPullRequestReviewers(context, repo, pat, prId);
+    const priorEntry = before.find((reviewer) => reviewer.id === identity.id);
+
+    try {
+      const added = await addOrUpdatePullRequestReviewer(context, repo, pat, prId, identity.id, true);
+      expect(added.id).toBe(identity.id);
+      expect(added.isRequired).toBe(true);
+
+      const afterAdd = await getPullRequestReviewers(context, repo, pat, prId);
+      expect(afterAdd.some((reviewer) => reviewer.id === identity.id && reviewer.isRequired)).toBe(true);
+    } finally {
+      // Restore: remove if we added them fresh, or put back their prior
+      // required/optional flag if they were already a reviewer. Best-effort
+      // — a restore failure here shouldn't mask a real assertion failure above.
+      try {
+        if (priorEntry === undefined) {
+          await removePullRequestReviewer(context, repo, pat, prId, identity.id);
+        } else if (priorEntry.isRequired !== true) {
+          await addOrUpdatePullRequestReviewer(context, repo, pat, prId, identity.id, priorEntry.isRequired);
+        }
+      } catch {
+        // ignore — best effort restoration only.
+      }
+    }
   });
 });

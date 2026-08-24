@@ -28,6 +28,12 @@ import {
   patchThreadStatus,
   postThreadComment,
   updateThreadComment,
+  linkWorkItemToPullRequest,
+  unlinkWorkItemFromPullRequest,
+  resolveReviewerIdentity,
+  addOrUpdatePullRequestReviewer,
+  getPullRequestReviewers,
+  removePullRequestReviewer,
 } from '../services/pr-client.js';
 import { describeResolvedCredential, requireAuthCredential } from '../services/auth.js';
 import { resolveContext } from '../services/context.js';
@@ -47,6 +53,7 @@ interface PrCommandOptions {
   thread?: string;
   contains?: string;
   prNumber?: string;
+  required?: boolean;
   commentId?: string;
   file?: string;
   status?: string;
@@ -254,6 +261,14 @@ function handlePrCommandError(err: unknown, context?: AzdoContext, mode: 'read' 
     if (credentialHint !== null) {
       process.stderr.write(`  ${credentialHint}\n`);
     }
+    return;
+  }
+
+  if (error.message === 'IDENTITY_SCOPE_MISSING') {
+    writeError(
+      'Could not resolve reviewer identity: your PAT is missing the "Identity (Read)" scope required by the Azure DevOps identities API (separate from Code scope).',
+      EXIT_NOT_PERMITTED,
+    );
     return;
   }
 
@@ -542,7 +557,10 @@ export function createPrOpenCommand(): Command {
   withCommonPrOptions(command)
     .description('Open a pull request from the current branch to develop')
     .option('--title <title>', 'pull request title')
-    .option('--description <description>', 'pull request description')
+    .option(
+      '--description <description>',
+      'pull request description; when omitted, a repository-defined pull request template is used if one exists (prepended by this text when both are present)',
+    )
     .option('--json', 'output JSON')
     .action(async (options: {
       title?: string;
@@ -560,11 +578,8 @@ export function createPrOpenCommand(): Command {
         return;
       }
 
-      const description = options.description?.trim();
-      if (!description) {
-        writeError('--description is required for pull request creation.');
-        return;
-      }
+      const trimmedDescription = options.description?.trim();
+      const description = trimmedDescription && trimmedDescription.length > 0 ? trimmedDescription : undefined;
 
       let context: AzdoContext | undefined;
 
@@ -605,6 +620,11 @@ export function createPrOpenCommand(): Command {
         if (err instanceof Error && err.message.startsWith('AMBIGUOUS_PRS:')) {
           const ids = err.message.replace('AMBIGUOUS_PRS:', '').split(',').map((id) => `#${id}`).join(', ');
           writeError(`Multiple active pull requests already exist for this branch targeting develop: ${ids}. Use pr status to review them.`);
+          return;
+        }
+
+        if (err instanceof Error && err.message === 'DESCRIPTION_REQUIRED') {
+          writeError('--description is required for pull request creation.');
           return;
         }
 
@@ -1466,6 +1486,248 @@ export function createPrListCommand(): Command {
   return command;
 }
 
+// Flat JSON shape emitted by `pr work-items link|unlink --json`.
+interface PrWorkItemLinkResult {
+  pullRequestId: number;
+  workItemId: number;
+  noop: boolean;
+}
+
+async function runWorkItemLinkChange(
+  workItemIdRaw: string,
+  options: PrCommandOptions,
+  direction: 'link' | 'unlink',
+): Promise<void> {
+  let context: AzdoContext | undefined;
+
+  try {
+    const workItemId = parsePositivePrNumber(workItemIdRaw);
+    if (workItemId === null) {
+      validateOrgProjectPair(options);
+      writeError(`Invalid work item id "${workItemIdRaw}"; expected a positive integer.`);
+      return;
+    }
+
+    const target = await resolvePullRequestTarget(options);
+    if (target === null) {
+      return;
+    }
+    context = target.context;
+
+    let outcome;
+    try {
+      outcome = direction === 'link'
+        ? await linkWorkItemToPullRequest(target.context, target.repo, target.pat, target.pullRequest.id, workItemId)
+        : await unlinkWorkItemFromPullRequest(target.context, target.repo, target.pat, target.pullRequest.id, workItemId);
+    } catch (err) {
+      if (err instanceof Error && err.message.startsWith('NOT_FOUND')) {
+        writeError(`Work item #${workItemId} not found in ${target.context.org}/${target.context.project}.`, EXIT_NOT_FOUND);
+        return;
+      }
+      throw err;
+    }
+
+    const result: PrWorkItemLinkResult = {
+      pullRequestId: outcome.pullRequestId,
+      workItemId: outcome.workItemId,
+      noop: outcome.noop,
+    };
+
+    if (options.json) {
+      process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+      return;
+    }
+
+    if (direction === 'link') {
+      process.stdout.write(
+        outcome.noop
+          ? `Work item #${workItemId} is already linked to pull request #${outcome.pullRequestId}.\n`
+          : `Linked work item #${workItemId} to pull request #${outcome.pullRequestId}.\n`,
+      );
+    } else {
+      process.stdout.write(
+        outcome.noop
+          ? `Work item #${workItemId} was not linked to pull request #${outcome.pullRequestId}.\n`
+          : `Unlinked work item #${workItemId} from pull request #${outcome.pullRequestId}.\n`,
+      );
+    }
+  } catch (err) {
+    handlePrCommandError(err, context, 'write');
+  }
+}
+
+function buildWorkItemLinkCommand(name: string, description: string, direction: 'link' | 'unlink'): Command {
+  const command = new Command(name);
+  withCommonPrOptions(configureUnwrappedHelp(command))
+    .description(description)
+    .argument('<workItemId>', 'numeric id of the work item')
+    .option('--pr-number <N>', PR_NUMBER_HELP)
+    .option('--json', 'output JSON')
+    .action(async (workItemIdRaw: string, _options: PrCommandOptions, command: Command) => {
+      await runWorkItemLinkChange(workItemIdRaw, mergedPrOptions(command), direction);
+    });
+  return command;
+}
+
+export function createPrWorkItemsCommand(): Command {
+  const command = new Command('work-items');
+  command.description('Manage work items linked to a pull request');
+  command.addCommand(buildWorkItemLinkCommand('link', 'Link a work item to the pull request', 'link'));
+  command.addCommand(buildWorkItemLinkCommand('unlink', 'Unlink a work item from the pull request', 'unlink'));
+  return command;
+}
+
+// Flat JSON shape emitted by `pr reviewers add|remove --json`.
+interface PrReviewerResult {
+  pullRequestId: number;
+  reviewer: { id: string; displayName: string | null; uniqueName: string | null; isRequired: boolean } | null;
+  noop: boolean;
+}
+
+async function runReviewerAdd(
+  reviewer: string,
+  options: PrCommandOptions,
+): Promise<void> {
+  let context: AzdoContext | undefined;
+
+  try {
+    const target = await resolvePullRequestTarget(options);
+    if (target === null) {
+      return;
+    }
+    context = target.context;
+
+    let identity;
+    try {
+      identity = await resolveReviewerIdentity(target.context.org, target.pat, reviewer);
+    } catch (err) {
+      if (err instanceof Error && err.message.startsWith('RESOLVE_FAILED:')) {
+        writeError(`Reviewer "${reviewer}" could not be resolved to an Azure DevOps identity.`);
+        return;
+      }
+      throw err;
+    }
+
+    const isRequired = options.required === true;
+    const existingReviewers = await getPullRequestReviewers(target.context, target.repo, target.pat, target.pullRequest.id);
+    const existing = existingReviewers.find((reviewer) => reviewer.id === identity.id);
+    const noop = existing?.isRequired === isRequired;
+
+    const added = noop
+      ? existing
+      : await addOrUpdatePullRequestReviewer(
+        target.context,
+        target.repo,
+        target.pat,
+        target.pullRequest.id,
+        identity.id,
+        isRequired,
+      );
+
+    const result: PrReviewerResult = {
+      pullRequestId: target.pullRequest.id,
+      reviewer: { id: added.id, displayName: added.displayName, uniqueName: added.uniqueName, isRequired: added.isRequired },
+      noop,
+    };
+
+    if (options.json) {
+      process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+      return;
+    }
+
+    if (noop) {
+      const label = added.displayName ?? added.uniqueName ?? reviewer;
+      const kind = added.isRequired ? 'required' : 'optional';
+      process.stdout.write(`${label} is already a ${kind} reviewer on pull request #${target.pullRequest.id}.\n`);
+      return;
+    }
+
+    const label = added.displayName ?? added.uniqueName ?? reviewer;
+    const kind = added.isRequired ? 'required' : 'optional';
+    process.stdout.write(`Added ${label} as a ${kind} reviewer on pull request #${target.pullRequest.id}.\n`);
+  } catch (err) {
+    handlePrCommandError(err, context, 'write');
+  }
+}
+
+async function runReviewerRemove(reviewer: string, options: PrCommandOptions): Promise<void> {
+  let context: AzdoContext | undefined;
+
+  try {
+    const target = await resolvePullRequestTarget(options);
+    if (target === null) {
+      return;
+    }
+    context = target.context;
+
+    let identity;
+    try {
+      identity = await resolveReviewerIdentity(target.context.org, target.pat, reviewer);
+    } catch (err) {
+      if (err instanceof Error && err.message.startsWith('RESOLVE_FAILED:')) {
+        writeError(`Reviewer "${reviewer}" could not be resolved to an Azure DevOps identity.`);
+        return;
+      }
+      throw err;
+    }
+
+    const outcome = await removePullRequestReviewer(target.context, target.repo, target.pat, target.pullRequest.id, identity.id);
+
+    const result: PrReviewerResult = {
+      pullRequestId: target.pullRequest.id,
+      reviewer: outcome.reviewer
+        ? { id: outcome.reviewer.id, displayName: outcome.reviewer.displayName, uniqueName: outcome.reviewer.uniqueName, isRequired: outcome.reviewer.isRequired }
+        : null,
+      noop: outcome.noop,
+    };
+
+    if (options.json) {
+      process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+      return;
+    }
+
+    if (outcome.noop) {
+      process.stdout.write(`${reviewer} is not a reviewer on pull request #${target.pullRequest.id}.\n`);
+      return;
+    }
+
+    const label = outcome.reviewer?.displayName ?? outcome.reviewer?.uniqueName ?? reviewer;
+    process.stdout.write(`Removed ${label} from pull request #${target.pullRequest.id}.\n`);
+  } catch (err) {
+    handlePrCommandError(err, context, 'write');
+  }
+}
+
+export function createPrReviewersCommand(): Command {
+  const command = new Command('reviewers');
+  command.description('Manage pull request reviewers');
+
+  const add = new Command('add');
+  withCommonPrOptions(configureUnwrappedHelp(add))
+    .description('Add a reviewer to the pull request (optional by default)')
+    .argument('<reviewer>', 'reviewer email or unique name')
+    .option('--required', 'mark the reviewer as required instead of optional')
+    .option('--pr-number <N>', PR_NUMBER_HELP)
+    .option('--json', 'output JSON')
+    .action(async (reviewer: string, _options: PrCommandOptions, command: Command) => {
+      await runReviewerAdd(reviewer, mergedPrOptions(command));
+    });
+  command.addCommand(add);
+
+  const remove = new Command('remove');
+  withCommonPrOptions(configureUnwrappedHelp(remove))
+    .description('Remove a reviewer from the pull request')
+    .argument('<reviewer>', 'reviewer email or unique name')
+    .option('--pr-number <N>', PR_NUMBER_HELP)
+    .option('--json', 'output JSON')
+    .action(async (reviewer: string, _options: PrCommandOptions, command: Command) => {
+      await runReviewerRemove(reviewer, mergedPrOptions(command));
+    });
+  command.addCommand(remove);
+
+  return command;
+}
+
 export function createPrCommand(): Command {
   const command = new Command('pr');
   command.description('Manage Azure DevOps pull requests');
@@ -1477,6 +1739,8 @@ export function createPrCommand(): Command {
   command.addCommand(createPrCommentReopenCommand());
   command.addCommand(createPrCommentReplyCommand());
   command.addCommand(createPrCommentAddCommand());
+  command.addCommand(createPrWorkItemsCommand());
+  command.addCommand(createPrReviewersCommand());
   command.addCommand(createPrCommentEditCommand());
   return command;
 }

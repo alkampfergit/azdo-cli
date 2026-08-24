@@ -61,10 +61,22 @@ describe('pr open command', () => {
     expect(getExitCode()).toBe(1);
   });
 
-  it('requires --description', async () => {
+  it('requires --description when no template resolves (FR-013)', async () => {
+    vi.mocked(openPullRequest).mockRejectedValue(new Error('DESCRIPTION_REQUIRED'));
+
     await run(['--title', 'Title']);
+
     expect(getStderr()).toContain('--description is required for pull request creation.');
     expect(getExitCode()).toBe(1);
+  });
+
+  it('creates a pull request without --description when a template resolves (FR-012)', async () => {
+    await run(['--title', 'Title']);
+
+    expect(vi.mocked(openPullRequest)).toHaveBeenCalledWith(
+      expect.any(Object), 'repo-name', expect.any(Object), 'feature/test', 'Title', undefined,
+    );
+    expect(getStdout()).toContain('Created pull request #12: Created PR');
   });
 
   it('rejects opening a pull request from develop', async () => {
