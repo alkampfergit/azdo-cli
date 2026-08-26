@@ -32,7 +32,7 @@ Single project (existing repo layout): `src/`, `tests/` at repository root.
 
 **Purpose**: Establish a clean baseline before any change.
 
-- [ ] T001 Confirm the working tree is on branch `035-fix-workitem-artifact-uri` (`git status --porcelain` empty) and run `npm run build` to establish a clean baseline before touching `src/services/pr-client.ts`.
+- [X] T001 Confirm the working tree is on branch `035-fix-workitem-artifact-uri` (`git status --porcelain` empty) and run `npm run build` to establish a clean baseline before touching `src/services/pr-client.ts`.
 
 ---
 
@@ -57,13 +57,13 @@ against the corrected URI shape.
 
 > Write/update these tests FIRST, confirm they FAIL against the current (unfixed) code.
 
-- [ ] T002 [US1] In `tests/unit/pr-client.test.ts`, update the `artifactUri` constant (around line 539, inside `describe('linkWorkItemToPullRequest / unlinkWorkItemFromPullRequest')`) from `'vstfs:///Git/PullRequestId/project-guid/repo-guid/77'` to `'vstfs:///Git/PullRequestId/project-guid%2Frepo-guid%2F77'`. Run `npx vitest run tests/unit/pr-client.test.ts` and confirm the `links a work item not yet linked (FR-001)` and `treats an already-linked work item as a no-op (FR-005)` tests now FAIL against the current implementation (proves the test change is meaningful).
-- [ ] T003 [P] [US1] Add a unit test in `tests/unit/pr-client.test.ts` (new `it` block within the same describe) that calls `linkWorkItemToPullRequest` with a `projectId`/`repositoryId` mock pair and asserts the resulting `url` is built by joining percent-encoded segments with the literal `%2F` (covers FR-001's segment-level encoding requirement from the spec's Edge Cases, not just the literal `%2F` substring).
+- [X] T002 [US1] In `tests/unit/pr-client.test.ts`, update the `artifactUri` constant (around line 539, inside `describe('linkWorkItemToPullRequest / unlinkWorkItemFromPullRequest')`) from `'vstfs:///Git/PullRequestId/project-guid/repo-guid/77'` to `'vstfs:///Git/PullRequestId/project-guid%2Frepo-guid%2F77'`. Run `npx vitest run tests/unit/pr-client.test.ts` and confirm the `links a work item not yet linked (FR-001)` and `treats an already-linked work item as a no-op (FR-005)` tests now FAIL against the current implementation (proves the test change is meaningful).
+- [X] T003 [P] [US1] Add a unit test in `tests/unit/pr-client.test.ts` (new `it` block within the same describe) that calls `linkWorkItemToPullRequest` with a `projectId`/`repositoryId` mock pair and asserts the resulting `url` is built by joining percent-encoded segments with the literal `%2F` (covers FR-001's segment-level encoding requirement from the spec's Edge Cases, not just the literal `%2F` substring).
 
 ### Implementation for User Story 1
 
-- [ ] T004 [US1] In `src/services/pr-client.ts`, fix `buildWorkItemArtifactUri` (line 739) to percent-encode `projectId` and `repositoryId` with `encodeURIComponent` and join all three segments with the literal string `%2F`: `` `vstfs:///Git/PullRequestId/${encodeURIComponent(projectId)}%2F${encodeURIComponent(repositoryId)}%2F${prId}` `` (FR-001, FR-002, FR-004).
-- [ ] T005 [US1] Run `npx vitest run tests/unit/pr-client.test.ts` and confirm every test in the `linkWorkItemToPullRequest / unlinkWorkItemFromPullRequest` describe block (including T002 and T003) now PASSES.
+- [X] T004 [US1] In `src/services/pr-client.ts`, fix `buildWorkItemArtifactUri` (line 739) to percent-encode `projectId` and `repositoryId` with `encodeURIComponent` and join all three segments with the literal string `%2F`: `` `vstfs:///Git/PullRequestId/${encodeURIComponent(projectId)}%2F${encodeURIComponent(repositoryId)}%2F${prId}` `` (FR-001, FR-002, FR-004).
+- [X] T005 [US1] Run `npx vitest run tests/unit/pr-client.test.ts` and confirm every test in the `linkWorkItemToPullRequest / unlinkWorkItemFromPullRequest` describe block (including T002 and T003) now PASSES.
 
 **Checkpoint**: User Story 1 is fully functional and independently testable — link, already-linked no-op, and reported `url` all use the corrected, ADO-visible URI.
 
@@ -80,11 +80,11 @@ they pass using the corrected URI with no additional matching-logic changes.
 
 ### Tests for User Story 2
 
-- [ ] T006 [US2] Confirm the existing `unlinks a linked work item (FR-002)` and `treats an unlinked work item as a no-op on unlink (FR-004)` tests in `tests/unit/pr-client.test.ts` (they reuse the `artifactUri` constant updated in T002) pass unchanged — no new test code needed since `unlinkWorkItemFromPullRequest`'s `findIndex` compares against the same `buildWorkItemArtifactUri` output.
+- [X] T006 [US2] Confirm the existing `unlinks a linked work item (FR-002)` and `treats an unlinked work item as a no-op on unlink (FR-004)` tests in `tests/unit/pr-client.test.ts` (they reuse the `artifactUri` constant updated in T002) pass unchanged — no new test code needed since `unlinkWorkItemFromPullRequest`'s `findIndex` compares against the same `buildWorkItemArtifactUri` output.
 
 ### Implementation for User Story 2
 
-- [ ] T007 [US2] Read `unlinkWorkItemFromPullRequest` in `src/services/pr-client.ts` (around line 824) and confirm its `findIndex` comparison calls the same fixed `buildWorkItemArtifactUri` from T004 with no independent URI-building logic — no code change expected beyond T004; document the confirmation in the PR report's Testing section.
+- [X] T007 [US2] Read `unlinkWorkItemFromPullRequest` in `src/services/pr-client.ts` (around line 824) and confirm its `findIndex` comparison calls the same fixed `buildWorkItemArtifactUri` from T004 with no independent URI-building logic — no code change expected beyond T004; document the confirmation in the PR report's Testing section.
 
 **Checkpoint**: Both user stories independently pass — link and unlink stay mutually consistent against the corrected URI.
 

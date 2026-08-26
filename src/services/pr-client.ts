@@ -737,7 +737,7 @@ export async function resolveRepositoryId(
 }
 
 function buildWorkItemArtifactUri(projectId: string, repositoryId: string, prId: number): string {
-  return `vstfs:///Git/PullRequestId/${projectId}/${repositoryId}/${prId}`;
+  return `vstfs:///Git/PullRequestId/${encodeURIComponent(projectId)}%2F${encodeURIComponent(repositoryId)}%2F${prId}`;
 }
 
 function buildWorkItemUrl(context: AzdoContext, workItemId: number): URL {
