@@ -14,6 +14,8 @@ the project uses [Semantic Versioning](https://semver.org/).
 
 _Targeting **0.17.0**. Working detail: [`docs/changelogs/unreleased.md`](docs/changelogs/unreleased.md)._
 
+- Fix: `azdo pr work-items link` now writes a percent-encoded ArtifactLink URI so linked work items actually appear in the PR's "Work Items" panel (#84).
+
 ## [0.16.0] - 2026-08-24 — PR work-item links, reviewer management & template-aware creation
 
 `azdo pr work-items link|unlink` and `azdo pr reviewers add|remove` land, plus
