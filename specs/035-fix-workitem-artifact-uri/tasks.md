@@ -92,9 +92,9 @@ they pass using the corrected URI with no additional matching-logic changes.
 
 ## Phase 5: Polish & Cross-Cutting Concerns
 
-- [ ] T008 [P] Run the full validation suite: `npm run lint && npm test && npm run build`; fix any fallout from the change.
-- [ ] T009 Review `README.md` per the constitution's Development Workflow rule (README MUST be reviewed after every completed SpecKit spec run) — check whether it documents `azdo pr work-items link/unlink` output or artifact URI examples that need updating; update if so, otherwise note no change was needed in the PR report.
-- [ ] T010 Walk through `specs/035-fix-workitem-artifact-uri/quickstart.md`: steps 3 (JSON `url` shape) and 5 (repeat-call `noop: true`) are covered by the automated tests in T002/T003/T005; steps 2, 4, and 6 require a real Azure DevOps org/project and are deferred to manual owner verification — note this split in the PR report's Testing section.
+- [X] T008 [P] Run the full validation suite: `npm run lint && npm test && npm run build`; fix any fallout from the change.
+- [X] T009 Review `README.md` per the constitution's Development Workflow rule (README MUST be reviewed after every completed SpecKit spec run) — check whether it documents `azdo pr work-items link/unlink` output or artifact URI examples that need updating; update if so, otherwise note no change was needed in the PR report.
+- [X] T010 Walk through `specs/035-fix-workitem-artifact-uri/quickstart.md`: steps 3 (JSON `url` shape) and 5 (repeat-call `noop: true`) are covered by the automated tests in T002/T003/T005; steps 2, 4, and 6 require a real Azure DevOps org/project and are deferred to manual owner verification — note this split in the PR report's Testing section.
 
 ---
 
