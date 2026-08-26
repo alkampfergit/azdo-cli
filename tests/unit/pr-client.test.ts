@@ -536,7 +536,7 @@ describe('pr-client', () => {
       });
     }
 
-    const artifactUri = 'vstfs:///Git/PullRequestId/project-guid/repo-guid/77';
+    const artifactUri = 'vstfs:///Git/PullRequestId/project-guid%2Frepo-guid%2F77';
 
     it('links a work item not yet linked (FR-001)', async () => {
       mockLinkFetch([]);
