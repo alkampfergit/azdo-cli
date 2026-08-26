@@ -24,13 +24,21 @@ URI construction so linked work items are visible where the command promises the
 
 - **Unit**: `tests/unit/pr-client.test.ts` — updated the `linkWorkItemToPullRequest` /
   `unlinkWorkItemFromPullRequest` describe block's `artifactUri` fixture to the corrected
-  `%2F`-encoded form, and added a dedicated assertion that the URI is built by percent-encoding
-  each segment individually (not just substring-matching `%2F`). All existing FR-numbered tests
-  (FR-001, FR-002, FR-004, FR-005) continue to pass against the corrected URI.
+  `%2F`-encoded form, confirmed the pre-fix assertions failed against the old code, and added a
+  dedicated assertion that the URI is built by percent-encoding each segment individually (not
+  just substring-matching `%2F`). All existing FR-numbered tests (FR-001, FR-002, FR-004, FR-005)
+  now pass against the corrected URI.
+- **Full validation suite**: `npm run typecheck && npm run lint && npm run build && vitest run
+  tests/unit tests/integration` — 63 test files, 1025 tests passed (126 pre-existing skips are
+  the live-ADO integration suite, unaffected by this change), 0 lint errors, clean typecheck and
+  build.
 - **Manual (deferred to owner)**: `quickstart.md` steps 2, 4, and 6 (linking a real work item to
   a real PR and confirming it renders in the Azure DevOps web UI) require a live ADO org/project
   and were not run in this environment; the JSON `url` shape (step 3) and repeat-call `noop: true`
   behavior (step 5) are covered by the automated unit tests above.
+- **Docs review**: `README.md` and `docs/commands.md` were checked — neither documents the
+  internal artifact URI format (only the user-facing `work-items link/unlink` command usage,
+  which is unchanged), so no doc updates were needed.
 
 ## Notes
 
