@@ -536,7 +536,7 @@ describe('pr-client', () => {
       });
     }
 
-    const artifactUri = 'vstfs:///Git/PullRequestId/project-guid/repo-guid/77';
+    const artifactUri = 'vstfs:///Git/PullRequestId/project-guid%2Frepo-guid%2F77';
 
     it('links a work item not yet linked (FR-001)', async () => {
       mockLinkFetch([]);
@@ -578,6 +578,31 @@ describe('pr-client', () => {
       mockLinkFetch([], 500);
 
       await expect(linkWorkItemToPullRequest(context, 'repo-name', 'pat', 77, 1234)).rejects.toThrow('HTTP_500');
+    });
+
+    it('percent-encodes each segment individually before joining with %2F (FR-001)', async () => {
+      vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+        const url = String(input);
+        const method = init?.method ?? 'GET';
+
+        if (url.includes('/projects/')) {
+          return { ok: true, status: 200, json: async () => ({ id: 'proj id' }) } as Response;
+        }
+        if (url.includes('/repositories/repo-name?')) {
+          return { ok: true, status: 200, json: async () => ({ id: 'repo+id' }) } as Response;
+        }
+        if (url.includes('/workitems/1234') && method === 'GET') {
+          return { ok: true, status: 200, json: async () => ({ id: 1234, relations: [] }) } as Response;
+        }
+        if (url.includes('/workitems/1234') && method === 'PATCH') {
+          return { ok: true, status: 200, json: async () => ({ id: 1234 }) } as Response;
+        }
+        throw new Error(`unexpected fetch: ${method} ${url}`);
+      });
+
+      const result = await linkWorkItemToPullRequest(context, 'repo-name', 'pat', 99, 1234);
+
+      expect(result.url).toBe('vstfs:///Git/PullRequestId/proj%20id%2Frepo%2Bid%2F99');
     });
   });
 
