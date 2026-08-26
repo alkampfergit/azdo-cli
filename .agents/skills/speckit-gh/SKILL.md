@@ -287,7 +287,11 @@ After the PR is marked ready in step 11, `speckit-gh` keeps ownership:
 - Polls PR reviewer comments every 5 min (delegate each cycle to a
   laconic subagent that ignores its own comments); applies owner-requested
   changes, re-runs CI, comments back with the commit hash.
-- Exits on `MERGED` / `CLOSED` / owner-directed stand-down.
+- Exits on `MERGED` / `CLOSED` / owner-directed stand-down. If this run is
+  operating in an isolated git worktree (e.g. delegated as a background
+  agent with `isolation: "worktree"`), remove that worktree as the last
+  step after the exit-condition handling — see *Worktree cleanup* in
+  [references/flow.md](references/flow.md).
 
 `github-pr-fixer` is NOT auto-invoked from here.
 

@@ -388,6 +388,14 @@ orchestrator level:
   work (CI fixing, reviewer comments, closure) is owned by `speckit-gh`
   itself and, ultimately, the primary owner. This skill MUST NOT
   auto-invoke `github-pr-fixer`; that skill is manual-slash-only.
+- **If PR-side ownership (post-ready lifecycle / step 13) is delegated to a
+  background agent so this loop's own discovery cycles keep running**,
+  launch it with `isolation: "worktree"` so it doesn't collide with this
+  session's shared working directory, and brief it explicitly to follow
+  `speckit-gh`'s *Worktree cleanup* step (see
+  `speckit-gh/references/flow.md`) — remove the worktree itself once the
+  PR reaches a terminal state (`MERGED` / `CLOSED` / stand-down). Do not
+  leave orphaned worktrees under `.claude/worktrees/` after a PR closes.
 - **The PR is closed only when the user says so explicitly** — typically as
   a comment on the PR/issue or a chat instruction like "close PR #456" or
   "merge PR #456". `speckit-full` must not close PRs unattended. Even when

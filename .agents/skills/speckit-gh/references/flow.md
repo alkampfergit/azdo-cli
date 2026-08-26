@@ -493,3 +493,26 @@ means merging on a signal other than an owner-authored directive on
 the active channel (e.g. CI going green, timeout, label change by a
 non-owner, a reviewer approval from a non-owner). Those never merge.
 **Do NOT tag or release on merge.**
+
+### Worktree cleanup (isolated-worktree runs only)
+
+If this run was launched inside an isolated git worktree — e.g. a
+background agent delegated with `isolation: "worktree"`, the pattern
+`speckit-full` uses when it hands a long-running PR watch to a
+subagent — remove that worktree as the last step, after (not before)
+the exit-condition handling above has already posted its
+`speckit:status`/label updates:
+
+```bash
+git worktree list                       # confirm which path is this run's worktree
+git status --porcelain                  # must be empty — never remove a dirty worktree
+git worktree unlock <worktree-path>      # only if it was created locked
+git worktree remove <worktree-path>
+```
+
+Only remove the worktree once the PR has actually reached a terminal
+state (`MERGED`, `CLOSED`, or owner stand-down) — never mid-flight,
+and never if `git status --porcelain` shows anything (that would
+silently discard work; surface it instead and leave the worktree for
+the owner to inspect). A run operating directly in the shared working
+directory (no isolated worktree) has nothing to clean up here.
