@@ -739,7 +739,8 @@ export async function resolveRepositoryId(
 function buildWorkItemArtifactUri(projectId: string, repositoryId: string, prId: number): string {
   const encodedProjectId = encodeURIComponent(projectId);
   const encodedRepositoryId = encodeURIComponent(repositoryId);
-  return `vstfs:///Git/PullRequestId/${encodedProjectId}%2F${encodedRepositoryId}%2F${prId}`;
+  const encodedPath = `${encodedProjectId}%2F${encodedRepositoryId}%2F${prId}`;
+  return `vstfs:///Git/PullRequestId/${encodedPath}`;
 }
 
 function buildWorkItemUrl(context: AzdoContext, workItemId: number): URL {
