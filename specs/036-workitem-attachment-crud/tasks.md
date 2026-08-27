@@ -229,17 +229,17 @@ listed with a clear one-line description and complete usage.
 
 ## Phase 6: Polish & Cross-Cutting Concerns
 
-- [ ] T021 [P] Run `npm run typecheck && npm run lint && npm run build`; fix any fallout from
+- [X] T021 [P] Run `npm run typecheck && npm run lint && npm run build`; fix any fallout from
   the `WorkItemAttachment.id` type change or the `promptYesNo` move.
-- [ ] T022 [P] Create `tests/integration/work-item-attachments.test.ts`
+- [X] T022 [P] Create `tests/integration/work-item-attachments.test.ts`
   (`describe.skipIf(SKIP_AZDO)`, following `tests/integration/get-item-attachments.test.ts`'s
   structure): attach a file to the fixture work item, verify it via `getWorkItem`, delete it,
   verify it's gone, and cover the ambiguous-filename + `--id` path by attaching two files
   under the same name and deleting one by ID.
-- [ ] T023 Walk through `specs/036-workitem-attachment-crud/quickstart.md` end-to-end against
+- [X] T023 Walk through `specs/036-workitem-attachment-crud/quickstart.md` end-to-end against
   a real Azure DevOps org/project; note in the PR report which steps are covered by T022's
   automated integration test versus manual owner verification.
-- [ ] T024 Run `npm test` (typecheck + lint + build + full unit/integration suite) and confirm
+- [X] T024 Run `npm test` (typecheck + lint + build + full unit/integration suite) and confirm
   no regressions.
 
 ---
