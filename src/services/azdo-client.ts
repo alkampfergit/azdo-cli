@@ -12,6 +12,7 @@ import type {
 } from '../types/work-item.js';
 import { getActiveTraceWriter, redactHeaders, redactUrl, redactBody } from './trace-writer.js';
 import type { TraceEntry } from '../types/auth-diagnostics.js';
+import { extractAttachmentGuid } from './image-download.js';
 
 const DEFAULT_FIELDS: readonly string[] = [
   'System.Title',
@@ -124,6 +125,8 @@ interface AzdoRelation {
   attributes: {
     name?: string;
     resourceSize?: number;
+    resourceCreatedDate?: string;
+    resourceModifiedDate?: string;
     [key: string]: unknown;
   };
 }
@@ -314,12 +317,51 @@ function extractAttachments(relations?: AzdoRelation[]): WorkItemAttachment[] | 
   const attachments = relations
     .filter((r) => r.rel === 'AttachedFile')
     .map((r) => ({
+      id: extractAttachmentGuid(r.url) ?? '',
       name: r.attributes.name ?? 'unknown',
       size: r.attributes.resourceSize ?? 0,
       url: r.url,
     }));
 
   return attachments.length > 0 ? attachments : null;
+}
+
+export interface AttachmentRelationMatch {
+  index: number;
+  id: string;
+  name: string;
+  size: number;
+  uploadedDate?: string;
+  url: string;
+}
+
+/**
+ * Find every `AttachedFile` relation on a work item matching `filename`,
+ * along with the relation's array **index** — needed to remove exactly one
+ * relation via `{ op: 'remove', path: '/relations/{index}' }` (the index is
+ * not preserved by extractAttachments()/getWorkItem(), and can shift between
+ * reads, so this always does a fresh fetch).
+ */
+export async function findAttachmentRelations(
+  context: AzdoContext,
+  id: number,
+  cred: AuthCredential,
+  filename: string,
+): Promise<AttachmentRelationMatch[]> {
+  const data = await fetchWorkItemResponse(context, id, cred, { includeRelations: true });
+  const relations = data.relations ?? [];
+
+  return relations
+    .map((r, index) => ({ r, index }))
+    .filter(({ r }) => r.rel === 'AttachedFile' && r.attributes.name === filename)
+    .map(({ r, index }) => ({
+      index,
+      id: extractAttachmentGuid(r.url) ?? '',
+      name: r.attributes.name ?? filename,
+      size: r.attributes.resourceSize ?? 0,
+      uploadedDate: r.attributes.resourceCreatedDate ?? r.attributes.resourceModifiedDate,
+      url: r.url,
+    }));
 }
 
 function buildWorkItemUrl(
@@ -580,7 +622,7 @@ export async function updateWorkItem(
   const result = await applyWorkItemPatch(context, id, cred, operations);
   const title = result.fields['System.Title'];
   const lastOp = operations.at(-1);
-  const fieldValue = lastOp?.value ?? null;
+  const fieldValue = typeof lastOp?.value === 'string' ? lastOp.value : null;
 
   return {
     id: result.id,
@@ -639,4 +681,39 @@ export async function downloadAttachment(url: string, cred: AuthCredential): Pro
   }
 
   return response.arrayBuffer();
+}
+
+export async function createAttachment(
+  context: AzdoContext,
+  fileName: string,
+  content: Buffer,
+  cred: AuthCredential,
+): Promise<{ id: string; url: string }> {
+  const url = new URL(
+    `https://dev.azure.com/${encodeURIComponent(context.org)}/${encodeURIComponent(context.project)}/_apis/wit/attachments`,
+  );
+  url.searchParams.set('fileName', fileName);
+  url.searchParams.set('api-version', '7.1');
+
+  const response = await fetchWithErrors(url.toString(), {
+    method: 'POST',
+    headers: {
+      ...authHeaders(cred),
+      'Content-Type': 'application/octet-stream',
+    },
+    body: new Uint8Array(content),
+  });
+
+  if (response.status === 400) {
+    const serverMessage = await readResponseMessage(response);
+    if (serverMessage) {
+      throw new Error(`BAD_REQUEST: ${serverMessage}`);
+    }
+  }
+
+  if (!response.ok) {
+    throw new Error(`HTTP_${response.status}`);
+  }
+
+  return (await response.json()) as { id: string; url: string };
 }

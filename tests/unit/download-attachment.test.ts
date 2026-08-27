@@ -31,12 +31,12 @@ describe('getWorkItem attachments', () => {
     vi.mocked(fetch).mockResolvedValue(makeWorkItemWithRelationsResponse([
       {
         rel: 'AttachedFile',
-        url: 'https://dev.azure.com/testorg/_apis/wit/attachments/guid1',
+        url: 'https://dev.azure.com/testorg/_apis/wit/attachments/a1111111-1111-1111-1111-111111111111',
         attributes: { name: 'design.png', resourceSize: 102400 },
       },
       {
         rel: 'AttachedFile',
-        url: 'https://dev.azure.com/testorg/_apis/wit/attachments/guid2',
+        url: 'https://dev.azure.com/testorg/_apis/wit/attachments/a2222222-2222-2222-2222-222222222222',
         attributes: { name: 'spec.docx', resourceSize: 46285 },
       },
     ]));
@@ -44,8 +44,18 @@ describe('getWorkItem attachments', () => {
     const item = await getWorkItem(ctx, 42, pat);
 
     expect(item.attachments).toEqual([
-      { name: 'design.png', size: 102400, url: 'https://dev.azure.com/testorg/_apis/wit/attachments/guid1' },
-      { name: 'spec.docx', size: 46285, url: 'https://dev.azure.com/testorg/_apis/wit/attachments/guid2' },
+      {
+        id: 'a1111111-1111-1111-1111-111111111111',
+        name: 'design.png',
+        size: 102400,
+        url: 'https://dev.azure.com/testorg/_apis/wit/attachments/a1111111-1111-1111-1111-111111111111',
+      },
+      {
+        id: 'a2222222-2222-2222-2222-222222222222',
+        name: 'spec.docx',
+        size: 46285,
+        url: 'https://dev.azure.com/testorg/_apis/wit/attachments/a2222222-2222-2222-2222-222222222222',
+      },
     ]);
   });
 

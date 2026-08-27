@@ -1,6 +1,7 @@
 export type ConfigValue = string | string[] | boolean | undefined;
 
 export interface WorkItemAttachment {
+  id: string;
   name: string;
   size: number;
   url: string;
@@ -50,7 +51,7 @@ export interface CliConfig extends ScopedSettings {
 export interface JsonPatchOperation {
   op: 'add' | 'remove' | 'replace' | 'test';
   path: string;
-  value?: string;
+  value?: string | Record<string, unknown>;
 }
 
 export interface UpdateResult {
