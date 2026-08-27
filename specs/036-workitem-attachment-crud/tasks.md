@@ -33,7 +33,7 @@ Single project (existing repo layout): `src/`, `tests/` at repository root.
 
 **Purpose**: Establish a clean baseline before any change.
 
-- [ ] T001 Confirm the working tree is on branch `036-workitem-attachment-crud`
+- [X] T001 Confirm the working tree is on branch `036-workitem-attachment-crud`
   (`git status --porcelain` empty) and run `npm run build` to establish a clean baseline
   before touching `src/services/azdo-client.ts`, `src/types/work-item.ts`, or
   `src/services/image-download.ts`.
@@ -47,27 +47,27 @@ Story 1 (attach reports the ID) and User Story 2 (delete matches/lists by ID) de
 
 **⚠️ CRITICAL**: No user story work can begin until this phase is complete.
 
-- [ ] T002 [P] In `src/types/work-item.ts`, add `id: string` to the `WorkItemAttachment`
+- [X] T002 [P] In `src/types/work-item.ts`, add `id: string` to the `WorkItemAttachment`
   interface (before `name`, per data-model.md): `{ id: string; name: string; size: number;
   url: string; }`.
-- [ ] T003 [P] In `src/services/image-download.ts`, extract and **export** a new
+- [X] T003 [P] In `src/services/image-download.ts`, extract and **export** a new
   `extractAttachmentGuid(url: string): string | null` helper that runs the existing
   `ATTACHMENT_GUID_RE` pattern against a URL's pathname and returns the lower-cased GUID (or
   `null` if no match); refactor `parseAttachmentReference` (around line 80) to call it
   internally instead of using `ATTACHMENT_GUID_RE` inline, so there is exactly one GUID
   regex in the codebase (research.md's "reuse `ATTACHMENT_GUID_RE`" decision).
-- [ ] T004 In `src/services/azdo-client.ts`, update `extractAttachments()` (line 311) to
+- [X] T004 In `src/services/azdo-client.ts`, update `extractAttachments()` (line 311) to
   populate `id: extractAttachmentGuid(r.url) ?? ''` on each mapped attachment, importing
   `extractAttachmentGuid` from `./image-download.js` (depends on T002, T003).
-- [ ] T005 [P] Update the `WorkItemAttachment` literals in
+- [X] T005 [P] Update the `WorkItemAttachment` literals in
   `tests/unit/get-item-attachments.test.ts` (lines ~45, ~59-61) to include an `id` field on
   each fixture so the file still type-checks against the new interface (depends on T002).
-- [ ] T006 Update `tests/unit/download-attachment.test.ts`'s
+- [X] T006 Update `tests/unit/download-attachment.test.ts`'s
   `returns attachments from AttachedFile relations` test (lines ~30-49): change the fixture
   relation URLs from placeholder text (`.../attachments/guid1`, `.../attachments/guid2`) to
   real GUID-shaped URLs, and add the corresponding lower-cased `id` field to each object in
   the `expect(item.attachments).toEqual([...])` assertion (depends on T004).
-- [ ] T007 Run `npx vitest run tests/unit/get-item-attachments.test.ts
+- [X] T007 Run `npx vitest run tests/unit/get-item-attachments.test.ts
   tests/unit/download-attachment.test.ts` and `npm run typecheck`; confirm both pass with no
   type errors (depends on T002-T006).
 
@@ -90,7 +90,7 @@ confirm the reported name/size/ID, then confirm the attachment appears via `get-
 
 > Write these tests FIRST, confirm they FAIL (command doesn't exist yet).
 
-- [ ] T008 [P] [US1] Create `tests/unit/add-attachment.test.ts` covering (per
+- [X] T008 [P] [US1] Create `tests/unit/add-attachment.test.ts` covering (per
   contracts/cli-commands.md and spec.md Acceptance Scenarios 1-5): a successful attach prints
   `Attached "<filename>" (<size>) to work item <id> [id: <attachment-guid>]` to stdout and
   calls the upload + PATCH sequence with a `rel: "AttachedFile"` relation; a missing local
@@ -101,7 +101,7 @@ confirm the reported name/size/ID, then confirm the attachment appears via `get-
 
 ### Implementation for User Story 1
 
-- [ ] T009 [US1] In `src/services/azdo-client.ts`, add and export
+- [X] T009 [US1] In `src/services/azdo-client.ts`, add and export
   `createAttachment(context: AzdoContext, fileName: string, content: Buffer, cred:
   AuthCredential): Promise<{ id: string; url: string }>` — `POST
   https://dev.azure.com/{org}/{project}/_apis/wit/attachments?fileName={name}&api-version=7.1`
@@ -109,7 +109,7 @@ confirm the reported name/size/ID, then confirm the attachment appears via `get-
   `fetchWithErrors`/`authHeaders` pattern; map non-OK responses through the same
   `BAD_REQUEST` / `HTTP_<status>` error shapes used by `fetchWorkItemResponse` (research.md's
   upload-mechanism decision).
-- [ ] T010 [US1] Create `src/commands/add-attachment.ts` exporting
+- [X] T010 [US1] Create `src/commands/add-attachment.ts` exporting
   `createAddAttachmentCommand()`, following `download-attachment.ts`'s structure:
   `azdo add-attachment <id> <file> [--comment <text>] [--org <org>] [--project <project>]`.
   Validate the local file exists and is a regular file (`existsSync` + `statSync().isFile()`)
@@ -120,11 +120,11 @@ confirm the reported name/size/ID, then confirm the attachment appears via `get-
   `` `Attached "${filename}" (${formatFileSize(size)}) to work item ${id} [id: ${attachmentId}]\n` ``
   (reuse `formatFileSize` from `./get-item.js`). Route errors through the existing
   `handleCommandError` (depends on T009).
-- [ ] T011 [US1] Register the new command in `src/index.ts`: import
+- [X] T011 [US1] Register the new command in `src/index.ts`: import
   `createAddAttachmentCommand` from `./commands/add-attachment.js` and add
   `program.addCommand(createAddAttachmentCommand());` alongside the other command
   registrations (depends on T010).
-- [ ] T012 [US1] Run `npx vitest run tests/unit/add-attachment.test.ts` and confirm every
+- [X] T012 [US1] Run `npx vitest run tests/unit/add-attachment.test.ts` and confirm every
   test from T008 now PASSES (depends on T008, T009, T010, T011).
 
 **Checkpoint**: `azdo add-attachment` is fully functional and independently testable.

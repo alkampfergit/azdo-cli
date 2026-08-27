@@ -15,6 +15,7 @@ import { createPrCommand } from "./commands/pr.js";
 import { createPipelineCommand } from "./commands/pipeline.js";
 import { createCommentsCommand } from "./commands/comments.js";
 import { createDownloadAttachmentCommand } from "./commands/download-attachment.js";
+import { createAddAttachmentCommand } from "./commands/add-attachment.js";
 import { createRelationsCommand } from "./commands/relations.js";
 import { getUpdateNotice } from "./services/update-check.js";
 import { initTraceWriter } from "./services/trace-writer.js";
@@ -53,6 +54,7 @@ program.addCommand(createPrCommand());
 program.addCommand(createPipelineCommand());
 program.addCommand(createCommentsCommand());
 program.addCommand(createDownloadAttachmentCommand());
+program.addCommand(createAddAttachmentCommand());
 program.addCommand(createRelationsCommand());
 
 program.showHelpAfterError();

@@ -642,3 +642,38 @@ export async function downloadAttachment(url: string, cred: AuthCredential): Pro
 
   return response.arrayBuffer();
 }
+
+export async function createAttachment(
+  context: AzdoContext,
+  fileName: string,
+  content: Buffer,
+  cred: AuthCredential,
+): Promise<{ id: string; url: string }> {
+  const url = new URL(
+    `https://dev.azure.com/${encodeURIComponent(context.org)}/${encodeURIComponent(context.project)}/_apis/wit/attachments`,
+  );
+  url.searchParams.set('fileName', fileName);
+  url.searchParams.set('api-version', '7.1');
+
+  const response = await fetchWithErrors(url.toString(), {
+    method: 'POST',
+    headers: {
+      ...authHeaders(cred),
+      'Content-Type': 'application/octet-stream',
+    },
+    body: new Uint8Array(content),
+  });
+
+  if (response.status === 400) {
+    const serverMessage = await readResponseMessage(response);
+    if (serverMessage) {
+      throw new Error(`BAD_REQUEST: ${serverMessage}`);
+    }
+  }
+
+  if (!response.ok) {
+    throw new Error(`HTTP_${response.status}`);
+  }
+
+  return (await response.json()) as { id: string; url: string };
+}
