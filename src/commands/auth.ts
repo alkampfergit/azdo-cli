@@ -23,6 +23,7 @@ import { openUrl } from '../services/browser-open.js';
 import { appendAuthAuditEvent, readAuditEvents } from '../services/audit-log.js';
 import { AZDO_RESOURCE_ID, defaultScopes, firstPartyShippedScopes } from '../services/oauth-config.js';
 import { diagnoseAuth, formatDiagnosticReport } from '../services/auth-diagnostics.js';
+import { promptYesNo } from '../services/command-helpers.js';
 
 type RootOptions = {
   org?: string;
@@ -45,25 +46,6 @@ async function readStdinToString(): Promise<string> {
     chunks.push(typeof chunk === 'string' ? Buffer.from(chunk) : chunk);
   }
   return Buffer.concat(chunks).toString('utf8');
-}
-
-async function promptYesNo(prompt: string): Promise<boolean> {
-  if (!process.stdin.isTTY) return true;
-  process.stderr.write(prompt);
-  return await new Promise<boolean>((resolve) => {
-    process.stdin.setEncoding('utf8');
-    let answered = false;
-    const handler = (data: string): void => {
-      if (answered) return;
-      answered = true;
-      process.stdin.removeListener('data', handler);
-      process.stdin.pause();
-      const trimmed = data.trim().toLowerCase();
-      resolve(trimmed === 'y' || trimmed === 'yes');
-    };
-    process.stdin.resume();
-    process.stdin.on('data', handler);
-  });
 }
 
 async function confirmOverwrite(org: string): Promise<boolean> {

@@ -144,7 +144,7 @@ and confirm it no longer appears among the work item's attachments.
 
 > Write these tests FIRST, confirm they FAIL (command doesn't exist yet).
 
-- [ ] T013 [P] [US2] Create `tests/unit/delete-attachment.test.ts` covering (per
+- [X] T013 [P] [US2] Create `tests/unit/delete-attachment.test.ts` covering (per
   contracts/cli-commands.md and spec.md Acceptance Scenarios 1-6 / Edge Cases): confirm+delete
   happy path prints `Removed "<filename>" (id: <attachment-guid>) from work item <id>`; a
   filename with no match exits 1 with `Error: Attachment "<filename>" not found on work item
@@ -158,14 +158,14 @@ and confirm it no longer appears among the work item's attachments.
 
 ### Implementation for User Story 2
 
-- [ ] T014 [P] [US2] In `src/services/command-helpers.ts`, add and export
+- [X] T014 [P] [US2] In `src/services/command-helpers.ts`, add and export
   `promptYesNo(prompt: string): Promise<boolean>`, moved verbatim from
   `src/commands/auth.ts` (line 50) — auto-confirms when `stdin` is not a TTY, otherwise reads
   a `[y/N]` answer. Update `src/commands/auth.ts` to import `promptYesNo` from
   `./services/command-helpers.js` and delete its local copy; `confirmOverwrite` /
   `confirmOverwriteCredential` keep calling it unchanged (research.md's confirmation-prompt
   decision).
-- [ ] T015 [US2] In `src/services/azdo-client.ts`, add and export
+- [X] T015 [US2] In `src/services/azdo-client.ts`, add and export
   `findAttachmentRelations(context: AzdoContext, id: number, cred: AuthCredential, filename:
   string): Promise<Array<{ index: number; id: string; name: string; size: number;
   uploadedDate?: string }>>` — fetches the work item with `$expand=relations` (same
@@ -178,7 +178,7 @@ and confirm it no longer appears among the work item's attachments.
   `microsoft_docs_search`/`microsoft_docs_fetch` for the Work Item `AttachedFile` relation
   schema (e.g. `resourceCreatedDate`) per constitution principle VI, and append a one-line
   finding to research.md (depends on T003).
-- [ ] T016 [US2] Create `src/commands/delete-attachment.ts` exporting
+- [X] T016 [US2] Create `src/commands/delete-attachment.ts` exporting
   `createDeleteAttachmentCommand()`: `azdo delete-attachment <id> <filename> [--id
   <attachment-guid>] [--yes|-y] [--org <org>] [--project <project>]`. Call
   `findAttachmentRelations()` (T015); if zero matches, print the not-found error and exit 1;
@@ -189,10 +189,10 @@ and confirm it no longer appears among the work item's attachments.
   `applyWorkItemPatch(context, id, cred, [{ op: 'remove', path: `/relations/${index}` }])` and
   print `` `Removed "${filename}" (id: ${attachmentId}) from work item ${id}\n` ``. Route
   errors through `handleCommandError` (depends on T014, T015).
-- [ ] T017 [US2] Register the new command in `src/index.ts`: import
+- [X] T017 [US2] Register the new command in `src/index.ts`: import
   `createDeleteAttachmentCommand` from `./commands/delete-attachment.js` and add
   `program.addCommand(createDeleteAttachmentCommand());` (depends on T016).
-- [ ] T018 [US2] Run `npx vitest run tests/unit/delete-attachment.test.ts` and confirm every
+- [X] T018 [US2] Run `npx vitest run tests/unit/delete-attachment.test.ts` and confirm every
   test from T013 now PASSES (depends on T013-T017).
 
 **Checkpoint**: `azdo add-attachment` and `azdo delete-attachment` both work independently.

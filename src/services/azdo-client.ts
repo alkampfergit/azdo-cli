@@ -125,6 +125,8 @@ interface AzdoRelation {
   attributes: {
     name?: string;
     resourceSize?: number;
+    resourceCreatedDate?: string;
+    resourceModifiedDate?: string;
     [key: string]: unknown;
   };
 }
@@ -322,6 +324,42 @@ function extractAttachments(relations?: AzdoRelation[]): WorkItemAttachment[] | 
     }));
 
   return attachments.length > 0 ? attachments : null;
+}
+
+export interface AttachmentRelationMatch {
+  index: number;
+  id: string;
+  name: string;
+  size: number;
+  uploadedDate?: string;
+}
+
+/**
+ * Find every `AttachedFile` relation on a work item matching `filename`,
+ * along with the relation's array **index** — needed to remove exactly one
+ * relation via `{ op: 'remove', path: '/relations/{index}' }` (the index is
+ * not preserved by extractAttachments()/getWorkItem(), and can shift between
+ * reads, so this always does a fresh fetch).
+ */
+export async function findAttachmentRelations(
+  context: AzdoContext,
+  id: number,
+  cred: AuthCredential,
+  filename: string,
+): Promise<AttachmentRelationMatch[]> {
+  const data = await fetchWorkItemResponse(context, id, cred, { includeRelations: true });
+  const relations = data.relations ?? [];
+
+  return relations
+    .map((r, index) => ({ r, index }))
+    .filter(({ r }) => r.rel === 'AttachedFile' && r.attributes.name === filename)
+    .map(({ r, index }) => ({
+      index,
+      id: extractAttachmentGuid(r.url) ?? '',
+      name: r.attributes.name ?? filename,
+      size: r.attributes.resourceSize ?? 0,
+      uploadedDate: r.attributes.resourceCreatedDate ?? r.attributes.resourceModifiedDate,
+    }));
 }
 
 function buildWorkItemUrl(

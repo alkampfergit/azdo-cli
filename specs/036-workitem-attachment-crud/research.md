@@ -48,3 +48,18 @@ behavior: per-attachment comment, 100 files / 60 MB limits).
 **Decision**: Do not pre-validate the platform's 100-attachments / 60 MB-per-file limits client-side. Surface the server's own `BAD_REQUEST`/`UPDATE_REJECTED` message via the existing `handleCommandError` mapping.
 
 **Rationale**: Matches the spec's Assumptions section (owner-unchallenged) and Simplicity — the limit is server-configurable (Server product allows a different max), so hard-coding it client-side would drift.
+
+## Addendum (implementation time): `AttachedFile` relation upload-date attribute key
+
+**Decision**: `resourceCreatedDate`. Read `r.attributes.resourceCreatedDate` (falling back to
+`resourceModifiedDate`, then to `undefined`/"unknown" if neither is present) when building the
+ambiguous-delete candidate listing.
+
+**Rationale**: Microsoft Learn's `Attachment.CreatedDate` property is documented as "the time the
+attachment was uploaded" for the underlying attachment resource; this repo's existing
+`extractAttachments()` already reads `r.attributes.resourceSize` for the same `AttachedFile`
+relation's size, confirming Azure DevOps exposes attachment-resource properties on the relation
+under a `resource<PropertyName>` naming convention. No single Learn page renders the full example
+JSON body for "Add an attached file" (the `workitembatchupdate` doc's example tabs don't render
+in fetched markdown), so this is inferred from the confirmed `resourceSize` precedent plus the
+`CreatedDate` semantics, with a graceful fallback if the key is ever absent.

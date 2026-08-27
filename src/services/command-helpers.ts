@@ -1,6 +1,32 @@
 import type { AzdoContext } from '../types/work-item.js';
 
 /**
+ * Prompt the user for a yes/no answer. Auto-confirms (`true`) when stdin is
+ * not a TTY, since there is no one to answer the prompt in that case —
+ * callers that need the opposite ("decline unless explicitly confirmed")
+ * for a destructive action must check `process.stdin.isTTY` themselves
+ * before calling this.
+ */
+export async function promptYesNo(prompt: string): Promise<boolean> {
+  if (!process.stdin.isTTY) return true;
+  process.stderr.write(prompt);
+  return await new Promise<boolean>((resolve) => {
+    process.stdin.setEncoding('utf8');
+    let answered = false;
+    const handler = (data: string): void => {
+      if (answered) return;
+      answered = true;
+      process.stdin.removeListener('data', handler);
+      process.stdin.pause();
+      const trimmed = data.trim().toLowerCase();
+      resolve(trimmed === 'y' || trimmed === 'yes');
+    };
+    process.stdin.resume();
+    process.stdin.on('data', handler);
+  });
+}
+
+/**
  * Parse and validate a work item ID string. Exits with error if invalid.
  */
 export function parseWorkItemId(idStr: string): number {
