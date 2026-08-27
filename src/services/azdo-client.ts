@@ -332,6 +332,7 @@ export interface AttachmentRelationMatch {
   name: string;
   size: number;
   uploadedDate?: string;
+  url: string;
 }
 
 /**
@@ -359,6 +360,7 @@ export async function findAttachmentRelations(
       name: r.attributes.name ?? filename,
       size: r.attributes.resourceSize ?? 0,
       uploadedDate: r.attributes.resourceCreatedDate ?? r.attributes.resourceModifiedDate,
+      url: r.url,
     }));
 }
 

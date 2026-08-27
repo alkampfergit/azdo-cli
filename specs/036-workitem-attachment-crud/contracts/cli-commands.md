@@ -36,7 +36,7 @@ azdo delete-attachment <id> <filename> [--id <attachment-guid>] [--yes|-y] [--or
 Removed "<filename>" (id: <attachment-guid>) from work item <id>
 ```
 
-**stdout (ambiguous, no `--id`)** — exit 1, no change made:
+**stderr (ambiguous, no `--id`)** — exit 1, no change made:
 ```
 Error: multiple attachments named "<filename>" on work item <id>:
   <guid-1>  <size-1>  <uploaded-date-1>
@@ -44,4 +44,4 @@ Error: multiple attachments named "<filename>" on work item <id>:
 Re-run with --id <guid> to remove a specific one.
 ```
 
-**stdout (not found)** — exit 1: `Error: Attachment "<filename>" not found on work item <id>.`
+**stderr (not found)** — exit 1: `Error: Attachment "<filename>" not found on work item <id>.`

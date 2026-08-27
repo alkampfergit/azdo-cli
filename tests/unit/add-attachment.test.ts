@@ -11,6 +11,7 @@ import {
 vi.mock('../../src/services/azdo-client.js', () => ({
   createAttachment: vi.fn(),
   applyWorkItemPatch: vi.fn(),
+  getWorkItem: vi.fn(),
 }));
 
 vi.mock('../../src/services/auth.js', () => ({
@@ -30,7 +31,7 @@ vi.mock('node:fs/promises', () => ({
   readFile: vi.fn(),
 }));
 
-import { createAttachment, applyWorkItemPatch } from '../../src/services/azdo-client.js';
+import { createAttachment, applyWorkItemPatch, getWorkItem } from '../../src/services/azdo-client.js';
 import { requireAuthCredential } from '../../src/services/auth.js';
 import { resolveContext } from '../../src/services/context.js';
 import { existsSync, statSync } from 'node:fs';
@@ -45,6 +46,20 @@ beforeEach(() => {
   vi.mocked(existsSync).mockReturnValue(true);
   vi.mocked(statSync).mockReturnValue({ isFile: () => true } as ReturnType<typeof statSync>);
   vi.mocked(readFile).mockResolvedValue(Buffer.from('x'.repeat(1024)));
+  vi.mocked(getWorkItem).mockResolvedValue({
+    id: 42,
+    rev: 1,
+    title: 'Test Item',
+    state: 'Active',
+    type: 'Task',
+    assignedTo: null,
+    description: null,
+    areaPath: 'proj\\Area',
+    iterationPath: 'proj\\Sprint 1',
+    url: 'https://dev.azure.com/testorg/testproj/_workitems/edit/42',
+    extraFields: null,
+    attachments: null,
+  });
   vi.mocked(createAttachment).mockResolvedValue({
     id: 'a1111111-1111-1111-1111-111111111111',
     url: 'https://dev.azure.com/testorg/_apis/wit/attachments/a1111111-1111-1111-1111-111111111111?fileName=screenshot.png',
@@ -141,6 +156,25 @@ describe('add-attachment command', () => {
 
     expect(getStderr()).toContain('not found');
     expect(getExitCode()).toBe(1);
+  });
+
+  it('validates the work item before uploading, so an unknown work item uploads nothing', async () => {
+    vi.mocked(getWorkItem).mockRejectedValue(new Error('NOT_FOUND'));
+
+    await run(['999', './screenshot.png']);
+
+    expect(getStderr()).toContain('not found');
+    expect(getExitCode()).toBe(1);
+    expect(createAttachment).not.toHaveBeenCalled();
+    expect(applyWorkItemPatch).not.toHaveBeenCalled();
+  });
+
+  it('reads the local file before resolving credentials (no network call on an unreadable file)', async () => {
+    await run(['42', './screenshot.png']);
+
+    const readFileOrder = vi.mocked(readFile).mock.invocationCallOrder[0];
+    const credentialOrder = vi.mocked(requireAuthCredential).mock.invocationCallOrder[0];
+    expect(readFileOrder).toBeLessThan(credentialOrder);
   });
 
   it('validates --org/--project pairing', async () => {

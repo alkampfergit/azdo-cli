@@ -34,6 +34,7 @@ const singleMatch = [
     name: 'screenshot.png',
     size: 102400,
     uploadedDate: '2026-08-20T10:00:00Z',
+    url: 'https://dev.azure.com/testorg/_apis/wit/attachments/a1111111-1111-1111-1111-111111111111?fileName=screenshot.png',
   },
 ];
 
@@ -44,6 +45,7 @@ const twoMatches = [
     name: 'screenshot.png',
     size: 131072,
     uploadedDate: '2026-08-20T10:00:00Z',
+    url: 'https://dev.azure.com/testorg/_apis/wit/attachments/a1111111-1111-1111-1111-111111111111?fileName=screenshot.png',
   },
   {
     index: 2,
@@ -51,6 +53,7 @@ const twoMatches = [
     name: 'screenshot.png',
     size: 134144,
     uploadedDate: '2026-08-27T10:00:00Z',
+    url: 'https://dev.azure.com/testorg/_apis/wit/attachments/a2222222-2222-2222-2222-222222222222?fileName=screenshot.png',
   },
 ];
 
@@ -79,7 +82,10 @@ describe('delete-attachment command', () => {
       { org: 'testorg', project: 'testproj' },
       42,
       expect.objectContaining({ pat: 'test-pat' }),
-      [{ op: 'remove', path: '/relations/0' }],
+      [
+        { op: 'test', path: '/relations/0/url', value: singleMatch[0].url },
+        { op: 'remove', path: '/relations/0' },
+      ],
     );
     expect(getStdout()).toBe(
       'Removed "screenshot.png" (id: a1111111-1111-1111-1111-111111111111) from work item 42\n',
@@ -128,9 +134,41 @@ describe('delete-attachment command', () => {
       { org: 'testorg', project: 'testproj' },
       42,
       expect.objectContaining({ pat: 'test-pat' }),
-      [{ op: 'remove', path: '/relations/2' }],
+      [
+        { op: 'test', path: '/relations/2/url', value: twoMatches[1].url },
+        { op: 'remove', path: '/relations/2' },
+      ],
     );
     expect(getStdout()).toContain('id: a2222222-2222-2222-2222-222222222222');
+    expect(getExitCode()).toBe(0);
+  });
+
+  it('rejects a wrong --id even when the filename has only one match (does not silently ignore --id)', async () => {
+    vi.mocked(findAttachmentRelations).mockResolvedValue(singleMatch);
+
+    await run(['42', 'screenshot.png', '--id', 'ffffffff-ffff-ffff-ffff-ffffffffffff', '--yes']);
+
+    expect(getStderr()).toContain(
+      'No attachment named "screenshot.png" with id ffffffff-ffff-ffff-ffff-ffffffffffff found',
+    );
+    expect(getExitCode()).toBe(1);
+    expect(applyWorkItemPatch).not.toHaveBeenCalled();
+  });
+
+  it('matches --id case-insensitively against the lower-cased stored id', async () => {
+    vi.mocked(findAttachmentRelations).mockResolvedValue(twoMatches);
+
+    await run(['42', 'screenshot.png', '--id', 'A2222222-2222-2222-2222-222222222222', '--yes']);
+
+    expect(applyWorkItemPatch).toHaveBeenCalledWith(
+      { org: 'testorg', project: 'testproj' },
+      42,
+      expect.objectContaining({ pat: 'test-pat' }),
+      [
+        { op: 'test', path: '/relations/2/url', value: twoMatches[1].url },
+        { op: 'remove', path: '/relations/2' },
+      ],
+    );
     expect(getExitCode()).toBe(0);
   });
 

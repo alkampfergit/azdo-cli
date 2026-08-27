@@ -49,24 +49,15 @@ export function createDeleteAttachmentCommand(): Command {
             return;
           }
 
-          let target = matches[0];
+          let target: (typeof matches)[number];
 
-          if (matches.length > 1) {
-            if (!options.id) {
-              process.stderr.write(
-                `Error: multiple attachments named "${filename}" on work item ${id}:\n`,
-              );
-              for (const match of matches) {
-                process.stderr.write(
-                  `  ${match.id}  ${formatFileSize(match.size)}  ${formatUploadDate(match.uploadedDate)}\n`,
-                );
-              }
-              process.stderr.write('Re-run with --id <guid> to remove a specific one.\n');
-              process.exitCode = 1;
-              return;
-            }
-
-            const narrowed = matches.find((match) => match.id === options.id);
+          if (options.id) {
+            // Validate an explicit --id against every match, regardless of
+            // how many candidates there are — otherwise a single-match
+            // filename would silently ignore a caller-supplied --id that
+            // doesn't actually belong to that attachment.
+            const wantedId = options.id.toLowerCase();
+            const narrowed = matches.find((match) => match.id === wantedId);
             if (!narrowed) {
               process.stderr.write(
                 `Error: No attachment named "${filename}" with id ${options.id} found on work item ${id}.\n`,
@@ -75,6 +66,20 @@ export function createDeleteAttachmentCommand(): Command {
               return;
             }
             target = narrowed;
+          } else if (matches.length > 1) {
+            process.stderr.write(
+              `Error: multiple attachments named "${filename}" on work item ${id}:\n`,
+            );
+            for (const match of matches) {
+              process.stderr.write(
+                `  ${match.id}  ${formatFileSize(match.size)}  ${formatUploadDate(match.uploadedDate)}\n`,
+              );
+            }
+            process.stderr.write('Re-run with --id <guid> to remove a specific one.\n');
+            process.exitCode = 1;
+            return;
+          } else {
+            target = matches[0];
           }
 
           let confirmed = options.yes === true;
@@ -95,7 +100,15 @@ export function createDeleteAttachmentCommand(): Command {
             return;
           }
 
+          // The relation index was resolved before the (potentially
+          // long-running, interactive) confirmation prompt — another client
+          // could have inserted/removed an earlier relation meanwhile and
+          // shifted it. Guard the removal with a `test` op asserting the
+          // relation at that index is still the one we found, so a stale
+          // index is rejected by the server instead of removing the wrong
+          // attachment.
           await applyWorkItemPatch(context, id, credential, [
+            { op: 'test', path: `/relations/${target.index}/url`, value: target.url },
             { op: 'remove', path: `/relations/${target.index}` },
           ]);
 
