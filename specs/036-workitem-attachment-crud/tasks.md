@@ -209,7 +209,7 @@ listed with a clear one-line description and complete usage.
 
 ### Tests for User Story 3
 
-- [ ] T019 [P] [US3] Extend `tests/unit/cli.test.ts`'s `--help outputs usage information`
+- [X] T019 [P] [US3] Extend `tests/unit/cli.test.ts`'s `--help outputs usage information`
   coverage (or add a new `it` block) to assert the top-level `--help` output lists both
   `add-attachment` and `delete-attachment` alongside `download-attachment`, and that
   `azdo add-attachment --help` / `azdo delete-attachment --help` each describe their
@@ -217,7 +217,7 @@ listed with a clear one-line description and complete usage.
 
 ### Implementation for User Story 3
 
-- [ ] T020 [US3] If T019 reveals a gap (missing/unclear `.description()` text on either
+- [X] T020 [US3] If T019 reveals a gap (missing/unclear `.description()` text on either
   command or its options in `add-attachment.ts` / `delete-attachment.ts`), tighten the
   wording; otherwise confirm no source change is needed — commander.js derives `--help` from
   the `.description()`/`.argument()`/`.option()` calls already written in T010/T016 (depends

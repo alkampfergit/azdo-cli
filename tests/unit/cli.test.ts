@@ -36,6 +36,37 @@ describe("azdo CLI", () => {
     expect(exitCode).toBe(0);
   });
 
+  it("--help lists add-attachment and delete-attachment alongside download-attachment", () => {
+    const { stdout, exitCode } = run(["--help"]);
+    expect(stdout).toContain("download-attachment");
+    expect(stdout).toContain("add-attachment");
+    expect(stdout).toContain("delete-attachment");
+    expect(exitCode).toBe(0);
+  });
+
+  it("add-attachment --help describes its arguments and options", () => {
+    const { stdout, exitCode } = run(["add-attachment", "--help"]);
+    expect(stdout).toContain("Usage:");
+    expect(stdout).toContain("<id>");
+    expect(stdout).toContain("<file>");
+    expect(stdout).toContain("--comment");
+    expect(stdout).toContain("--org");
+    expect(stdout).toContain("--project");
+    expect(exitCode).toBe(0);
+  });
+
+  it("delete-attachment --help describes its arguments and options", () => {
+    const { stdout, exitCode } = run(["delete-attachment", "--help"]);
+    expect(stdout).toContain("Usage:");
+    expect(stdout).toContain("<id>");
+    expect(stdout).toContain("<filename>");
+    expect(stdout).toContain("--id");
+    expect(stdout).toContain("--yes");
+    expect(stdout).toContain("--org");
+    expect(stdout).toContain("--project");
+    expect(exitCode).toBe(0);
+  });
+
   it("no arguments displays help", () => {
     const result = run([]);
     const output = result.stdout + result.stderr;
