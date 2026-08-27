@@ -42,8 +42,8 @@ describe('formatWorkItem with attachments', () => {
   it('displays attachment list in full mode', () => {
     const item = makeWorkItem({
       attachments: [
-        { name: 'design.png', size: 102400, url: 'https://example.com/a1' },
-        { name: 'requirements.docx', size: 46285, url: 'https://example.com/a2' },
+        { id: 'a1111111-1111-1111-1111-111111111111', name: 'design.png', size: 102400, url: 'https://example.com/a1' },
+        { id: 'a2222222-2222-2222-2222-222222222222', name: 'requirements.docx', size: 46285, url: 'https://example.com/a2' },
       ],
     });
 
@@ -56,9 +56,9 @@ describe('formatWorkItem with attachments', () => {
   it('displays attachment count in short mode', () => {
     const item = makeWorkItem({
       attachments: [
-        { name: 'design.png', size: 102400, url: 'https://example.com/a1' },
-        { name: 'readme.md', size: 1024, url: 'https://example.com/a2' },
-        { name: 'data.csv', size: 2048, url: 'https://example.com/a3' },
+        { id: 'a1111111-1111-1111-1111-111111111111', name: 'design.png', size: 102400, url: 'https://example.com/a1' },
+        { id: 'a2222222-2222-2222-2222-222222222222', name: 'readme.md', size: 1024, url: 'https://example.com/a2' },
+        { id: 'a3333333-3333-3333-3333-333333333333', name: 'data.csv', size: 2048, url: 'https://example.com/a3' },
       ],
     });
 

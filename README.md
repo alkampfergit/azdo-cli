@@ -12,6 +12,7 @@ Azure DevOps CLI focused on work item read/write workflows.
 - Update work item state, assignee, or any field (`set-state`, `assign`, `set-field`)
 - Create or update work items from markdown documents (`upsert`)
 - Read and post work item comments (`comments`)
+- Attach a local file to a work item, or remove a named attachment (`add-attachment`, `delete-attachment`)
 - Read/write rich-text fields as markdown (`get-md-field`, `set-md-field`)
 - Download images embedded in rich-text fields, optionally resized for LLM use (`get-item`/`get-md-field` `--download-images`, `--resize-images`)
 - Check branch pull request status, open PRs to `develop` (optionally pre-filled from a repository-defined template), list PR comment threads for any PR (`--pr-number`), resolve/reopen threads, link/unlink work items, and add/remove required or optional reviewers — all from the CLI (`pr`)
@@ -53,6 +54,12 @@ azdo upsert --type "User Story" --content $'---\nTitle: Improve markdown import 
 # Read and post work item comments
 azdo comments list 12345
 azdo comments add 12345 "Investigating the root cause now."
+
+# Attach a local file to a work item, or remove one
+azdo add-attachment 12345 ./screenshot.png --comment "Repro captured on staging"
+azdo delete-attachment 12345 screenshot.png              # prompts for confirmation
+azdo delete-attachment 12345 screenshot.png --yes         # skip the prompt (scripting)
+azdo delete-attachment 12345 screenshot.png --id <guid>   # disambiguate when the name is shared
 
 # Find a pull request — one API call, any branch
 azdo pr list                            # active PRs in the repository
