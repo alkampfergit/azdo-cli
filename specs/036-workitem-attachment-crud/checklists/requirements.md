@@ -32,3 +32,4 @@
 ## Notes
 
 - All items pass on first validation pass. No [NEEDS CLARIFICATION] markers were needed — three points that would normally warrant clarification (filename-collision resolution, upload size limits, delete confirmation behavior) were instead resolved against existing CLI precedent (the download-attachment command) and recorded under Assumptions for owner review during spec approval.
+- 2026-08-27: owner (alkampfergit) reviewed and corrected two of those defaults on issue #87 — attach now supports an optional comment (FR-010), filename collisions on attach always append rather than replace (FR-011), delete requires interactive confirmation with a `--yes` override (FR-012/FR-013), and ambiguous deletes (multiple attachments sharing a filename) require disambiguation (FR-014). Spec revised accordingly; all checklist items still pass.
