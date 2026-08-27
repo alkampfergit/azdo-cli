@@ -12,7 +12,13 @@ the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-_Targeting **0.18.0**. Working detail: [`docs/changelogs/unreleased.md`](docs/changelogs/unreleased.md)._
+_Targeting **0.19.0**. Working detail: [`docs/changelogs/unreleased.md`](docs/changelogs/unreleased.md)._
+
+## [0.18.0] - 2026-08-27 — Work item attachments
+
+`azdo add-attachment` / `azdo delete-attachment` let you attach and remove work item files
+without leaving the CLI.
+→ [details](docs/changelogs/0.18.0.md)
 
 - `azdo add-attachment` / `azdo delete-attachment` — upload and remove work item attachments from the CLI (#87/#88).
 
