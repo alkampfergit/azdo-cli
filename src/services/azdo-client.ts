@@ -12,6 +12,7 @@ import type {
 } from '../types/work-item.js';
 import { getActiveTraceWriter, redactHeaders, redactUrl, redactBody } from './trace-writer.js';
 import type { TraceEntry } from '../types/auth-diagnostics.js';
+import { extractAttachmentGuid } from './image-download.js';
 
 const DEFAULT_FIELDS: readonly string[] = [
   'System.Title',
@@ -314,6 +315,7 @@ function extractAttachments(relations?: AzdoRelation[]): WorkItemAttachment[] | 
   const attachments = relations
     .filter((r) => r.rel === 'AttachedFile')
     .map((r) => ({
+      id: extractAttachmentGuid(r.url) ?? '',
       name: r.attributes.name ?? 'unknown',
       size: r.attributes.resourceSize ?? 0,
       url: r.url,
@@ -580,7 +582,7 @@ export async function updateWorkItem(
   const result = await applyWorkItemPatch(context, id, cred, operations);
   const title = result.fields['System.Title'];
   const lastOp = operations.at(-1);
-  const fieldValue = lastOp?.value ?? null;
+  const fieldValue = typeof lastOp?.value === 'string' ? lastOp.value : null;
 
   return {
     id: result.id,

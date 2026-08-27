@@ -58,6 +58,16 @@ export interface FieldContent {
 const ATTACHMENT_GUID_RE = /_apis\/wit\/attachments\/([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})/;
 
 /**
+ * Extract the attachment GUID from an Azure DevOps attachment URL
+ * (`.../_apis/wit/attachments/<guid>?...`). Returns null if the URL doesn't
+ * contain a recognizable attachment GUID.
+ */
+export function extractAttachmentGuid(url: string): string | null {
+  const match = ATTACHMENT_GUID_RE.exec(url);
+  return match ? match[1].toLowerCase() : null;
+}
+
+/**
  * Only fetch attachments from Azure DevOps hosts. Without this check, a work item could
  * embed `https://evil.example/_apis/wit/attachments/<guid>` and the authenticated
  * downloader would leak the user's credential to that host. The rest of the CLI targets
@@ -92,10 +102,8 @@ function parseAttachmentReference(rawUrl: string, sourceField: string): Embedded
     return null;
   }
 
-  const match = ATTACHMENT_GUID_RE.exec(parsed.pathname);
-  if (!match) return null;
-
-  const guid = match[1].toLowerCase();
+  const guid = extractAttachmentGuid(parsed.pathname);
+  if (!guid) return null;
 
   let suggestedExtension = '.png';
   const fileName = parsed.searchParams.get('fileName');
