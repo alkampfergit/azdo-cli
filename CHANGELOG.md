@@ -12,7 +12,15 @@ the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-_Targeting **0.17.0**. Working detail: [`docs/changelogs/unreleased.md`](docs/changelogs/unreleased.md)._
+_Targeting **0.18.0**. Working detail: [`docs/changelogs/unreleased.md`](docs/changelogs/unreleased.md)._
+
+- `azdo add-attachment` / `azdo delete-attachment` — upload and remove work item attachments from the CLI (#87/#88).
+
+## [0.17.0] - 2026-08-26 — Fixed work-item ArtifactLink URI
+
+`azdo pr work-items link` now writes a percent-encoded ArtifactLink URI so linked work items
+actually appear in the PR's "Work Items" panel.
+→ [details](docs/changelogs/0.17.0.md)
 
 - Fix: `azdo pr work-items link` now writes a percent-encoded ArtifactLink URI so linked work items actually appear in the PR's "Work Items" panel (#84).
 
