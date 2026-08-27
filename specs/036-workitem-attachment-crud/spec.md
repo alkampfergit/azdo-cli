@@ -5,6 +5,12 @@
 **Status**: Draft
 **Input**: User description: "Add the ability to create (upload) and delete attachments on an Azure DevOps work item via the azdo CLI. Azdo-cli currently supports retrieving/downloading attachments from a work item, but there is no documented or discoverable command to add a new attachment to a work item or to remove an existing attachment from a work item. This should follow the same command-surface conventions as the existing work-item attachment retrieval command(s)."
 
+## Clarifications
+
+### Session 2026-08-27
+
+- Q: How should the user (interactively or with `--yes`) pick a specific attachment when the delete filename is ambiguous (multiple attachments share it)? → A: Option A — every attach reports a stable per-attachment ID; delete accepts an optional `--id <id>` to disambiguate; if omitted and multiple matches exist, delete lists the candidates (ID, date, size) and refuses to proceed, including under `--yes`, which still requires `--id` in that case.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Attach a file to a work item (Priority: P1)
@@ -17,7 +23,7 @@ As an azdo-cli user, I want to attach a local file to an existing work item, so 
 
 **Acceptance Scenarios**:
 
-1. **Given** an existing work item and a local file that exists on disk, **When** the user runs the attach command with the work item ID and the file path, **Then** the file is uploaded and linked to the work item, and the CLI reports the attached file's name and size.
+1. **Given** an existing work item and a local file that exists on disk, **When** the user runs the attach command with the work item ID and the file path, **Then** the file is uploaded and linked to the work item, and the CLI reports the attached file's name, size, and a stable per-attachment ID that can later be used to disambiguate a delete.
 2. **Given** an existing work item, **When** the user runs the attach command with a file path that does not exist locally, **Then** the CLI reports a clear error before attempting any network call and makes no change to the work item.
 3. **Given** a work item ID that does not exist (or the user lacks access), **When** the user runs the attach command, **Then** the CLI reports a clear error identifying the work item problem and uploads nothing.
 4. **Given** an existing work item and a local file, **When** the user runs the attach command with an optional comment describing the attachment, **Then** the file is uploaded and the comment is stored alongside the attachment (matching the existing Azure DevOps UI behavior of attaching a comment to an uploaded file).
@@ -39,7 +45,8 @@ As an azdo-cli user, I want to remove a specific attachment from a work item, so
 2. **Given** a work item with no attachment matching the given filename, **When** the user runs the delete command, **Then** the CLI reports a clear "not found" error and makes no change.
 3. **Given** a work item ID that does not exist (or the user lacks access), **When** the user runs the delete command, **Then** the CLI reports a clear error identifying the work item problem.
 4. **Given** a work item with a named attachment, **When** the user runs the delete command with an explicit "skip confirmation" option, **Then** the attachment is removed immediately without an interactive prompt (suitable for scripting).
-5. **Given** a work item with more than one attachment sharing the given filename, **When** the user runs the delete command, **Then** the CLI lists the matching attachments with enough distinguishing detail (e.g. upload date, size) and requires the user to identify which one to remove, rather than guessing.
+5. **Given** a work item with more than one attachment sharing the given filename, **When** the user runs the delete command without an attachment ID, **Then** the CLI lists the matching attachments (each with its ID, upload date, and size) and refuses to delete — this applies even when the skip-confirmation option is given, since it cannot safely guess which attachment to remove.
+6. **Given** a work item with more than one attachment sharing the given filename, **When** the user runs the delete command with the filename and a specific attachment ID, **Then** the CLI removes exactly that attachment (with confirmation, or immediately if skip-confirmation is given) and leaves the others untouched.
 
 ---
 
@@ -62,7 +69,7 @@ As an azdo-cli user, I want the attach and delete commands to show up in the CLI
 
 - What happens when the local file path for the attach command points to a directory instead of a file? → CLI reports a clear error and uploads nothing.
 - What happens when a work item already has an attachment with the same filename as the one being attached? → The upload proceeds and both attachments coexist (see User Story 1, Acceptance Scenario 5) — attach never deletes or replaces an existing attachment.
-- What happens when a work item has multiple attachments sharing the filename given to the delete command? → The CLI cannot safely guess; it lists the candidates and requires the user to disambiguate (see User Story 2, Acceptance Scenario 5).
+- What happens when a work item has multiple attachments sharing the filename given to the delete command? → The CLI cannot safely guess; it lists the candidates (ID, date, size) and requires the user to re-run with a specific attachment ID — this applies even with the skip-confirmation option (see User Story 2, Acceptance Scenarios 5–6).
 - What happens when the upload is interrupted or the server rejects the file (e.g. exceeds the organization's attachment size limit)? → The CLI surfaces the server's error message; the work item is left unchanged (no partial/orphaned attachment reference).
 - What happens when the user is authenticated but lacks permission to edit the work item? → The CLI reports a clear permission error, distinct from a "not found" error.
 - What happens when the same file is attached twice under different names? → Each attach call is independent; the CLI does not attempt to detect or block duplicate content.
@@ -78,7 +85,7 @@ As an azdo-cli user, I want the attach and delete commands to show up in the CLI
 ### Functional Requirements
 
 - **FR-001**: Users MUST be able to attach a local file to an existing work item by specifying the work item ID and the local file path.
-- **FR-002**: System MUST report the attached file's name and size on a successful attach.
+- **FR-002**: System MUST report the attached file's name, size, and a stable per-attachment ID on a successful attach.
 - **FR-003**: System MUST reject an attach attempt when the given local file path does not exist or is not a readable file, with a clear error, before making any network call.
 - **FR-004**: Users MUST be able to remove a specific attachment from a work item by specifying the work item ID and the attachment's filename.
 - **FR-005**: System MUST confirm successful removal, including the removed attachment's name.
@@ -90,11 +97,13 @@ As an azdo-cli user, I want the attach and delete commands to show up in the CLI
 - **FR-011**: When the file being attached shares its filename with an attachment that already exists on the work item, the system MUST add it as a new, separate attachment rather than deleting or replacing the existing one.
 - **FR-012**: System MUST ask for interactive confirmation before removing an attachment.
 - **FR-013**: Users MUST be able to suppress the confirmation prompt with an explicit option (e.g. `--yes`), so the delete command can be used non-interactively/in scripts.
-- **FR-014**: When more than one attachment on the work item shares the filename given to the delete command, the system MUST present the matching candidates with distinguishing detail (e.g. upload date, size) and require the user to identify which one to remove, instead of guessing.
+- **FR-014**: When more than one attachment on the work item shares the filename given to the delete command, the system MUST present the matching candidates with distinguishing detail (ID, upload date, size) and refuse to delete — instead of guessing — unless the user also supplies the specific attachment ID.
+- **FR-015**: Users MUST be able to supply an attachment ID to the delete command (alongside the filename) to disambiguate which attachment to remove when more than one shares that filename.
+- **FR-016**: The skip-confirmation option (FR-013) MUST NOT bypass the disambiguation requirement in FR-014 — deleting an ambiguous filename without an attachment ID is refused even with skip-confirmation.
 
 ### Key Entities
 
-- **Work Item Attachment**: A file associated with a work item, identified by a filename, size, an optional comment, and a server-assigned reference; created by the attach command and removed by the delete command. Multiple attachments may share the same work item and, since attach never deduplicates, may also share the same filename.
+- **Work Item Attachment**: A file associated with a work item, identified by a filename, size, an optional comment, and a stable per-attachment ID (surfaced to the user on attach and accepted by delete to disambiguate); created by the attach command and removed by the delete command. Multiple attachments may share the same work item and, since attach never deduplicates, may also share the same filename — the ID is what distinguishes them.
 
 ## Success Criteria *(mandatory)*
 
