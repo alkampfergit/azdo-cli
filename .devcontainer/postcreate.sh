@@ -28,6 +28,8 @@ curl -fsSL https://claude.ai/install.sh | bash || true
 if command -v npm >/dev/null 2>&1; then
     echo "Installing OpenAI Codex..."
     npm install -g @openai/codex || true
+    echo "Installing automata-cli..."
+    npm install -g automata-cli || true
 else
     echo "npm not available, skipping npm-based CLI installs."
 fi

@@ -1,0 +1,3 @@
+# Run one Automata work tick every 5 minutes inside the dev container.
+# /etc/cron.d format: the field after the schedule is the user to run as.
+*/5 * * * * node /usr/local/bin/automata-do-work-cron >> /home/node/.local/state/automata-do-work/cron.log 2>&1
