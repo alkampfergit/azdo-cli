@@ -165,6 +165,15 @@ work from outside a checkout of the target repository.
 - Requires `--title`; `--description` is optional
 - When `--description` is omitted, looks for a repository-defined pull request template — Azure DevOps's own `pull_request_template[/branches/<branch>].md` convention, checked under `.azuredevops/`, `.vsts/`, `docs/`, and the repository root, always read from the repository's **default** branch (never the PR's source/target branch). Branch-specific templates fall back from the most-specific branch segment down to the least (`feature/foo/december` → `feature/foo` → `feature`), then the repository-wide default template
 - When both `--description` and a template apply, the description is the supplied text followed by the template content; with neither, the command fails exactly as before (`--description is required for pull request creation.`)
+- **Length limit — 4000 characters.** Azure DevOps caps a pull request description at [4000 characters](https://learn.microsoft.com/en-us/rest/api/azure/devops/git/pull-requests/update?view=azure-devops-rest-7.1). That budget covers the **composed** text — your `--description`, the blank-line separator, *and* the repository template — so a description that fits on its own can still be over the limit once the template is appended. The command measures it client-side and fails before the create call, naming every contribution:
+
+  ```
+  Error: description is 4172 characters (2299 provided + 2 separator + 1871 from the repository
+  pull request template .azuredevops/pull_request_template.md), exceeding the Azure DevOps limit
+  of 4000 characters. Shorten the description by at least 172 characters.
+  ```
+
+  Exit code `1` — nothing was sent, so no pull request was created. There is no `--truncate`: silently clipping a description is the failure mode this replaces. If Azure DevOps rejects the create anyway, the same arithmetic is appended to the server's own message.
 - Always targets `develop`
 - Reuses an existing active PR if one already matches the branch and target
 - Fails when run from `develop` or when multiple active PRs exist
@@ -253,6 +262,22 @@ used**:
 Error: Authentication failed. Check that your PAT is valid and has the "Code (Read & Write)" scope.
   Token used: PAT from the AZDO_PAT environment variable (it takes precedence over the stored credential). Fix: give that token the scope above, or unset AZDO_PAT to fall back to the stored credential.
 ```
+
+**Every failed request now prints Azure DevOps' own explanation**, not just the status. Whatever
+the server put in the response body — its `message`, plus `typeKey` / `errorCode` when present —
+is shown on an indented line under the CLI's own guidance, for every command group, not just `pr`:
+
+```
+Error: Access denied. Your PAT may lack write permissions for project "Demo".
+  TF401019: The Git repository with name or identifier demo is disabled. [GitRepositoryDisabledException]
+
+Error: Azure DevOps request failed with HTTP_400.
+  The pull request description is too long. [InvalidArgumentValueException]
+```
+
+The detail is redacted (tokens are never echoed), capped at 500 characters, and suppressed
+entirely when the response body is the Entra sign-in page rather than an API error. The full,
+untruncated body is still available in the trace file when tracing is enabled.
 
 Note the two scopes: reads (`pr list`, `pr status`, `pr comments`) need **Code (Read)**, while
 `comments add` / `edit` / `reply` / `comment-resolve` / `comment-reopen`, `pr open`, and

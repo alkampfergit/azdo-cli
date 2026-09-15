@@ -62,6 +62,11 @@ export function describeCommandErrors(
   const errorCases: [string, string, string][] = [
     ['AUTH_FAILED', 'Authentication failed', 'auth error'],
     ['PERMISSION_DENIED', 'Access denied', 'permission error'],
+    // The HTTP layer appends the server's own explanation to the sentinel;
+    // the curated guidance must survive it (the sentinel is a prefix, never
+    // an exact match).
+    ['AUTH_FAILED: TF400813: not authorized', 'Authentication failed', 'auth error carrying a server detail'],
+    ['PERMISSION_DENIED: TF401019: repository disabled', 'Access denied', 'permission error carrying a server detail'],
     ['NOT_FOUND', 'not found', 'not-found error'],
     ['NETWORK_ERROR', 'Could not connect', 'network error'],
     ['BAD_REQUEST: invalid field', 'Request rejected', 'bad-request error'],

@@ -288,6 +288,20 @@ export interface PullRequestTemplate {
   kind: 'branch' | 'default';
 }
 
+// The description `pr open` will send, plus the arithmetic that produced it.
+// The caller cannot re-derive these numbers on its own: it does not know
+// whether a template was found, where it lives, or how long it is — which is
+// exactly why an over-long description used to fail as an opaque HTTP 400.
+// Invariant: totalChars === providedChars + separatorChars + templateChars.
+export interface ComposedDescription {
+  text: string;
+  providedChars: number;
+  separatorChars: number;
+  templateChars: number;
+  templatePath: string | null;
+  totalChars: number;
+}
+
 // Minimal shape of GET .../_apis/git/repositories/{repo}. `id` builds the
 // work-item artifact link URI (projectId/repositoryId/prId); `defaultBranch`
 // is where pull request templates must be read from (never the PR's source

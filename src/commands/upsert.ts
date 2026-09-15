@@ -13,6 +13,7 @@ import { resolveContext } from '../services/context.js';
 import {
   formatCreateError,
   handleCommandError,
+  isSentinel,
   parseWorkItemId,
   validateOrgProjectPair,
   validateSource,
@@ -156,8 +157,8 @@ function buildUpsertResult(
 
 function isUpdateWriteError(err: Error): boolean {
   return (
-    err.message === 'AUTH_FAILED' ||
-    err.message === 'PERMISSION_DENIED' ||
+    isSentinel(err.message, 'AUTH_FAILED') ||
+    isSentinel(err.message, 'PERMISSION_DENIED') ||
     err.message.startsWith('NOT_FOUND') ||
     err.message === 'NETWORK_ERROR' ||
     err.message.startsWith('BAD_REQUEST:') ||
@@ -167,8 +168,8 @@ function isUpdateWriteError(err: Error): boolean {
 
 function isCreateWriteError(err: Error): boolean {
   return (
-    err.message === 'AUTH_FAILED' ||
-    err.message === 'PERMISSION_DENIED' ||
+    isSentinel(err.message, 'AUTH_FAILED') ||
+    isSentinel(err.message, 'PERMISSION_DENIED') ||
     err.message === 'NETWORK_ERROR' ||
     err.message.startsWith('BAD_REQUEST:') ||
     err.message.startsWith('HTTP_')

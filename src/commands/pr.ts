@@ -37,7 +37,7 @@ import {
 } from '../services/pr-client.js';
 import { describeResolvedCredential, requireAuthCredential } from '../services/auth.js';
 import { resolveContext } from '../services/context.js';
-import { validateOrgProjectPair } from '../services/command-helpers.js';
+import { isSentinel, splitSentinel, validateOrgProjectPair, writeErrorDetail } from '../services/command-helpers.js';
 import { detectRepoName, getCurrentBranch } from '../services/git-remote.js';
 
 interface PrCommandOptions {
@@ -249,7 +249,7 @@ function writeError(message: string, exitCode = 1): void {
 function handlePrCommandError(err: unknown, context?: AzdoContext, mode: 'read' | 'write' = 'read'): void {
   const error = err instanceof Error ? err : new Error(String(err));
 
-  if (error.message === 'AUTH_FAILED') {
+  if (isSentinel(error.message, 'AUTH_FAILED')) {
     // The first line is unchanged from previous releases (callers match it);
     // the token-source line is additive and is what makes the failure
     // actionable — a PAT scoped for Work Items but not Code makes every `pr`
@@ -261,6 +261,7 @@ function handlePrCommandError(err: unknown, context?: AzdoContext, mode: 'read' 
     if (credentialHint !== null) {
       process.stderr.write(`  ${credentialHint}\n`);
     }
+    writeErrorDetail(error.message, 'AUTH_FAILED');
     return;
   }
 
@@ -272,8 +273,9 @@ function handlePrCommandError(err: unknown, context?: AzdoContext, mode: 'read' 
     return;
   }
 
-  if (error.message === 'PERMISSION_DENIED') {
+  if (isSentinel(error.message, 'PERMISSION_DENIED')) {
     writeError(`Access denied. Your PAT may lack ${mode} permissions for project "${context?.project}".`, EXIT_NOT_PERMITTED);
+    writeErrorDetail(error.message, 'PERMISSION_DENIED');
     return;
   }
 
@@ -288,7 +290,13 @@ function handlePrCommandError(err: unknown, context?: AzdoContext, mode: 'read' 
   }
 
   if (error.message.startsWith('HTTP_')) {
-    writeError(`Azure DevOps request failed with ${error.message}.`);
+    // `HTTP_<status>[: <server detail>]` — the status keeps the sentence it
+    // always had, the server's own explanation goes underneath it.
+    const { sentinel, detail } = splitSentinel(error.message);
+    writeError(`Azure DevOps request failed with ${sentinel}.`);
+    if (detail !== null) {
+      process.stderr.write(`  ${detail}\n`);
+    }
     return;
   }
 
@@ -625,6 +633,13 @@ export function createPrOpenCommand(): Command {
 
         if (err instanceof Error && err.message === 'DESCRIPTION_REQUIRED') {
           writeError('--description is required for pull request creation.');
+          return;
+        }
+
+        if (err instanceof Error && err.message.startsWith('DESCRIPTION_TOO_LONG: ')) {
+          // A validation failure (exit 1), not an API failure: the request was
+          // never sent, so it must not read as "Azure DevOps request failed".
+          writeError(err.message.slice('DESCRIPTION_TOO_LONG: '.length));
           return;
         }
 

@@ -2,6 +2,7 @@ import { Command } from 'commander';
 import type { AzdoContext, AuthCredential } from '../types/work-item.js';
 import { requireAuthCredential } from '../services/auth.js';
 import { resolveContext } from '../services/context.js';
+import { isSentinel, writeErrorDetail } from '../services/command-helpers.js';
 import {
   getWorkItemRelationTypes,
   addWorkItemRelation,
@@ -68,10 +69,11 @@ function handleRelationError(err: unknown, id1?: number): never {
   } else if (msg.startsWith('NOT_FOUND')) {
     const target = id1 !== undefined ? id1 : 'unknown';
     process.stderr.write(`Error: work item #${target} not found.\n`);
-  } else if (msg === 'AUTH_FAILED') {
+  } else if (isSentinel(msg, 'AUTH_FAILED')) {
     process.stderr.write(
       `Error: authentication failed. Check your PAT has Work Items → Read & Write scope.\n`,
     );
+    writeErrorDetail(msg, 'AUTH_FAILED');
   } else {
     process.stderr.write(`Error: ${msg}\n`);
   }
