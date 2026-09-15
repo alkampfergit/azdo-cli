@@ -1,5 +1,6 @@
 import type { AuthCredential, AzdoContext } from '../types/work-item.js';
-import { authHeaders, fetchWithErrors } from './azdo-client.js';
+import { authHeaders, fetchWithErrors, httpError } from './azdo-client.js';
+import { isSentinel } from './command-helpers.js';
 import type { AzdoBuild, AzdoBuildListResponse } from '../types/pipeline.js';
 import type {
   ActiveCommentThread,
@@ -27,6 +28,7 @@ import type {
   PullRequestOpenRequest,
   PullRequestOpenResult,
   PullRequestTemplate,
+  ComposedDescription,
   PullRequestThreadCreateRequest,
   Reviewer,
   WorkItemLink,
@@ -309,7 +311,7 @@ export function isThreadResolved(status: string): boolean {
 
 async function readJsonResponse<T>(response: Response): Promise<T> {
   if (!response.ok) {
-    throw new Error(`HTTP_${response.status}`);
+    throw httpError(response);
   }
 
   return response.json() as Promise<T>;
@@ -475,20 +477,65 @@ export async function getPullRequestBuilds(
   }));
 }
 
+// Azure DevOps rejects a pull request description longer than this. Documented
+// on the update operation (the create page lists `description` as a plain
+// string, but it is the same field and the same server-side validation):
+// https://learn.microsoft.com/en-us/rest/api/azure/devops/git/pull-requests/update?view=azure-devops-rest-7.1
+// — "These are the properties that can be updated with the API: … Description
+// (up to 4000 characters)". Verified via the Microsoft Learn MCP server and
+// cross-checked against Context7 (Constitution Principle VI).
+export const MAX_PR_DESCRIPTION_CHARS = 4000;
+
+// The blank line `composeDescription` puts between the operator's text and the
+// template. It counts against the limit, so it is reported separately rather
+// than silently folded into one of the two contributions.
+const DESCRIPTION_SEPARATOR = '\n\n';
+
 // Composes the final PR description from the operator's (optional) input and
 // a resolved template (FR-012–FR-014): template alone, text-then-template,
 // text alone, or — when neither is available — `null` (caller must reject).
-function composeDescription(description: string | undefined, template: PullRequestTemplate | null): string | null {
-  if (description !== undefined && template !== null) {
-    return `${description}\n\n${template.content}`;
+// Returns the arithmetic alongside the text: the caller cannot measure the
+// template contribution itself without repeating the whole template lookup.
+function composeDescription(
+  description: string | undefined,
+  template: PullRequestTemplate | null,
+): ComposedDescription | null {
+  if (description === undefined && template === null) {
+    return null;
   }
-  if (description !== undefined) {
-    return description;
-  }
-  if (template !== null) {
-    return template.content;
-  }
-  return null;
+
+  const provided = description ?? '';
+  const templateContent = template?.content ?? '';
+  const separator = description !== undefined && template !== null ? DESCRIPTION_SEPARATOR : '';
+  const text = `${provided}${separator}${templateContent}`;
+
+  return {
+    text,
+    providedChars: provided.length,
+    separatorChars: separator.length,
+    templateChars: templateContent.length,
+    templatePath: template?.path ?? null,
+    totalChars: text.length,
+  };
+}
+
+// The `pr open` pre-flight message: names every contribution, the limit, and
+// the exact reduction required, so the operator can fix it in one edit instead
+// of bisecting their way under an unexplained HTTP 400.
+export function formatDescriptionOverflow(composed: ComposedDescription): string {
+  const overflow = composed.totalChars - MAX_PR_DESCRIPTION_CHARS;
+  const breakdown = composed.templateChars > 0 && composed.providedChars > 0
+    ? ` (${composed.providedChars} provided + ${composed.separatorChars} separator + ${composed.templateChars} from the repository pull request template ${composed.templatePath})`
+    : composed.templateChars > 0
+      ? ` (all of it from the repository pull request template ${composed.templatePath})`
+      : '';
+  return `description is ${composed.totalChars} characters${breakdown}, exceeding the Azure DevOps limit of ${MAX_PR_DESCRIPTION_CHARS} characters. Shorten the description by at least ${overflow} characters.`;
+}
+
+// The same arithmetic, condensed, for appending to a server-side rejection —
+// the backstop for the case where Azure DevOps' real limit differs from ours.
+function describeDescriptionBudget(composed: ComposedDescription): string {
+  return `description: ${composed.providedChars} provided + ${composed.separatorChars} separator + ${composed.templateChars} template = ${composed.totalChars} characters (client limit ${MAX_PR_DESCRIPTION_CHARS})`;
 }
 
 export async function openPullRequest(
@@ -522,16 +569,22 @@ export async function openPullRequest(
     ? repository.defaultBranch.replace(/^refs\/heads\//, '')
     : 'develop';
   const template = await resolvePullRequestTemplate(context, repo, cred, defaultBranch, 'develop');
-  const finalDescription = composeDescription(description, template);
-  if (finalDescription === null) {
+  const composed = composeDescription(description, template);
+  if (composed === null) {
     throw new Error('DESCRIPTION_REQUIRED');
+  }
+
+  // Pre-flight: the composed length is knowable client-side, so refusing here
+  // costs one less round trip than letting the server answer with a bare 400.
+  if (composed.totalChars > MAX_PR_DESCRIPTION_CHARS) {
+    throw new Error(`DESCRIPTION_TOO_LONG: ${formatDescriptionOverflow(composed)}`);
   }
 
   const payload: PullRequestOpenRequest = {
     sourceRefName: `refs/heads/${sourceBranch}`,
     targetRefName: 'refs/heads/develop',
     title,
-    description: finalDescription,
+    description: composed.text,
   };
 
   const url = new URL(
@@ -539,16 +592,27 @@ export async function openPullRequest(
   );
   url.searchParams.set('api-version', '7.1');
 
-  const response = await fetchWithErrors(url.toString(), {
-    method: 'POST',
-    headers: {
-      ...authHeaders(cred),
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(payload),
-  });
+  let data: AzdoPullRequest;
+  try {
+    const response = await fetchWithErrors(url.toString(), {
+      method: 'POST',
+      headers: {
+        ...authHeaders(cred),
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+    });
+    data = await readJsonResponse<AzdoPullRequest>(response);
+  } catch (err) {
+    // Backstop for a 400 the pre-flight did not predict: whatever the server
+    // objected to, the operator still gets the description arithmetic next to
+    // the server's own message rather than having to guess at it.
+    if (err instanceof Error && err.message.startsWith('HTTP_400')) {
+      throw new Error(`${err.message} | ${describeDescriptionBudget(composed)}`, { cause: err });
+    }
+    throw err;
+  }
 
-  const data = await readJsonResponse<AzdoPullRequest>(response);
   return {
     branch: sourceBranch,
     targetBranch: 'develop',
@@ -779,7 +843,7 @@ async function patchWorkItemRelations(
     body: JSON.stringify([operation]),
   });
   if (!response.ok) {
-    throw new Error(`HTTP_${response.status}`);
+    throw httpError(response);
   }
 }
 
@@ -874,7 +938,7 @@ export async function resolveReviewerIdentity(
     // the separate `vso.identity` ("Identity (Read)") PAT scope — a 401 here
     // means the PAT is otherwise valid (Code scope works for every other `pr`
     // call) but is missing that specific scope, not a generic auth failure.
-    if (err instanceof Error && err.message === 'AUTH_FAILED') {
+    if (err instanceof Error && isSentinel(err.message, 'AUTH_FAILED')) {
       throw new Error('IDENTITY_SCOPE_MISSING', { cause: err });
     }
     throw err;
@@ -973,7 +1037,7 @@ export async function removePullRequestReviewer(
     headers: authHeaders(cred),
   });
   if (!response.ok) {
-    throw new Error(`HTTP_${response.status}`);
+    throw httpError(response);
   }
 
   return { reviewer: existing, noop: false };
@@ -1035,7 +1099,7 @@ async function fetchRepositoryItemContent(
   }
 
   if (!response.ok) {
-    throw new Error(`HTTP_${response.status}`);
+    throw httpError(response);
   }
 
   return response.text();

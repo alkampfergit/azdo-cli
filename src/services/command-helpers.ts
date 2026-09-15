@@ -1,6 +1,46 @@
 import type { AzdoContext } from '../types/work-item.js';
 
 /**
+ * True when `message` is the given sentinel, with or without the
+ * `": <server detail>"` suffix the HTTP layer appends. Sentinels MUST be
+ * matched this way — an exact comparison silently drops the curated guidance
+ * (and, for `pr`, the exit code) as soon as Azure DevOps explains itself.
+ */
+export function isSentinel(message: string, sentinel: string): boolean {
+  return message === sentinel || message.startsWith(`${sentinel}: `);
+}
+
+/**
+ * The server-supplied detail carried by a sentinel error, or null when the
+ * failure body was empty, HTML, or otherwise not worth printing.
+ */
+export function sentinelDetail(message: string, sentinel: string): string | null {
+  return message.startsWith(`${sentinel}: `) ? message.slice(sentinel.length + 2) : null;
+}
+
+/**
+ * Splits a `SENTINEL[: <server detail>]` message into its two halves. Used by
+ * the `HTTP_<status>` branches, where the sentinel itself is not known upfront.
+ */
+export function splitSentinel(message: string): { sentinel: string; detail: string | null } {
+  const separator = message.indexOf(': ');
+  return separator === -1
+    ? { sentinel: message, detail: null }
+    : { sentinel: message.slice(0, separator), detail: message.slice(separator + 2) };
+}
+
+/**
+ * Prints the server's own explanation under a curated error line, indented so
+ * it reads as detail rather than as a second failure.
+ */
+export function writeErrorDetail(message: string, sentinel: string): void {
+  const detail = sentinelDetail(message, sentinel);
+  if (detail !== null) {
+    process.stderr.write(`  ${detail}\n`);
+  }
+}
+
+/**
  * Prompt the user for a yes/no answer. Auto-confirms (`true`) when stdin is
  * not a TTY, since there is no one to answer the prompt in that case —
  * callers that need the opposite ("decline unless explicitly confirmed")
@@ -94,14 +134,16 @@ export function handleCommandError(
 
   const scopeLabel = scope === 'read' ? 'Work Items (read)' : 'Work Items (Read & Write)';
 
-  if (msg === 'AUTH_FAILED') {
+  if (isSentinel(msg, 'AUTH_FAILED')) {
     process.stderr.write(
       `Error: Authentication failed. Check that your PAT is valid and has the "${scopeLabel}" scope.\n`,
     );
-  } else if (msg === 'PERMISSION_DENIED') {
+    writeErrorDetail(msg, 'AUTH_FAILED');
+  } else if (isSentinel(msg, 'PERMISSION_DENIED')) {
     process.stderr.write(
       `Error: Access denied. Your PAT may lack ${scope} permissions for project "${context?.project}".\n`,
     );
+    writeErrorDetail(msg, 'PERMISSION_DENIED');
   } else if (msg.startsWith('NOT_FOUND')) {
     process.stderr.write(
       `Error: Work item ${id} not found in ${context?.org}/${context?.project}.\n`,

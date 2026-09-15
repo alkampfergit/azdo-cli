@@ -49,6 +49,86 @@ export async function fetchRaw(url: string, init: RequestInit): Promise<{ status
   return { status: response.status, body };
 }
 
+// Console-facing cap on an error detail. The full body is always in the trace
+// file when tracing is on, so the console does not need to be the archive.
+const MAX_DETAIL_CHARS = 500;
+// Cap on a body that would not parse as JSON, where there is no `message` to
+// pick out and the whole thing is a guess.
+const MAX_RAW_BODY_CHARS = 200;
+
+// Azure DevOps' own explanation of a failure, rendered once per non-2xx
+// response and keyed by that response so every error thrown for it — the
+// sentinel throws below and the `HTTP_<status>` throws at the ~18 call sites —
+// can name it without re-reading (and consuming) the caller's body stream.
+const failureDetails = new WeakMap<Response, string>();
+
+// Renders the `message` / `typeKey` / `errorCode` an Azure DevOps error body
+// carries. Returns null when there is nothing safe or useful to print.
+export function describeFailureBody(body: string | null, contentType: string): string | null {
+  if (body === null) return null;
+  const trimmed = body.trim();
+  if (trimmed === '') return null;
+
+  // Never echo the AAD sign-in page: an HTML body here is the interactive
+  // login form, not a diagnostic. (It is also what the guard further down
+  // maps to AUTH_FAILED.)
+  if (contentType.toLowerCase().startsWith('text/html') || trimmed.startsWith('<')) {
+    return null;
+  }
+
+  const redacted = redactBody(trimmed) ?? trimmed;
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(redacted);
+  } catch {
+    return truncateDetail(redacted.slice(0, MAX_RAW_BODY_CHARS));
+  }
+
+  if (typeof parsed !== 'object' || parsed === null) {
+    return truncateDetail(redacted.slice(0, MAX_RAW_BODY_CHARS));
+  }
+
+  const record = parsed as Record<string, unknown>;
+  const parts: string[] = [];
+  if (typeof record.message === 'string' && record.message.trim() !== '') {
+    parts.push(record.message.trim());
+  }
+  if (typeof record.typeKey === 'string' && record.typeKey.trim() !== '') {
+    parts.push(`[${record.typeKey.trim()}]`);
+  } else if (typeof record.errorCode === 'number' || typeof record.errorCode === 'string') {
+    parts.push(`[errorCode ${record.errorCode}]`);
+  }
+
+  if (parts.length === 0) {
+    return truncateDetail(redacted.slice(0, MAX_RAW_BODY_CHARS));
+  }
+
+  return truncateDetail(parts.join(' '));
+}
+
+function truncateDetail(detail: string): string | null {
+  const collapsed = detail.replace(/\s+/g, ' ').trim();
+  if (collapsed === '') return null;
+  return collapsed.length > MAX_DETAIL_CHARS
+    ? `${collapsed.slice(0, MAX_DETAIL_CHARS)}…(truncated)`
+    : collapsed;
+}
+
+// Appends ": <detail>" to a sentinel when the server explained itself. The
+// sentinel stays a prefix so every `startsWith` consumer keeps matching.
+function withDetail(sentinel: string, detail: string | null): string {
+  return detail === null ? sentinel : `${sentinel}: ${detail}`;
+}
+
+// The error to throw for a non-ok response that `fetchWithErrors` handed back
+// to its caller (400 and 5xx). Synchronous: the body was already read and
+// rendered by `fetchWithErrors`, so no call site has to deal with a consumed
+// stream. Falls back to the bare sentinel for a response built elsewhere.
+export function httpError(response: Response): Error {
+  return new Error(withDetail(`HTTP_${response.status}`, failureDetails.get(response) ?? null));
+}
+
 export async function fetchWithErrors(url: string, init: RequestInit): Promise<Response> {
   const writer = getActiveTraceWriter();
   let response: Response;
@@ -58,6 +138,8 @@ export async function fetchWithErrors(url: string, init: RequestInit): Promise<R
     throw new Error('NETWORK_ERROR', { cause: err });
   }
 
+  let tracedBody: string | null = null;
+
   if (writer) {
     const reqHeaders = redactHeaders((init.headers ?? {}) as Record<string, string>);
     const reqBody = typeof init.body === 'string' ? redactBody(init.body) : null;
@@ -65,6 +147,7 @@ export async function fetchWithErrors(url: string, init: RequestInit): Promise<R
     // Clone the response so we can read the body for tracing without consuming it.
     const clone = response.clone();
     try { responseBody = await clone.text(); } catch { /* ignore */ }
+    tracedBody = responseBody;
     const respHeaders: Record<string, string> = {};
     response.headers.forEach((v, k) => { respHeaders[k] = v; });
     const entry: TraceEntry = {
@@ -80,12 +163,30 @@ export async function fetchWithErrors(url: string, init: RequestInit): Promise<R
     writer.append(entry);
   }
 
-  if (response.status === 401) throw new Error('AUTH_FAILED');
-  if (response.status === 403) throw new Error('PERMISSION_DENIED');
+  const contentType = response.headers?.get('content-type') ?? '';
+
+  // Read the failure body once, here, for every non-2xx status. Read from a
+  // clone so the caller still receives an unconsumed stream — the curated 400
+  // handlers below (BAD_REQUEST / CREATE_REJECTED / UPDATE_REJECTED) read it
+  // themselves and must keep working.
+  let failureDetail: string | null = null;
+  if (!response.ok) {
+    let body = tracedBody;
+    if (body === null) {
+      try { body = await response.clone().text(); } catch { body = null; }
+    }
+    failureDetail = describeFailureBody(body, contentType);
+    if (failureDetail !== null) {
+      failureDetails.set(response, failureDetail);
+    }
+  }
+
+  if (response.status === 401) throw new Error(withDetail('AUTH_FAILED', failureDetail));
+  if (response.status === 403) throw new Error(withDetail('PERMISSION_DENIED', failureDetail));
   if (response.status === 404) {
     let detail = '';
     try {
-      const body = await response.text();
+      const body = tracedBody ?? await response.text();
       detail = ` | url=${url} | body=${body}`;
     } catch { /* ignore */ }
     throw new Error(`NOT_FOUND${detail}`);
@@ -95,7 +196,6 @@ export async function fetchWithErrors(url: string, init: RequestInit): Promise<R
   // request was redirected to the AAD sign-in page (status 200 + text/html
   // on some egress paths instead of a 401). Map to AUTH_FAILED so callers
   // surface a real auth message instead of a JSON-parse error downstream.
-  const contentType = response.headers?.get('content-type') ?? '';
   if (contentType.toLowerCase().startsWith('text/html')) {
     throw new Error('AUTH_FAILED');
   }
@@ -272,7 +372,7 @@ async function readWriteResponse(response: Response, errorCode: 'CREATE_REJECTED
   }
 
   if (!response.ok) {
-    throw new Error(`HTTP_${response.status}`);
+    throw httpError(response);
   }
 
   const data = (await response.json()) as AzdoWorkItemResponse;
@@ -304,7 +404,7 @@ export async function getWorkItemFields(
   }
 
   if (!response.ok) {
-    throw new Error(`HTTP_${response.status}`);
+    throw httpError(response);
   }
 
   const data = (await response.json()) as { fields: Record<string, unknown> };
@@ -404,7 +504,7 @@ async function fetchWorkItemResponse(
   }
 
   if (!response.ok) {
-    throw new Error(`HTTP_${response.status}`);
+    throw httpError(response);
   }
 
   return (await response.json()) as AzdoWorkItemResponse;
@@ -420,7 +520,7 @@ export async function getOrgFieldNames(
   url.searchParams.set('api-version', '7.1');
   const response = await fetchWithErrors(url.toString(), { headers: authHeaders(cred) });
   if (!response.ok) {
-    throw new Error(`HTTP_${response.status}`);
+    throw httpError(response);
   }
   const data = (await response.json()) as { value?: Array<{ referenceName: string }> };
   return (data.value ?? []).map((f) => f.referenceName);
@@ -526,7 +626,7 @@ export async function getWorkItemFieldValue(
   }
 
   if (!response.ok) {
-    throw new Error(`HTTP_${response.status}`);
+    throw httpError(response);
   }
 
   const data = (await response.json()) as { fields: Record<string, unknown> };
@@ -554,7 +654,7 @@ export async function listWorkItemComments(
     );
 
     if (!response.ok) {
-      throw new Error(`HTTP_${response.status}`);
+      throw httpError(response);
     }
 
     const data = (await response.json()) as AzdoCommentListResponse;
@@ -597,7 +697,7 @@ export async function addWorkItemComment(
   }
 
   if (!response.ok) {
-    throw new Error(`HTTP_${response.status}`);
+    throw httpError(response);
   }
 
   const data = (await response.json()) as AzdoCommentResponse;
@@ -677,7 +777,7 @@ export async function downloadAttachment(url: string, cred: AuthCredential): Pro
   const response = await fetchWithErrors(url, { headers: authHeaders(cred) });
 
   if (!response.ok) {
-    throw new Error(`HTTP_${response.status}`);
+    throw httpError(response);
   }
 
   return response.arrayBuffer();
@@ -712,7 +812,7 @@ export async function createAttachment(
   }
 
   if (!response.ok) {
-    throw new Error(`HTTP_${response.status}`);
+    throw httpError(response);
   }
 
   return (await response.json()) as { id: string; url: string };

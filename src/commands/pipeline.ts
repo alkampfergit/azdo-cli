@@ -21,7 +21,7 @@ import {
 } from '../services/pipeline-client.js';
 import { requireAuthCredential } from '../services/auth.js';
 import { resolveContext } from '../services/context.js';
-import { validateOrgProjectPair } from '../services/command-helpers.js';
+import { isSentinel, splitSentinel, validateOrgProjectPair, writeErrorDetail } from '../services/command-helpers.js';
 
 interface PipelineCommonOptions {
   org?: string;
@@ -41,12 +41,14 @@ function writeError(message: string): void {
 
 function handlePipelineError(err: unknown, context?: AzdoContext): void {
   const error = err instanceof Error ? err : new Error(String(err));
-  if (error.message === 'AUTH_FAILED') {
+  if (isSentinel(error.message, 'AUTH_FAILED')) {
     writeError('Authentication failed. Check that your credential is valid and has the "Build (Read)" scope.');
+    writeErrorDetail(error.message, 'AUTH_FAILED');
     return;
   }
-  if (error.message === 'PERMISSION_DENIED') {
+  if (isSentinel(error.message, 'PERMISSION_DENIED')) {
     writeError(`Access denied. Your credential may lack pipeline permissions for project "${context?.project}".`);
+    writeErrorDetail(error.message, 'PERMISSION_DENIED');
     return;
   }
   if (error.message === 'NETWORK_ERROR') {
@@ -58,7 +60,11 @@ function handlePipelineError(err: unknown, context?: AzdoContext): void {
     return;
   }
   if (error.message.startsWith('HTTP_')) {
-    writeError(`Azure DevOps request failed with ${error.message}.`);
+    const { sentinel, detail } = splitSentinel(error.message);
+    writeError(`Azure DevOps request failed with ${sentinel}.`);
+    if (detail !== null) {
+      process.stderr.write(`  ${detail}\n`);
+    }
     return;
   }
   writeError(error.message);

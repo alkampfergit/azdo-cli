@@ -398,6 +398,84 @@ describe('pr-client', () => {
         .rejects.toThrow('DESCRIPTION_REQUIRED');
     });
 
+    // Azure DevOps caps a PR description at 4000 characters (Learn: git
+    // pull-requests/update). The template contribution is invisible to the
+    // caller, so the overflow has to be named for them, client-side, before
+    // the create call turns it into an opaque HTTP 400.
+    describe('description length pre-flight', () => {
+      it('rejects a composed description over the limit before issuing the create call', async () => {
+        const fetchSpy = mockOpenPullRequestFetch({ templateContent: 'T'.repeat(1871) });
+
+        const error = await openPullRequest(
+          context, 'repo-name', 'pat', 'feature/test', 'New PR', 'D'.repeat(2299),
+        ).catch((err: Error) => err);
+
+        expect(error.message).toContain('DESCRIPTION_TOO_LONG');
+        expect(error.message).toContain('description is 4172 characters');
+        expect(error.message).toContain('2299 provided + 2 separator + 1871 from the repository pull request template');
+        expect(error.message).toContain('pull_request_template.md');
+        expect(error.message).toContain('limit of 4000 characters');
+        expect(error.message).toContain('Shorten the description by at least 172 characters');
+
+        const postCalls = fetchSpy.mock.calls.filter(([, init]) => (init as RequestInit | undefined)?.method === 'POST');
+        expect(postCalls).toHaveLength(0);
+      });
+
+      it('rejects an over-long description even when no template exists', async () => {
+        mockOpenPullRequestFetch();
+
+        const error = await openPullRequest(
+          context, 'repo-name', 'pat', 'feature/test', 'New PR', 'D'.repeat(4500),
+        ).catch((err: Error) => err);
+
+        expect(error.message).toContain('description is 4500 characters, exceeding');
+        expect(error.message).not.toContain('template');
+        expect(error.message).toContain('at least 500 characters');
+      });
+
+      it('accepts a composed description of exactly 4000 characters', async () => {
+        mockOpenPullRequestFetch({ templateContent: 'T'.repeat(1000) });
+
+        const result = await openPullRequest(
+          context, 'repo-name', 'pat', 'feature/test', 'New PR', 'D'.repeat(2998),
+        );
+
+        expect(result.created).toBe(true);
+      });
+
+      it('appends the arithmetic when the server rejects the create with a 400 anyway', async () => {
+        vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+          const url = String(input);
+          const method = init?.method ?? 'GET';
+          if (url.includes('/pullrequests?') && method === 'GET') {
+            return { ok: true, status: 200, json: async () => ({ count: 0, value: [] }) } as Response;
+          }
+          if (url.includes('/repositories/repo-name?')) {
+            return { ok: true, status: 200, json: async () => ({ id: 'repo-guid', defaultBranch: 'refs/heads/develop' }) } as Response;
+          }
+          if (url.includes('/repositories/repo-name/items?')) {
+            return { ok: false, status: 404, headers: { get: () => null } } as unknown as Response;
+          }
+          const failure = {
+            ok: false,
+            status: 400,
+            headers: new Headers({ 'content-type': 'application/json' }),
+            text: async () => '{"message":"The pull request description is too long."}',
+            json: async () => ({ message: 'The pull request description is too long.' }),
+            clone: () => failure,
+          };
+          return failure as unknown as Response;
+        });
+
+        const error = await openPullRequest(
+          context, 'repo-name', 'pat', 'feature/test', 'New PR', 'D'.repeat(100),
+        ).catch((err: Error) => err);
+
+        expect(error.message).toContain('HTTP_400: The pull request description is too long.');
+        expect(error.message).toContain('description: 100 provided + 0 separator + 0 template = 100 characters (client limit 4000)');
+      });
+    });
+
     it('reuses an existing active pull request', async () => {
       vi.spyOn(globalThis, 'fetch').mockResolvedValue({
         ok: true,

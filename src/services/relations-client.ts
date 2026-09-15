@@ -1,5 +1,5 @@
 import type { AuthCredential, AzdoContext } from '../types/work-item.js';
-import { authHeaders, fetchWithErrors } from './azdo-client.js';
+import { authHeaders, fetchWithErrors, httpError } from './azdo-client.js';
 import type {
   AddRelationResult,
   AzdoWorkItemRelation,
@@ -71,7 +71,7 @@ function mapRelationType(raw: { referenceName: string; name: string; attributes?
 }
 
 async function readJsonResponse<T>(response: Response): Promise<T> {
-  if (!response.ok) throw new Error(`HTTP_${response.status}`);
+  if (!response.ok) throw httpError(response);
   return (await response.json()) as T;
 }
 
@@ -159,7 +159,7 @@ export async function addWorkItemRelation(
       { op: 'add', path: '/relations/-', value: { rel: relType.referenceName, url: targetUrl } },
     ]),
   });
-  if (!response.ok) throw new Error(`HTTP_${response.status}`);
+  if (!response.ok) throw httpError(response);
 
   return { status: 'added', type: relType.name, referenceName: relType.referenceName, id1, id2 };
 }
@@ -195,7 +195,7 @@ export async function removeWorkItemRelation(
     headers: { ...authHeaders(cred), 'Content-Type': 'application/json-patch+json' },
     body: JSON.stringify([{ op: 'remove', path: `/relations/${index}` }]),
   });
-  if (!response.ok) throw new Error(`HTTP_${response.status}`);
+  if (!response.ok) throw httpError(response);
 
   return { status: 'removed', type: relType.name, referenceName: relType.referenceName, id1, id2 };
 }
