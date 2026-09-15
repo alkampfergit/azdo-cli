@@ -32,6 +32,9 @@
             "upgradePackages": true
         },
         "ghcr.io/devcontainers/features/dotnet:2": {},
+        "ghcr.io/devcontainers/features/azure-cli:1": {
+            "version": "latest"
+        },
         "ghcr.io/devcontainers/features/node:1": {
             "version": "lts"
         },
@@ -39,5 +42,6 @@
             "version": "latest"
         }
     },
-    "postCreateCommand": "bash .devcontainer/postcreate.sh"
+    "postCreateCommand": "bash .devcontainer/postcreate.sh",
+    "postStartCommand": "bash .devcontainer/start-do-work-cron.sh"
 }

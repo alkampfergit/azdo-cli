@@ -68,3 +68,40 @@ Syncs local `.env` entries into GitHub Actions secrets for the current repositor
 ```
 
 The script walks upward from the current directory until it finds a `.env`, then sets each valid `KEY=VALUE` entry with `gh secret set`.
+
+### get-secret / set-secret
+
+The integration-test `.env` is kept in the team's Azure Key Vault. Download it
+to its usual location — one directory above the repo root, outside git (see
+[Integration test environment](#integration-test-environment)):
+
+```bash
+./scripts/get-secret.sh              # writes ../.env relative to the repo root
+./scripts/get-secret.sh path/to/.env # or an explicit destination
+```
+
+Upload the local `.env` back after changing it:
+
+```bash
+./scripts/set-secret.sh              # reads the same ../.env
+./scripts/set-secret.sh path/to/.env # or an explicit file
+```
+
+Key Vault has no separate "update" verb: `set-secret.sh` creates a new current
+version of the secret, and previous versions remain retrievable. It refuses to
+run if the file is missing or empty, so a stray invocation cannot blank the
+secret.
+
+Both scripts require the [Azure CLI](https://learn.microsoft.com/en-us/cli/azure/install-azure-cli)
+and prompt for a device-code login if you are not signed in. Reading needs the
+**Key Vault Secrets User** role on the `alk-agent-vault` vault; writing needs
+**Key Vault Secrets Officer** (or an access policy granting `secrets/set`).
+Override the defaults with `AZDO_CLI_VAULT_NAME` and `AZDO_CLI_SECRET_NAME` if
+your secret lives elsewhere.
+
+On Windows, write the `.env` with LF line endings before uploading — CRLF is
+stored verbatim and comes back with a trailing `\r` on every value.
+
+The dev container installs the Azure CLI via the
+`ghcr.io/devcontainers/features/azure-cli` feature, so `az` is available there
+out of the box.
