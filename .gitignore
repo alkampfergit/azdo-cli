@@ -156,3 +156,6 @@ vite.config.ts.timestamp-*
 # Beads / Dolt files (added by bd init)
 .beads-credential-key
 .claude/settings.local.json
+
+# Automata run lock (automata do-work)
+.automata/automata.lock

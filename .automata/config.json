@@ -2,5 +2,18 @@
   "remoteType": "gh",
   "issueDiscoveryTechnique": "label",
   "issueDiscoveryValue": "automated",
-  "claudeSystemPrompt": "claude-system-prompt.md"
+  "claudeSystemPrompt": "claude-system-prompt.md",
+  "doWork": {
+    "baseBranch": "develop",
+    "maxRunsPerTick": 2,
+    "prompts": {
+      "issueDiscuss": "do-work-issue-discuss.md",
+      "prWork": "do-work-pr-work.md"
+    }
+  },
+  "allowedUsers": [
+    "alkampfergit",
+    "copilot"
+  ],
+  "agentUser": "alkampferoutlook"
 }
