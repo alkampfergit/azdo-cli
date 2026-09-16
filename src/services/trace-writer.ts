@@ -41,8 +41,8 @@ export function redactUrl(url: string): string {
 const SECRET_ASSIGNMENT = String.raw`["']?\s*[:=]\s*["']?)[^"'\s,;&}]+`;
 const SECRET_IN_TEXT: readonly (readonly [RegExp, string])[] = [
   [/\b(Bearer|Basic)\s+[\w.~+/=-]{8,}/gi, `$1 ${REDACTED}`],
-  [new RegExp(`(\\b(?:access|refresh|api)[_-]?(?:token|key)\\b${SECRET_ASSIGNMENT}`, 'gi'), `$1${REDACTED}`],
-  [new RegExp(`(\\b(?:token|pat|password|secret)\\b${SECRET_ASSIGNMENT}`, 'gi'), `$1${REDACTED}`],
+  [new RegExp(String.raw`(\b(?:access|refresh|api)[_-]?(?:token|key)\b${SECRET_ASSIGNMENT}`, 'gi'), `$1${REDACTED}`],
+  [new RegExp(String.raw`(\b(?:token|pat|password|secret)\b${SECRET_ASSIGNMENT}`, 'gi'), `$1${REDACTED}`],
   [/\beyJ[A-Za-z0-9._~+/=-]{20,}/g, REDACTED],
   [/\b(?=[A-Za-z0-9]*\d)(?=[A-Za-z0-9]*[A-Za-z])[A-Za-z0-9]{40,}\b/g, REDACTED],
 ];
