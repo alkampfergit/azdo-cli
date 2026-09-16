@@ -70,6 +70,36 @@ describe('credential-store (multi-org)', () => {
     vi.restoreAllMocks();
   });
 
+  it('announces a legacy PAT migration on stderr', async () => {
+    state.entries.set('azdo-cli::pat', 'legacy-token');
+    loadConfigMock.mockReturnValue({ org: 'orgA' });
+    const stderr = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
+    const { getStoredCredential } = await import('../../src/services/credential-store.js');
+
+    await getStoredCredential('orgA');
+
+    expect(stderr).toHaveBeenCalledWith('Migrated legacy PAT to org orgA.\n');
+  });
+
+  it('keeps the migration notice off stderr once notices are suppressed', async () => {
+    state.entries.set('azdo-cli::pat', 'legacy-token');
+    loadConfigMock.mockReturnValue({ org: 'orgA' });
+    const stderr = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
+    const mod = await import('../../src/services/credential-store.js');
+    mod.suppressCredentialStoreNotices(true);
+
+    try {
+      // The migration still happens and is still audited — only the human line goes.
+      await expect(mod.getStoredCredential('orgA')).resolves.toEqual({ kind: 'pat', token: 'legacy-token' });
+      expect(stderr).not.toHaveBeenCalled();
+      expect(appendAuthAuditEventMock).toHaveBeenCalledWith(
+        expect.objectContaining({ event: 'auth.store', org: 'orgA' }),
+      );
+    } finally {
+      mod.suppressCredentialStoreNotices(false);
+    }
+  });
+
   it('stores and retrieves a PAT per org', async () => {
     const { storePat, getPat } = await import('../../src/services/credential-store.js');
 
