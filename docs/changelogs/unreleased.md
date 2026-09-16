@@ -6,6 +6,17 @@
 
 ### Added
 
+- `azdo pr update` (alias `azdo pr edit`) changes an existing pull request's
+  title and/or description — the counterpart to `pr open`, which could only
+  create. Only the fields you pass are sent, so `--title` provably cannot
+  disturb the description; `--description` **replaces** the description
+  literally (no repository template is prepended, unlike `pr open`, which would
+  otherwise re-prepend it on every edit). Re-running with values that already
+  match is a no-op with no write (`noop: true` in `--json`). (#96)
+- `--description-file <path>` on `azdo pr open`, plus `--title-file` /
+  `--description-file` on `azdo pr update`. A path of `-` reads standard input,
+  which also now works for `azdo pr comments add|edit|reply --file -`. (#96)
+
 ### Changed
 
 - Every failed Azure DevOps request now prints the server's own explanation

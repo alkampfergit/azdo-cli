@@ -10,12 +10,16 @@ import type {
   PullRequestCheck,
   PullRequestStatusPullRequest,
   PullRequestStatusResult,
+  PullRequestUpdatableField,
+  PullRequestUpdateRequest,
+  PullRequestUpdateResult,
 } from '../types/pull-request.js';
 import type { AuthCredential, AzdoContext } from '../types/work-item.js';
 import {
   listPullRequests,
   listRepositoryPullRequests,
   openPullRequest,
+  updatePullRequest,
   createPullRequestThread,
   getPullRequestThread,
   getPullRequestThreads,
@@ -58,6 +62,12 @@ interface PrCommandOptions {
   file?: string;
   status?: string;
   dryRun?: boolean;
+  // `pr update` only: the two mutable pull request fields, each available
+  // inline or from a file (`-` = stdin).
+  title?: string;
+  titleFile?: string;
+  description?: string;
+  descriptionFile?: string;
 }
 
 // Parses `--pr-number <N>` into a positive integer. Returns null on any
@@ -143,6 +153,39 @@ function writeContractError(line: string): void {
 // two authoring commands (add / edit) and reply fail identically.
 const EMPTY_BODY_ERROR = 'Comment text must not be empty. Pass the text inline or use --file <path>.';
 
+// The POSIX "read standard input" path, accepted by every `--file` /
+// `--*-file` option in the `pr` group so a body can be piped in
+// (`gh issue view 96 | azdo pr update --description-file -`).
+const STDIN_PATH = '-';
+
+// Reads a text source named by a `--file` style option: `-` means standard
+// input, anything else is a UTF-8 file path. Returns null when the source
+// could not be read — the error is already on stderr and the exit code set.
+function readTextSource(file: string): string | null {
+  if (file === STDIN_PATH) {
+    // fd 0 is read synchronously: the CLI has nothing else to do until the
+    // body arrives, and stdin can only be drained once per process — which is
+    // also why callers reject `-` used for two options at once.
+    try {
+      return readFileSync(0, 'utf-8');
+    } catch {
+      writeError('Cannot read standard input.');
+      return null;
+    }
+  }
+
+  if (!existsSync(file)) {
+    writeError(`File not found: ${file}`);
+    return null;
+  }
+  try {
+    return readFileSync(file, 'utf-8');
+  } catch {
+    writeError(`Cannot read file: ${file}`);
+    return null;
+  }
+}
+
 // Resolves a comment body from the inline positional argument or --file, which
 // are mutually exclusive. Returns null when the input is unusable — the error
 // has already been written to stderr and the exit code flagged, so callers
@@ -160,16 +203,11 @@ function resolveCommentBody(
 
   let body: string;
   if (file !== undefined) {
-    if (!existsSync(file)) {
-      writeError(`File not found: ${file}`);
+    const read = readTextSource(file);
+    if (read === null) {
       return null;
     }
-    try {
-      body = readFileSync(file, 'utf-8');
-    } catch {
-      writeError(`Cannot read file: ${file}`);
-      return null;
-    }
+    body = read;
   } else if (inline !== undefined) {
     body = inline;
   } else {
@@ -178,6 +216,48 @@ function resolveCommentBody(
   }
 
   const trimmed = body.trim();
+  if (trimmed === '') {
+    writeError(emptyMessage);
+    return null;
+  }
+
+  return trimmed;
+}
+
+// Same resolution for an OPTIONAL value carried by a `--x` / `--x-file` pair.
+// Three outcomes, which is why this cannot reuse resolveCommentBody's
+// two-valued return: `undefined` means "the operator supplied neither, leave
+// the field alone", `null` means "the input was rejected, the error is already
+// on stderr", a string is the trimmed value.
+function resolveOptionalTextInput(
+  inline: string | undefined,
+  file: string | undefined,
+  flag: 'title' | 'description',
+): string | undefined | null {
+  if (inline !== undefined && file !== undefined) {
+    writeError(`Cannot specify both --${flag} and --${flag}-file.`);
+    return null;
+  }
+
+  if (inline === undefined && file === undefined) {
+    return undefined;
+  }
+
+  const label = flag === 'title' ? 'Title' : 'Description';
+  const emptyMessage = `${label} must not be empty. Pass the text inline or use --${flag}-file <path>.`;
+
+  let value: string;
+  if (file !== undefined) {
+    const read = readTextSource(file);
+    if (read === null) {
+      return null;
+    }
+    value = read;
+  } else {
+    value = inline!;
+  }
+
+  const trimmed = value.trim();
   if (trimmed === '') {
     writeError(emptyMessage);
     return null;
@@ -596,10 +676,15 @@ export function createPrOpenCommand(): Command {
       '--description <description>',
       'pull request description; when omitted, a repository-defined pull request template is used if one exists (prepended by this text when both are present)',
     )
+    .option(
+      '--description-file <path>',
+      'read the description from a UTF-8 file instead of --description; "-" reads standard input',
+    )
     .option('--json', 'output JSON')
     .action(async (options: {
       title?: string;
       description?: string;
+      descriptionFile?: string;
       org?: string;
       project?: string;
       repo?: string;
@@ -613,8 +698,35 @@ export function createPrOpenCommand(): Command {
         return;
       }
 
-      const trimmedDescription = options.description?.trim();
-      const description = trimmedDescription && trimmedDescription.length > 0 ? trimmedDescription : undefined;
+      // Resolved here rather than inside openPullRequest: the template lookup
+      // and the composed-length pre-flight downstream are unchanged, they just
+      // receive text that may now have come from a file or a pipe.
+      //
+      // Not resolveOptionalTextInput(): `pr open --description ''` has always
+      // meant "no description supplied — use the template", and turning that
+      // into an error would break callers passing an empty shell variable. An
+      // empty --description-file IS rejected, because asking to read a body
+      // from a file that has none is a mistake, not a fallback.
+      if (options.description !== undefined && options.descriptionFile !== undefined) {
+        writeError('Cannot specify both --description and --description-file.');
+        return;
+      }
+
+      let description: string | undefined;
+      if (options.descriptionFile !== undefined) {
+        const fromFile = readTextSource(options.descriptionFile);
+        if (fromFile === null) {
+          return;
+        }
+        description = fromFile.trim();
+        if (description === '') {
+          writeError('Description must not be empty. Pass the text inline or use --description-file <path>.');
+          return;
+        }
+      } else {
+        const trimmedDescription = options.description?.trim();
+        description = trimmedDescription && trimmedDescription.length > 0 ? trimmedDescription : undefined;
+      }
 
       let context: AzdoContext | undefined;
 
@@ -656,6 +768,144 @@ export function createPrOpenCommand(): Command {
       }
     });
 
+  return command;
+}
+
+// `pr update` failures that are validation, not API failures: the composed
+// length is measured client-side, so it must not read as "Azure DevOps request
+// failed". Mirrors handlePrOpenError's treatment of the same sentinel.
+function handlePrUpdateError(err: unknown, context?: AzdoContext): void {
+  const message = err instanceof Error ? err.message : '';
+
+  if (message.startsWith('DESCRIPTION_TOO_LONG: ')) {
+    writeError(message.slice('DESCRIPTION_TOO_LONG: '.length));
+    return;
+  }
+
+  handlePrCommandError(err, context, 'write');
+}
+
+// Human wording for the field list in both the applied and the no-op line.
+function joinFieldNames(fields: readonly PullRequestUpdatableField[]): string {
+  return fields.join(' and ');
+}
+
+async function runPrUpdate(options: PrCommandOptions): Promise<void> {
+  // Both `--title-file -` and `--description-file -` would drain fd 0, and the
+  // second read would silently return an empty string. Rejected before any
+  // file is touched so the failure names the real cause.
+  if (options.titleFile === STDIN_PATH && options.descriptionFile === STDIN_PATH) {
+    writeError('Cannot read standard input twice; only one of --title-file and --description-file may be "-".');
+    return;
+  }
+
+  const title = resolveOptionalTextInput(options.title, options.titleFile, 'title');
+  if (title === null) {
+    return;
+  }
+
+  const description = resolveOptionalTextInput(options.description, options.descriptionFile, 'description');
+  if (description === null) {
+    return;
+  }
+
+  if (title === undefined && description === undefined) {
+    writeError('pr update requires at least one of --title, --title-file, --description or --description-file.');
+    return;
+  }
+
+  let context: AzdoContext | undefined;
+
+  try {
+    const target = await resolvePullRequestTarget(options);
+    if (target === null) {
+      return;
+    }
+    context = target.context;
+
+    // No-op detection costs nothing: resolvePullRequestTarget already fetched
+    // the pull request, and mapPullRequest projects both mutable fields onto
+    // it. Only the fields that actually differ are sent — Azure DevOps leaves
+    // omitted properties alone, so an unchanged description is never rewritten.
+    const current = target.pullRequest;
+    const fields: PullRequestUpdateRequest = {};
+    const updatedFields: PullRequestUpdatableField[] = [];
+    const requestedFields: PullRequestUpdatableField[] = [];
+
+    if (title !== undefined) {
+      requestedFields.push('title');
+      if (title !== current.title) {
+        fields.title = title;
+        updatedFields.push('title');
+      }
+    }
+    if (description !== undefined) {
+      requestedFields.push('description');
+      if (description !== (current.description ?? '')) {
+        fields.description = description;
+        updatedFields.push('description');
+      }
+    }
+
+    if (updatedFields.length === 0) {
+      const noopResult: PullRequestUpdateResult = {
+        pullRequestId: current.id,
+        title: current.title,
+        description: current.description ?? null,
+        url: current.url,
+        noop: true,
+        updatedFields: [],
+      };
+      if (options.json) {
+        process.stdout.write(`${JSON.stringify(noopResult, null, 2)}\n`);
+        return;
+      }
+      process.stdout.write(
+        `Pull request #${current.id} already has the requested ${joinFieldNames(requestedFields)}; nothing to update.\n`,
+      );
+      return;
+    }
+
+    const updated = await updatePullRequest(target.context, target.repo, target.pat, current.id, fields);
+    const result: PullRequestUpdateResult = {
+      pullRequestId: updated.id,
+      title: updated.title,
+      description: updated.description ?? null,
+      url: updated.url,
+      noop: false,
+      updatedFields,
+    };
+
+    if (options.json) {
+      process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+      return;
+    }
+
+    process.stdout.write(
+      `Updated pull request #${updated.id} (${updatedFields.join(', ')}).\n${updated.url ?? '—'}\n`,
+    );
+  } catch (err) {
+    handlePrUpdateError(err, context);
+  }
+}
+
+export function createPrUpdateCommand(): Command {
+  const command = new Command('update');
+  withCommonPrOptions(configureUnwrappedHelp(command))
+    .alias('edit')
+    .description('Update a pull request\'s title and/or description')
+    .option('--pr-number <N>', PR_NUMBER_HELP)
+    .option('--title <title>', 'new pull request title')
+    .option('--title-file <path>', 'read the new title from a UTF-8 file; "-" reads standard input')
+    .option(
+      '--description <description>',
+      'new pull request description; REPLACES the existing description literally — no repository pull request template is looked up or prepended, unlike "azdo pr open"',
+    )
+    .option('--description-file <path>', 'read the new description from a UTF-8 file; "-" reads standard input')
+    .option('--json', 'output JSON')
+    .action(async (_options: PrCommandOptions, command: Command) => {
+      await runPrUpdate(mergedPrOptions(command));
+    });
   return command;
 }
 
@@ -1758,6 +2008,7 @@ export function createPrCommand(): Command {
   command.addCommand(createPrListCommand());
   command.addCommand(createPrStatusCommand());
   command.addCommand(createPrOpenCommand());
+  command.addCommand(createPrUpdateCommand());
   command.addCommand(createPrCommentsCommand());
   command.addCommand(createPrCommentResolveCommand());
   command.addCommand(createPrCommentReopenCommand());

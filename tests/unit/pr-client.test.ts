@@ -11,6 +11,7 @@ import {
   listPullRequests,
   listRepositoryPullRequests,
   openPullRequest,
+  updatePullRequest,
   patchThreadStatus,
   postThreadComment,
   resolveProjectId,
@@ -305,6 +306,79 @@ describe('pr-client', () => {
       ['byDesign', true],
     ])('classifies %s as resolved=%s', (status, expected) => {
       expect(isThreadResolved(status)).toBe(expected);
+    });
+  });
+
+  describe('updatePullRequest', () => {
+    function mockPatch(): ReturnType<typeof vi.spyOn> {
+      return vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          pullRequestId: 96,
+          title: 'Corrected title',
+          description: 'Corrected body',
+          status: 'active',
+          sourceRefName: 'refs/heads/feature/test',
+          targetRefName: 'refs/heads/develop',
+          createdBy: { displayName: 'Alice' },
+          _links: { web: { href: 'https://example.test/pr/96' } },
+        }),
+      } as unknown as Response);
+    }
+
+    it('PATCHes the documented update route', async () => {
+      const fetchSpy = mockPatch();
+
+      const result = await updatePullRequest(context, 'repo-name', 'pat', 96, { title: 'Corrected title' });
+
+      expect(fetchSpy).toHaveBeenCalledWith(
+        'https://dev.azure.com/test-org/test-project/_apis/git/repositories/repo-name/pullrequests/96?api-version=7.1',
+        expect.objectContaining({ method: 'PATCH' }),
+      );
+      expect(result.id).toBe(96);
+      expect(result.title).toBe('Corrected title');
+    });
+
+    it('sends ONLY the supplied fields, so an omitted one cannot be disturbed', async () => {
+      const fetchSpy = mockPatch();
+
+      await updatePullRequest(context, 'repo-name', 'pat', 96, { title: 'Only the title' });
+
+      expect(fetchSpy).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({ body: JSON.stringify({ title: 'Only the title' }) }),
+      );
+    });
+
+    it('sends both fields when both are supplied', async () => {
+      const fetchSpy = mockPatch();
+
+      await updatePullRequest(context, 'repo-name', 'pat', 96, { title: 'T', description: 'D' });
+
+      expect(fetchSpy).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({ body: JSON.stringify({ title: 'T', description: 'D' }) }),
+      );
+    });
+
+    it('never prepends a pull request template (no template lookup at all)', async () => {
+      const fetchSpy = mockPatch();
+
+      await updatePullRequest(context, 'repo-name', 'pat', 96, { description: 'Literal replacement' });
+
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+      expect(String(fetchSpy.mock.calls[0][0])).not.toContain('/items?');
+    });
+
+    it('rejects an over-long description before issuing the request', async () => {
+      const fetchSpy = mockPatch();
+
+      await expect(
+        updatePullRequest(context, 'repo-name', 'pat', 96, { description: 'x'.repeat(4207) }),
+      ).rejects.toThrow(/DESCRIPTION_TOO_LONG: description is 4207 characters, exceeding the Azure DevOps limit of 4000 characters\. Shorten the description by at least 207 characters\./);
+
+      expect(fetchSpy).not.toHaveBeenCalled();
     });
   });
 
