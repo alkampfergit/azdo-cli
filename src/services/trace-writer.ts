@@ -32,18 +32,17 @@ export function redactUrl(url: string): string {
 // Secret-shaped substrings in free text. `redactBody` only rewrites *JSON*
 // fields it recognises, so anything that will not parse as JSON — a `text/plain`
 // error page, a stack trace, a form-encoded payload — reached the console with
-// whatever it carried. These patterns are the last line of defence for that
-// path: an `Authorization`-style scheme + token, a `token`/`pat`/`secret`
-// key=value pair in any syntax, and any long mixed-case-and-digit run (an Azure
-// DevOps PAT is 52 base32 characters, a JWT far more) that has no business in an
-// error message. The last rule requires both a letter and a digit so an ordinary
-// long word — or a repeated character in a truncation test — is left alone.
+// whatever it carried. These rules are the last line of defence for that path:
+// an `Authorization`-style scheme + token, a `token`/`pat`/`secret` key=value
+// pair in any syntax, a JWT, and any long mixed letter-and-digit run (an Azure
+// DevOps PAT is 52 base32 characters). The last rule requires both a letter and
+// a digit so an ordinary long word is left alone.
+
+const SECRET_ASSIGNMENT = String.raw`["']?\s*[:=]\s*["']?)[^"'\s,;&}]+`;
 const SECRET_IN_TEXT: readonly (readonly [RegExp, string])[] = [
-  [/\b(Bearer|Basic)\s+[A-Za-z0-9._~+/=-]{8,}/gi, `$1 ${REDACTED}`],
-  [
-    /(\b(?:access[_-]?token|refresh[_-]?token|token|pat|password|secret|api[_-]?key)\b["']?\s*[:=]\s*["']?)[^"'\s,;&}]+/gi,
-    `$1${REDACTED}`,
-  ],
+  [/\b(Bearer|Basic)\s+[\w.~+/=-]{8,}/gi, `$1 ${REDACTED}`],
+  [new RegExp(`(\\b(?:access|refresh|api)[_-]?(?:token|key)\\b${SECRET_ASSIGNMENT}`, 'gi'), `$1${REDACTED}`],
+  [new RegExp(`(\\b(?:token|pat|password|secret)\\b${SECRET_ASSIGNMENT}`, 'gi'), `$1${REDACTED}`],
   [/\beyJ[A-Za-z0-9._~+/=-]{20,}/g, REDACTED],
   [/\b(?=[A-Za-z0-9]*\d)(?=[A-Za-z0-9]*[A-Za-z])[A-Za-z0-9]{40,}\b/g, REDACTED],
 ];
