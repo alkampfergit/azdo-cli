@@ -700,7 +700,10 @@ function resolveOpenDescription(
   }
 
   const trimmedInline = inline?.trim();
-  return trimmedInline ? trimmedInline : undefined;
+  if (trimmedInline === undefined || trimmedInline === '') {
+    return undefined;
+  }
+  return trimmedInline;
 }
 
 export function createPrOpenCommand(): Command {
