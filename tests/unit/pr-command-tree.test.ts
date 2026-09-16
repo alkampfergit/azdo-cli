@@ -367,6 +367,26 @@ describe('pr abandon|close|reactivate — option plumbing through the real tree'
     );
   });
 
+  // The `--pr-number` help is shared by every single-PR subcommand, but its
+  // auto-detection sentence is only true for the commands that resolve the
+  // branch's ACTIVE PR. `reactivate` searches abandoned ones, so its help must
+  // not promise an "open PR" match (copilot review on PR #101).
+  it('describes --pr-number auto-detection with the status each command searches', () => {
+    const program = new Command().name('azdo');
+    program.addCommand(createPrCommand());
+    const pr = program.commands.find((c) => c.name() === 'pr');
+    const helpFor = (name: string): string => {
+      const sub = pr?.commands.find((c) => c.name() === name);
+      const option = sub?.options.find((o) => o.long === '--pr-number');
+      return option?.description ?? '';
+    };
+
+    expect(helpFor('reactivate')).toContain('more than one abandoned PR matches');
+    expect(helpFor('reactivate')).not.toContain('open PR');
+    expect(helpFor('abandon')).toContain('more than one open PR matches');
+    expect(helpFor('comments')).toContain('more than one open PR matches');
+  });
+
   it('reactivate looks the branch PR up among the ABANDONED ones', async () => {
     vi.mocked(listPullRequests).mockResolvedValue([{ ...branchPr, status: 'abandoned' }]);
 
