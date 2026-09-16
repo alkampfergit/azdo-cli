@@ -130,7 +130,8 @@ credential store, `oauth-token-refresh`, `org-resolver` and `audit-log` mocked
   the exit codes, and the "treat it as a password" warning) plus an `auth.token`
   row in the audit-log table.
 - `docs/commands.md`: one row in the auth command table.
-- `README.md`: unchanged — installation, quick start, the command-group table
-  and the dev setup are all untouched, and per the repository's documentation
-  convention subcommand detail belongs in `docs/`.
+- `README.md`: the auth bullet gains one clause naming `azdo auth token`
+  (Constitution §Development Workflow: README must reflect the implemented
+  commands). Detail stays in `docs/authentication.md` per the repository's
+  documentation convention.
 - `CLAUDE.md` / `AGENTS.md`: Recent Changes entry.

@@ -32,6 +32,7 @@ vi.mock('../../src/services/credential-store.js', () => ({
   }),
   listOrgsWithStoredPat: vi.fn(async () => credStoreState.listReturns),
   probeBackend: vi.fn(() => 'linux-libsecret'),
+  suppressCredentialStoreNotices: vi.fn(),
 }));
 
 const loginWithOAuthMock = vi.hoisted(() => vi.fn());

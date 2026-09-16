@@ -42,11 +42,31 @@ function entryFor(account: string): Entry {
 }
 
 let legacyUnsetNoticeEmitted = false;
+let noticesSuppressed = false;
+
+/**
+ * Silence this module's advisory stderr notices (the legacy-PAT migration and
+ * unset-org hints) for the rest of the process.
+ *
+ * `azdo auth token` promises a *silent* stderr when stderr is not a terminal —
+ * a caller doing `TOKEN=$(azdo auth token) 2>/dev/null` is fine, but one that
+ * merges the streams would otherwise get "Migrated legacy PAT..." interleaved
+ * with the credential. The migration itself still happens and is still recorded
+ * as an `auth.store` audit event; only the human-facing line is dropped.
+ */
+export function suppressCredentialStoreNotices(suppressed: boolean): void {
+  noticesSuppressed = suppressed;
+}
+
+function writeNotice(message: string): void {
+  if (noticesSuppressed) return;
+  process.stderr.write(message);
+}
 
 function emitLegacyUnsetNoticeOnce(): void {
   if (legacyUnsetNoticeEmitted) return;
   legacyUnsetNoticeEmitted = true;
-  process.stderr.write(
+  writeNotice(
     'A legacy PAT exists in the OS vault from a previous azdo-cli version, but no "org" is set in config. ' +
       'Run `azdo auth --org <name>` to re-store it under the per-org key, then `azdo clear-pat` to remove the legacy slot.\n',
   );
@@ -55,6 +75,7 @@ function emitLegacyUnsetNoticeOnce(): void {
 // exported for tests
 export function _resetLegacyNoticeFlag(): void {
   legacyUnsetNoticeEmitted = false;
+  noticesSuppressed = false;
 }
 
 function isValidOAuthEnvelope(value: unknown): value is StoredOAuthCredential {
@@ -162,7 +183,7 @@ async function maybeMigrateLegacy(targetOrg: string): Promise<string | null> {
     backend: probeBackend(),
     masked_pat: maskedDisplay(legacy),
   });
-  process.stderr.write(`Migrated legacy PAT to org ${targetOrg}.\n`);
+  writeNotice(`Migrated legacy PAT to org ${targetOrg}.\n`);
   return legacy;
 }
 

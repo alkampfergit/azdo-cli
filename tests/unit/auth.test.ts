@@ -283,4 +283,64 @@ describe('exportCredential(org)', () => {
 
     await expect(auth.resolveCredential('orgA')).resolves.toEqual({ kind: 'pat', token: 'stored-token' });
   });
+
+  // The token `azdo auth token` prints and the token the write-side commands
+  // send must come from one implementation, or a later precedence change can
+  // silently make them diverge.
+  it('is the same ladder requireAuthCredential uses, for an OAuth credential', async () => {
+    const stored = {
+      kind: 'oauth' as const,
+      accessToken: 'stale',
+      refreshToken: 'r',
+      expiresAt: 100,
+      issuedAt: 0,
+      accountId: 'user@contoso.com',
+      scope: 'vso.code',
+      tenantId: 'common',
+    };
+    getStoredCredentialMock.mockResolvedValue(stored);
+    const { refreshIfNeeded } = await import('../../src/services/oauth-token-refresh.js');
+    vi.mocked(refreshIfNeeded).mockResolvedValue({ ...stored, accessToken: 'fresh', expiresAt: 4_000 });
+    const auth = await import('../../src/services/auth.js');
+
+    const exported = await auth.exportCredential('orgA');
+    const sent = await auth.requireAuthCredential('orgA');
+
+    expect(sent.pat).toBe(exported.token);
+    expect(sent.kind).toBe(exported.kind);
+    expect(sent.accountId).toBe('user@contoso.com');
+  });
+
+  it('is the same ladder requireAuthCredential uses, for a .env PAT', async () => {
+    getStoredCredentialMock.mockResolvedValue(null);
+    existsSyncMock.mockImplementation((p: unknown) => String(p).endsWith('.env'));
+    readFileSyncMock.mockReturnValue('AZDO_PAT=dotenv-token\n');
+    const auth = await import('../../src/services/auth.js');
+
+    const exported = await auth.exportCredential('orgA');
+    const sent = await auth.requireAuthCredential('orgA');
+
+    expect(sent.pat).toBe(exported.token);
+    // AuthCredential has no `dotenv` source; the projection keeps the pinned 'env'.
+    expect(sent.source).toBe('env');
+  });
+
+  it('propagates a rejected OAuth refresh instead of reporting "no credential"', async () => {
+    const stored = {
+      kind: 'oauth' as const,
+      accessToken: 'stale',
+      refreshToken: 'r',
+      expiresAt: 100,
+      issuedAt: 0,
+      accountId: 'user@contoso.com',
+      scope: 'vso.code',
+      tenantId: 'common',
+    };
+    getStoredCredentialMock.mockResolvedValue(stored);
+    const { refreshIfNeeded } = await import('../../src/services/oauth-token-refresh.js');
+    vi.mocked(refreshIfNeeded).mockRejectedValue(new Error('refresh rejected'));
+    const auth = await import('../../src/services/auth.js');
+
+    await expect(auth.resolveAuthCredential('orgA')).rejects.toThrow('refresh rejected');
+  });
 });

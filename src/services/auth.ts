@@ -101,38 +101,43 @@ export function findDotEnvPat(startDir: string = process.cwd()): string | null {
 }
 
 /**
- * FR-007a credential resolution. Order:
- *   1. AZDO_PAT env var → PAT credential
- *   2. Stored credential (kind-aware: PAT or OAuth + silent refresh)
- *   3. .env file walking up → PAT credential
+ * FR-007a credential resolution, as an AuthCredential for the write-side
+ * commands (`requireAuthCredential`). This is a *projection* of
+ * `exportCredential` — the one ladder — not a second implementation of it, so
+ * a later precedence or refresh change cannot make the token the CLI sends
+ * diverge from the token `azdo auth token` prints.
+ *
+ * Returns null instead of throwing when nothing resolves, because the callers
+ * of this function have always treated "no credential" as a value; a rejected
+ * OAuth refresh still propagates as CredentialRefreshError.
+ *
+ * A .env PAT keeps reporting `source: 'env'` — AuthCredential has no separate
+ * `dotenv` source and the messages keyed off it are pinned.
  */
 export async function resolveAuthCredential(org: string): Promise<AuthCredential | null> {
-  const envPat = process.env.AZDO_PAT;
-  if (envPat && envPat.length > 0) {
-    return { pat: envPat, source: 'env', kind: 'pat' };
+  let cred: ExportedCredential;
+  try {
+    cred = await exportCredential(org);
+  } catch (err) {
+    if (err instanceof CredentialMissingError) {
+      return null;
+    }
+    throw err;
   }
 
-  const stored = await getStoredCredential(org);
-  if (stored !== null) {
-    if (stored.kind === 'pat') {
-      return { pat: stored.token, source: 'credential-store', kind: 'pat' };
-    }
-    // OAuth — refresh silently if past expiry (60s skew margin)
-    const fresh = await refreshIfNeeded(org, stored);
+  if (cred.kind === 'oauth') {
     return {
-      pat: fresh.accessToken,
+      pat: cred.token,
       source: 'credential-store',
       kind: 'oauth',
-      accountId: fresh.accountId,
+      accountId: cred.accountId,
     };
   }
-
-  const dotEnvPat = findDotEnvPat();
-  if (dotEnvPat !== null) {
-    return { pat: dotEnvPat, source: 'env', kind: 'pat' };
-  }
-
-  return null;
+  return {
+    pat: cred.token,
+    source: cred.source === 'credential-store' ? 'credential-store' : 'env',
+    kind: 'pat',
+  };
 }
 
 // The credential this process last resolved, remembered so that an
@@ -402,9 +407,10 @@ export type ExportedCredential =
 /**
  * The single credential-resolution ladder: AZDO_PAT → stored credential for the
  * org (OAuth refreshed transparently when past expiry) → AZDO_PAT in a .env
- * file. `resolveCredential` (the API callers) and `azdo auth token` (the
- * operator) both project this, so the token the CLI sends and the token it
- * prints can never drift.
+ * file. Every caller projects this one function — `resolveCredential` (the
+ * read-side API clients), `resolveAuthCredential` / `requireAuthCredential`
+ * (the write-side commands) and `azdo auth token` (the operator) — so the
+ * token the CLI sends and the token it prints can never drift.
  *
  * Throws CredentialMissingError when nothing resolves, and propagates
  * CredentialRefreshError unchanged — a failed refresh NEVER deletes the stored

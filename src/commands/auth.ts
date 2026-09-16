@@ -18,6 +18,7 @@ import {
   storePat,
   deletePat,
   probeBackend,
+  suppressCredentialStoreNotices,
 } from '../services/credential-store.js';
 import {
   CredentialMissingError,
@@ -427,6 +428,11 @@ async function handleToken(orgFromGlobal: string | undefined): Promise<void> {
   }
   const org = resolved.org;
 
+  // Contract: when stderr is not a terminal this command writes nothing to it.
+  // Credential resolution can otherwise emit the legacy-PAT migration notice.
+  const stderrIsTty = Boolean(process.stderr.isTTY);
+  suppressCredentialStoreNotices(!stderrIsTty);
+
   let cred: ExportedCredential;
   try {
     cred = await exportCredential(org);
@@ -445,7 +451,7 @@ async function handleToken(orgFromGlobal: string | undefined): Promise<void> {
     ...(cred.kind === 'oauth' ? { accountId: cred.accountId } : {}),
   });
 
-  if (process.stderr.isTTY) {
+  if (stderrIsTty) {
     process.stderr.write(describeExportedCredential(cred, org));
   }
   process.stdout.write(`${cred.token}\n`);
@@ -564,7 +570,9 @@ Note: \`azdo auth\` (no subcommand) preserves the legacy PAT-prompt entry point;
 
   const tokenCmd = command
     .command('token')
-    .description('Print the access token the CLI uses for an org to stdout (for scripted API calls)')
+    .description(
+      'Print the credential the CLI uses for an org — a PAT or an OAuth access token — to stdout (for scripted API calls)',
+    )
     .option('--org <name>', 'Azure DevOps organization (defaults: git remote -> config)');
   tokenCmd.action(async () => {
     const globals = tokenCmd.optsWithGlobals() as GlobalsWithOrg;

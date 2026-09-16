@@ -11,6 +11,25 @@ export const FETCH_TIMEOUT_MS = 1500;
 export const REGISTRY_URL = "https://registry.npmjs.org/azdo-cli/latest";
 
 /**
+ * Commands whose output contract forbids the update check. `azdo auth token`
+ * writes the credential to stdout and promises nothing beyond an OAuth refresh
+ * touches the network; the notice would also add an unrelated npm-registry
+ * round trip to a command a script waits on. Paths are the full command chain,
+ * space-joined, as the user typed it.
+ */
+const UPDATE_CHECK_EXEMPT_COMMANDS: ReadonlySet<string> = new Set(["auth token"]);
+
+/**
+ * True when the update check must not run for the command that just executed.
+ * `commandPath` is the chain from the root command downwards, e.g.
+ * `["azdo", "auth", "token"]`; the root name is ignored.
+ */
+export function skipsUpdateCheck(commandPath: readonly string[]): boolean {
+  const withoutRoot = commandPath.slice(1);
+  return UPDATE_CHECK_EXEMPT_COMMANDS.has(withoutRoot.join(" "));
+}
+
+/**
  * Injectable dependencies. They exist purely so unit tests run with no real
  * I/O (clock, fs, fetch, TTY, version are all stubbable).
  */

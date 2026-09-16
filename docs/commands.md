@@ -20,7 +20,7 @@
 | `azdo auth` | Legacy PAT-prompt entry point (back-compat alias of `azdo auth login --use-pat`) | `--org`, `--from-stdin`, `--no-browser` |
 | `azdo auth status` | Report stored credentials (kind `pat`/`oauth`, org, account/expiry, backend) — never the token | `--org`, `--json` |
 | `azdo auth logout` | Remove the stored credential (PAT or OAuth) for an org, or every org with `--all` | `--org`, `--all` |
-| `azdo auth token` | Print the token the CLI uses for an org on stdout, for API calls the CLI does not wrap (no `--json` — see [docs/authentication.md](authentication.md#exporting-the-token)) | `--org` |
+| `azdo auth token` | Print the token the CLI uses for an org on stdout, for API calls the CLI does not wrap (no `--json` — see [authentication.md](authentication.md#exporting-the-token)) | `--org` |
 | `azdo auth diagnose` | Show auth type, credential source, org, and live connectivity test result | `--org`, `--project`, `--json` |
 | `azdo clear-pat` | **Deprecated** alias for `azdo auth logout` | `--org` |
 

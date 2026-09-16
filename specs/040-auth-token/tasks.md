@@ -45,8 +45,8 @@
 - [X] **T009** `docs/authentication.md`: "Exporting the token" subsection +
   `auth.token` row in the audit-log table.
 - [X] **T010** `docs/commands.md`: `azdo auth token` row in the auth table.
-- [X] **T011** `CLAUDE.md` + `AGENTS.md` Recent Changes. `README.md` deliberately
-  untouched (plan §Documentation).
+- [X] **T011** `CLAUDE.md` + `AGENTS.md` Recent Changes, and the `README.md`
+  auth bullet names `azdo auth token` (plan §Documentation).
 
 ## Phase 6 — gate
 

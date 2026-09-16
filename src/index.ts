@@ -18,7 +18,7 @@ import { createDownloadAttachmentCommand } from "./commands/download-attachment.
 import { createAddAttachmentCommand } from "./commands/add-attachment.js";
 import { createDeleteAttachmentCommand } from "./commands/delete-attachment.js";
 import { createRelationsCommand } from "./commands/relations.js";
-import { getUpdateNotice } from "./services/update-check.js";
+import { getUpdateNotice, skipsUpdateCheck } from "./services/update-check.js";
 import { initTraceWriter } from "./services/trace-writer.js";
 
 // Standard CLI behaviour for `azdo … | head`: when the downstream reader
@@ -68,10 +68,22 @@ program.hook("preAction", () => {
   }
 });
 
+/** The command chain that just ran, root first: `["azdo", "auth", "token"]`. */
+function commandPathOf(command: Command): string[] {
+  const names: string[] = [];
+  for (let node: Command | null = command; node !== null; node = node.parent) {
+    names.unshift(node.name());
+  }
+  return names;
+}
+
 // After a command finishes, print a best-effort update notice on stderr.
 // The hook only fires for action commands, so -v/--version and help paths
 // are naturally skipped. Any failure is swallowed by getUpdateNotice itself.
-program.hook("postAction", async () => {
+program.hook("postAction", async (_thisCommand, actionCommand: Command) => {
+  if (skipsUpdateCheck(commandPathOf(actionCommand))) {
+    return;
+  }
   const notice = await getUpdateNotice({ enabled: program.opts().updateCheck });
   if (notice) {
     process.stderr.write(notice + "\n");

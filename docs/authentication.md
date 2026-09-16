@@ -123,7 +123,15 @@ curl -H "Authorization: Bearer $TOKEN" https://dev.azure.com/myorg/_apis/project
 
 So when **stderr is a terminal** the command names the credential there — kind,
 source, account and expiry (OAuth), and the header form to use. Redirected or
-piped, stderr stays silent, so scripts see nothing but the token on stdout.
+piped, stderr stays silent, so scripts see nothing but the token on stdout —
+including the advisory notices the credential store emits elsewhere (the
+legacy-PAT migration line), which are suppressed for this command on a
+non-terminal stderr. The migration still happens and is still audited.
+
+The command also skips the background update check every other command runs
+after it finishes, so refreshing an expired OAuth access token is the only
+network request `azdo auth token` can make, and a script waiting on the token
+never waits on the npm registry.
 
 There is deliberately **no `--json`**: the payload is one opaque string, and a
 JSON envelope would only invite the token into machine-read logs. Use

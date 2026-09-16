@@ -3,6 +3,7 @@ import {
   getUpdateNotice,
   isNewer,
   parseCache,
+  skipsUpdateCheck,
   THROTTLE_MS,
   type UpdateCheckDeps,
 } from "../../src/services/update-check.js";
@@ -170,5 +171,25 @@ describe("getUpdateNotice — User Story 3 (suppression + tolerance)", () => {
     const { opts, fetchLatest } = deps({ readCache: () => null });
     await getUpdateNotice(opts);
     expect(fetchLatest).toHaveBeenCalledOnce();
+  });
+});
+
+describe("skipsUpdateCheck", () => {
+  it("exempts `azdo auth token` — its stdout is captured and it promises no extra network call", () => {
+    expect(skipsUpdateCheck(["azdo", "auth", "token"])).toBe(true);
+  });
+
+  it("does not exempt the other auth subcommands", () => {
+    expect(skipsUpdateCheck(["azdo", "auth", "status"])).toBe(false);
+    expect(skipsUpdateCheck(["azdo", "auth", "login"])).toBe(false);
+    expect(skipsUpdateCheck(["azdo", "auth"])).toBe(false);
+  });
+
+  it("does not exempt a same-named subcommand of another group", () => {
+    expect(skipsUpdateCheck(["azdo", "pr", "token"])).toBe(false);
+  });
+
+  it("ignores the root command's name, so a renamed binary still matches", () => {
+    expect(skipsUpdateCheck(["azdo-cli", "auth", "token"])).toBe(true);
   });
 });

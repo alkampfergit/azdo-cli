@@ -14,6 +14,8 @@ import {
   setupProcessSpies,
 } from './helpers/command-test-utils.js';
 
+const suppressNoticesMock = vi.hoisted(() => vi.fn());
+
 const credStoreState = vi.hoisted(() => ({
   stored: null as StoredCredential | null,
   throwUnavailable: false,
@@ -32,6 +34,7 @@ vi.mock('../../src/services/credential-store.js', () => ({
   deletePat: vi.fn(async () => false),
   listOrgsWithStoredPat: vi.fn(async () => []),
   probeBackend: vi.fn(() => 'linux-libsecret'),
+  suppressCredentialStoreNotices: suppressNoticesMock,
 }));
 
 const refreshIfNeededMock = vi.hoisted(() => vi.fn());
@@ -82,6 +85,7 @@ beforeEach(() => {
   credStoreState.throwUnavailable = false;
   refreshIfNeededMock.mockReset().mockImplementation(async (_org: string, cred: StoredOAuthCredential) => cred);
   vi.mocked(appendAuthAuditEvent).mockReset();
+  suppressNoticesMock.mockReset();
   resolveOrgMock.mockClear();
   delete process.env.AZDO_PAT;
   setStderrTty(false);
@@ -110,6 +114,25 @@ describe('azdo auth token', () => {
     await run(['token', '--org', 'myorg']);
 
     expect(getStderr()).toBe('');
+  });
+
+  it('suppresses the credential store\'s own stderr notices when stderr is not a TTY', async () => {
+    credStoreState.stored = { kind: 'pat', token: 'stored-pat-value' };
+
+    await run(['token', '--org', 'myorg']);
+
+    // A legacy-PAT migration would otherwise interleave "Migrated legacy PAT..."
+    // with the token on a merged stream.
+    expect(suppressNoticesMock).toHaveBeenCalledWith(true);
+  });
+
+  it('leaves the credential store free to write notices when stderr is a TTY', async () => {
+    credStoreState.stored = { kind: 'pat', token: 'stored-pat-value' };
+    setStderrTty(true);
+
+    await run(['token', '--org', 'myorg']);
+
+    expect(suppressNoticesMock).toHaveBeenCalledWith(false);
   });
 
   it('describes the credential on stderr when stderr is a TTY', async () => {
