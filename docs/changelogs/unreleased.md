@@ -16,6 +16,12 @@
 - `--description-file <path>` on `azdo pr open`, plus `--title-file` /
   `--description-file` on `azdo pr update`. A path of `-` reads standard input,
   which also now works for `azdo pr comments add|edit|reply --file -`. (#96)
+- `azdo pr abandon` (alias `azdo pr close`) and `azdo pr reactivate` end and
+  restore a pull request, so an accidentally-opened PR is no longer permanent as
+  far as the CLI is concerned. Nothing is deleted and nothing is merged: the PR
+  keeps its threads and work-item links, and neither command prompts. Both are
+  idempotent (`noop: true`, no write), a completed PR is refused before any
+  write, and `reactivate`'s branch lookup searches **abandoned** PRs. (#97)
 
 ### Changed
 

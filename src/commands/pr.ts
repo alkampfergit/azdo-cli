@@ -8,6 +8,8 @@ import type {
   CreatableThreadStatus,
   PullRequestCommentsResult,
   PullRequestCheck,
+  PullRequestLifecycleStatus,
+  PullRequestStatusChangeResult,
   PullRequestStatusPullRequest,
   PullRequestStatusResult,
   PullRequestUpdatableField,
@@ -139,6 +141,21 @@ function autoDetectZeroMatch(branch: string): string {
 function autoDetectMultiMatch(branch: string, ids: number[]): string {
   const idList = ids.map((id) => `#${id}`).join(', ');
   return `Multiple open pull requests match branch ${branch}: ${idList}. Re-run with --pr-number to choose.`;
+}
+
+// The abandoned-PR counterparts of C-2/C-3, used only by `pr reactivate`, whose
+// branch lookup searches abandoned pull requests (an active one is never a
+// reactivation target). Kept separate so the pinned strings above — matched
+// verbatim by the 019 contract tests — cannot drift, and so the advice differs:
+// "push the branch and open a pull request" is nonsense when the ask was to
+// restore an existing one.
+function abandonedAutoDetectZeroMatch(branch: string): string {
+  return `No abandoned pull request matches branch ${branch}. Pass --pr-number to target a specific PR.`;
+}
+
+function abandonedAutoDetectMultiMatch(branch: string, ids: number[]): string {
+  const idList = ids.map((id) => `#${id}`).join(', ');
+  return `Multiple abandoned pull requests match branch ${branch}: ${idList}. Re-run with --pr-number to choose.`;
 }
 
 // Writes a contract error line verbatim to stderr (no "Error: " prefix, unlike
@@ -957,6 +974,136 @@ export function createPrUpdateCommand(): Command {
   return command;
 }
 
+// The two directions `pr abandon` / `pr reactivate` drive, each pairing the
+// status it writes with the status its branch lookup searches for and the
+// wording it reports. Everything that differs between the two commands lives
+// here, so the runner below has no per-command branching beyond a lookup.
+const PR_STATUS_CHANGES = {
+  abandon: {
+    target: 'abandoned',
+    search: 'active',
+    verb: 'abandoned',
+    applied: 'Abandoned',
+    refusal: 'abandoned',
+  },
+  reactivate: {
+    target: 'active',
+    search: 'abandoned',
+    verb: 'active',
+    applied: 'Reactivated',
+    refusal: 'reactivated',
+  },
+} as const satisfies Record<string, {
+  target: PullRequestLifecycleStatus;
+  search: PullRequestLifecycleStatus;
+  verb: string;
+  applied: string;
+  refusal: string;
+}>;
+
+type PrStatusDirection = keyof typeof PR_STATUS_CHANGES;
+
+// Azure DevOps treats a completed pull request as final: the web UI drops the
+// Abandon action once a PR is completed, and the way back from a completed PR
+// is a revert (a new PR), not a status flip. Checked against the status the
+// target resolution already fetched, so the refusal costs no extra call and no
+// write is attempted. A rejection this check does not predict still reaches the
+// operator with the server's own message (037).
+const COMPLETED_STATUS = 'completed';
+
+async function runPrStatusChange(options: PrCommandOptions, direction: PrStatusDirection): Promise<void> {
+  const change = PR_STATUS_CHANGES[direction];
+  let context: AzdoContext | undefined;
+
+  try {
+    const target = await resolvePullRequestTarget(options, { branchStatus: change.search });
+    if (target === null) {
+      return;
+    }
+    context = target.context;
+
+    const current = target.pullRequest;
+    if (current.status === COMPLETED_STATUS) {
+      writeError(
+        `Pull request #${current.id} is completed and cannot be ${change.refusal}. ` +
+          'A completed pull request is final; revert it with a new pull request instead.',
+      );
+      return;
+    }
+
+    if (current.status === change.target) {
+      const noopResult: PullRequestStatusChangeResult = {
+        pullRequestId: current.id,
+        title: current.title,
+        status: current.status,
+        previousStatus: current.status,
+        url: current.url,
+        noop: true,
+      };
+      if (options.json) {
+        process.stdout.write(`${JSON.stringify(noopResult, null, 2)}\n`);
+        return;
+      }
+      process.stdout.write(`Pull request #${current.id} is already ${change.verb}; nothing to do.\n`);
+      return;
+    }
+
+    const updated = await updatePullRequest(target.context, target.repo, target.pat, current.id, {
+      status: change.target,
+    });
+    const result: PullRequestStatusChangeResult = {
+      pullRequestId: updated.id,
+      title: updated.title,
+      status: updated.status,
+      previousStatus: current.status,
+      url: updated.url,
+      noop: false,
+    };
+
+    if (options.json) {
+      process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+      return;
+    }
+
+    process.stdout.write(`${change.applied} pull request #${updated.id} (${updated.title}).\n${updated.url ?? '—'}\n`);
+  } catch (err) {
+    handlePrCommandError(err, context, 'write');
+  }
+}
+
+export function createPrAbandonCommand(): Command {
+  const command = new Command('abandon');
+  withCommonPrOptions(configureUnwrappedHelp(command))
+    // "Abandon: Close the PR" is the Azure DevOps documentation's own wording,
+    // and `close` is the verb gh users reach for. It does NOT complete or merge.
+    .alias('close')
+    .description(
+      'Abandon a pull request (status: abandoned) — reversible with "azdo pr reactivate". ' +
+        'This does NOT complete or merge the pull request; nothing is deleted and no confirmation is asked.',
+    )
+    .option('--pr-number <N>', PR_NUMBER_HELP)
+    .option('--json', 'output JSON')
+    .action(async (_options: PrCommandOptions, command: Command) => {
+      await runPrStatusChange(mergedPrOptions(command), 'abandon');
+    });
+  return command;
+}
+
+export function createPrReactivateCommand(): Command {
+  const command = new Command('reactivate');
+  withCommonPrOptions(configureUnwrappedHelp(command))
+    .description(
+      'Reactivate an abandoned pull request (status: active). ' +
+        'When --pr-number is omitted the current branch\'s single ABANDONED pull request is used, not the active one.',
+    )
+    .option('--pr-number <N>', PR_NUMBER_HELP)
+    .option('--json', 'output JSON')
+    .action(async (_options: PrCommandOptions, command: Command) => {
+      await runPrStatusChange(mergedPrOptions(command), 'reactivate');
+    });
+  return command;
+}
+
 export function createPrCommentsCommand(): Command {
   const command = new Command('comments');
 
@@ -1130,10 +1277,16 @@ interface ResolvedThreadTarget extends ResolvedPullRequestTarget {
 }
 
 // Resolves the pull request a write command targets: either the explicit
-// --pr-number or the single open PR of the current branch. Returns null when
+// --pr-number or the single PR of the current branch. Returns null when
 // resolution failed — the error is already on stderr and the exit code set.
+//
+// `branchStatus` selects which pull requests the branch lookup considers, and
+// defaults to the active ones every existing caller wants. `pr reactivate`
+// passes 'abandoned': its target is by definition not active, so the default
+// search would find nothing on a branch whose only PR is the one to restore.
 async function resolvePullRequestTarget(
   options: PrCommandOptions,
+  { branchStatus = 'active' }: { branchStatus?: PullRequestLifecycleStatus } = {},
 ): Promise<ResolvedPullRequestTarget | null> {
   validateOrgProjectPair(options);
 
@@ -1161,14 +1314,22 @@ async function resolvePullRequestTarget(
     }
   } else {
     const pullRequests = await listPullRequests(resolved.context, resolved.repo, resolved.pat, resolved.branch!, {
-      status: 'active',
+      status: branchStatus,
     });
+    const abandoned = branchStatus === 'abandoned';
     if (pullRequests.length === 0) {
-      writeContractError(autoDetectZeroMatch(resolved.branch!));
+      writeContractError(
+        abandoned ? abandonedAutoDetectZeroMatch(resolved.branch!) : autoDetectZeroMatch(resolved.branch!),
+      );
       return null;
     }
     if (pullRequests.length > 1) {
-      writeContractError(autoDetectMultiMatch(resolved.branch!, pullRequests.map((pr) => pr.id)));
+      const ids = pullRequests.map((pr) => pr.id);
+      writeContractError(
+        abandoned
+          ? abandonedAutoDetectMultiMatch(resolved.branch!, ids)
+          : autoDetectMultiMatch(resolved.branch!, ids),
+      );
       return null;
     }
     pullRequest = pullRequests[0];
@@ -2057,6 +2218,8 @@ export function createPrCommand(): Command {
   command.addCommand(createPrStatusCommand());
   command.addCommand(createPrOpenCommand());
   command.addCommand(createPrUpdateCommand());
+  command.addCommand(createPrAbandonCommand());
+  command.addCommand(createPrReactivateCommand());
   command.addCommand(createPrCommentsCommand());
   command.addCommand(createPrCommentResolveCommand());
   command.addCommand(createPrCommentReopenCommand());
