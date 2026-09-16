@@ -916,11 +916,14 @@ async function runPrUpdate(options: PrCommandOptions): Promise<void> {
   let context: AzdoContext | undefined;
 
   try {
-    const target = await resolvePullRequestTarget(options);
+    const target = await resolvePullRequestTarget(options, {
+      onContextResolved: (resolved) => {
+        context = resolved;
+      },
+    });
     if (target === null) {
       return;
     }
-    context = target.context;
 
     // No-op detection costs nothing: resolvePullRequestTarget already fetched
     // the pull request, and mapPullRequest projects both mutable fields onto it.
@@ -1031,11 +1034,15 @@ async function runPrStatusChange(options: PrCommandOptions, direction: PrStatusD
   let context: AzdoContext | undefined;
 
   try {
-    const target = await resolvePullRequestTarget(options, { branchStatus: change.search });
+    const target = await resolvePullRequestTarget(options, {
+      branchStatus: change.search,
+      onContextResolved: (resolved) => {
+        context = resolved;
+      },
+    });
     if (target === null) {
       return;
     }
-    context = target.context;
 
     const current = target.pullRequest;
     if (current.status === COMPLETED_STATUS) {
@@ -1291,6 +1298,75 @@ interface ResolvedThreadTarget extends ResolvedPullRequestTarget {
   threadId: number;
 }
 
+// --pr-number, parsed once before any network call: the number itself, 'none'
+// when the option was not supplied (the current branch decides the target), or
+// 'invalid' when it was supplied but is not a positive integer — in which case
+// the error is already on stderr.
+function parseTargetPrNumber(options: PrCommandOptions): number | 'none' | 'invalid' {
+  if (options.prNumber === undefined) {
+    return 'none';
+  }
+
+  const parsed = parsePositivePrNumber(options.prNumber);
+  if (parsed === null) {
+    writeError(`Invalid --pr-number "${options.prNumber}"; expected a positive integer.`);
+    return 'invalid';
+  }
+
+  return parsed;
+}
+
+// The explicit --pr-number lookup. A missing PR is the caller's typo, not an
+// API failure, so it gets its own message and exit code; anything else is a
+// real API failure and keeps travelling to handlePrCommandError.
+async function fetchTargetById(
+  resolved: ResolvedPrCommandContext,
+  prId: number,
+): Promise<BranchPullRequestMatch | null> {
+  try {
+    return await getPullRequestById(resolved.context, resolved.repo, resolved.pat, prId);
+  } catch (err) {
+    if (err instanceof Error && err.message.startsWith('NOT_FOUND')) {
+      writeError(
+        `Pull request #${prId} not found in ${resolved.context.org}/${resolved.context.project}/${resolved.repo}.`,
+        EXIT_NOT_FOUND,
+      );
+      return null;
+    }
+    throw err;
+  }
+}
+
+// The branch lookup: exactly one pull request of the requested status must
+// match, otherwise the operator is told which ids to disambiguate between. The
+// active wording is pinned by contract (019 C-2/C-3); the abandoned one is
+// `pr reactivate`'s.
+async function findBranchPullRequest(
+  resolved: ResolvedPrCommandContext,
+  branch: string,
+  branchStatus: PullRequestLifecycleStatus,
+): Promise<BranchPullRequestMatch | null> {
+  const pullRequests = await listPullRequests(resolved.context, resolved.repo, resolved.pat, branch, {
+    status: branchStatus,
+  });
+  const abandoned = branchStatus === 'abandoned';
+
+  if (pullRequests.length === 0) {
+    writeContractError(abandoned ? abandonedAutoDetectZeroMatch(branch) : autoDetectZeroMatch(branch));
+    return null;
+  }
+
+  if (pullRequests.length > 1) {
+    const ids = pullRequests.map((pr) => pr.id);
+    writeContractError(
+      abandoned ? abandonedAutoDetectMultiMatch(branch, ids) : autoDetectMultiMatch(branch, ids),
+    );
+    return null;
+  }
+
+  return pullRequests[0];
+}
+
 // Resolves the pull request a write command targets: either the explicit
 // --pr-number or the single PR of the current branch. Returns null when
 // resolution failed — the error is already on stderr and the exit code set.
@@ -1299,55 +1375,38 @@ interface ResolvedThreadTarget extends ResolvedPullRequestTarget {
 // defaults to the active ones every existing caller wants. `pr reactivate`
 // passes 'abandoned': its target is by definition not active, so the default
 // search would find nothing on a branch whose only PR is the one to restore.
+//
+// `onContextResolved` fires as soon as the org/project/repo are known, which is
+// BEFORE the pull request lookup that can still fail with 401/403. Callers hand
+// it their catch-block `context` variable: without it a permission failure from
+// the lookup itself reports project "undefined", even though the project had
+// been resolved successfully a moment earlier.
 async function resolvePullRequestTarget(
   options: PrCommandOptions,
-  { branchStatus = 'active' }: { branchStatus?: PullRequestLifecycleStatus } = {},
+  {
+    branchStatus = 'active',
+    onContextResolved,
+  }: {
+    branchStatus?: PullRequestLifecycleStatus;
+    onContextResolved?: (context: AzdoContext) => void;
+  } = {},
 ): Promise<ResolvedPullRequestTarget | null> {
   validateOrgProjectPair(options);
 
-  let explicitPrId: number | null = null;
-  if (options.prNumber !== undefined) {
-    explicitPrId = parsePositivePrNumber(options.prNumber);
-    if (explicitPrId === null) {
-      writeError(`Invalid --pr-number "${options.prNumber}"; expected a positive integer.`);
-      return null;
-    }
+  const explicitPrId = parseTargetPrNumber(options);
+  if (explicitPrId === 'invalid') {
+    return null;
   }
 
-  const resolved = await resolvePrCommandContext(options, { requireBranch: explicitPrId === null });
+  const byBranch = explicitPrId === 'none';
+  const resolved = await resolvePrCommandContext(options, { requireBranch: byBranch });
+  onContextResolved?.(resolved.context);
 
-  let pullRequest: BranchPullRequestMatch;
-  if (explicitPrId !== null) {
-    try {
-      pullRequest = await getPullRequestById(resolved.context, resolved.repo, resolved.pat, explicitPrId);
-    } catch (err) {
-      if (err instanceof Error && err.message.startsWith('NOT_FOUND')) {
-        writeError(`Pull request #${explicitPrId} not found in ${resolved.context.org}/${resolved.context.project}/${resolved.repo}.`, EXIT_NOT_FOUND);
-        return null;
-      }
-      throw err;
-    }
-  } else {
-    const pullRequests = await listPullRequests(resolved.context, resolved.repo, resolved.pat, resolved.branch!, {
-      status: branchStatus,
-    });
-    const abandoned = branchStatus === 'abandoned';
-    if (pullRequests.length === 0) {
-      writeContractError(
-        abandoned ? abandonedAutoDetectZeroMatch(resolved.branch!) : autoDetectZeroMatch(resolved.branch!),
-      );
-      return null;
-    }
-    if (pullRequests.length > 1) {
-      const ids = pullRequests.map((pr) => pr.id);
-      writeContractError(
-        abandoned
-          ? abandonedAutoDetectMultiMatch(resolved.branch!, ids)
-          : autoDetectMultiMatch(resolved.branch!, ids),
-      );
-      return null;
-    }
-    pullRequest = pullRequests[0];
+  const pullRequest = byBranch
+    ? await findBranchPullRequest(resolved, resolved.branch!, branchStatus)
+    : await fetchTargetById(resolved, explicitPrId);
+  if (pullRequest === null) {
+    return null;
   }
 
   return { context: resolved.context, repo: resolved.repo, pat: resolved.pat, pullRequest };
@@ -1356,6 +1415,7 @@ async function resolvePullRequestTarget(
 async function resolveThreadTarget(
   threadIdRaw: string,
   options: PrCommandOptions,
+  { onContextResolved }: { onContextResolved?: (context: AzdoContext) => void } = {},
 ): Promise<ResolvedThreadTarget | null> {
   // The thread id is validated before any network call, so a typo never costs
   // a round trip.
@@ -1366,7 +1426,7 @@ async function resolveThreadTarget(
     return null;
   }
 
-  const target = await resolvePullRequestTarget(options);
+  const target = await resolvePullRequestTarget(options, { onContextResolved });
   if (target === null) {
     return null;
   }
@@ -1393,11 +1453,14 @@ async function runThreadStateChange(
   let context: AzdoContext | undefined;
 
   try {
-    const target = await resolveThreadTarget(threadIdRaw, options);
+    const target = await resolveThreadTarget(threadIdRaw, options, {
+      onContextResolved: (resolved) => {
+        context = resolved;
+      },
+    });
     if (target === null) {
       return;
     }
-    context = target.context;
 
     const threads = await getPullRequestThreads(target.context, target.repo, target.pat, target.pullRequest.id);
     const thread = threads.find((t) => t.id === target.threadId);
@@ -1504,11 +1567,14 @@ async function runCommentReply(
       return;
     }
 
-    const target = await resolveThreadTarget(threadIdRaw, options);
+    const target = await resolveThreadTarget(threadIdRaw, options, {
+      onContextResolved: (resolved) => {
+        context = resolved;
+      },
+    });
     if (target === null) {
       return;
     }
-    context = target.context;
 
     const threads = await getPullRequestThreads(target.context, target.repo, target.pat, target.pullRequest.id);
     const thread = threads.find((t) => t.id === target.threadId);
@@ -1619,11 +1685,14 @@ async function runCommentAdd(
       status = match;
     }
 
-    const target = await resolvePullRequestTarget(options);
+    const target = await resolvePullRequestTarget(options, {
+      onContextResolved: (resolved) => {
+        context = resolved;
+      },
+    });
     if (target === null) {
       return;
     }
-    context = target.context;
 
     if (options.dryRun === true) {
       const dryResult: PrCommentAddResult = {
@@ -1809,11 +1878,14 @@ async function runCommentEdit(
       }
     }
 
-    const target = await resolveThreadTarget(threadIdRaw, options);
+    const target = await resolveThreadTarget(threadIdRaw, options, {
+      onContextResolved: (resolved) => {
+        context = resolved;
+      },
+    });
     if (target === null) {
       return;
     }
-    context = target.context;
 
     const thread = await fetchThreadForEdit(target);
     if (thread === null) {
@@ -2006,11 +2078,14 @@ async function runWorkItemLinkChange(
       return;
     }
 
-    const target = await resolvePullRequestTarget(options);
+    const target = await resolvePullRequestTarget(options, {
+      onContextResolved: (resolved) => {
+        context = resolved;
+      },
+    });
     if (target === null) {
       return;
     }
-    context = target.context;
 
     let outcome;
     try {
@@ -2089,11 +2164,14 @@ async function runReviewerAdd(
   let context: AzdoContext | undefined;
 
   try {
-    const target = await resolvePullRequestTarget(options);
+    const target = await resolvePullRequestTarget(options, {
+      onContextResolved: (resolved) => {
+        context = resolved;
+      },
+    });
     if (target === null) {
       return;
     }
-    context = target.context;
 
     let identity;
     try {
@@ -2152,11 +2230,14 @@ async function runReviewerRemove(reviewer: string, options: PrCommandOptions): P
   let context: AzdoContext | undefined;
 
   try {
-    const target = await resolvePullRequestTarget(options);
+    const target = await resolvePullRequestTarget(options, {
+      onContextResolved: (resolved) => {
+        context = resolved;
+      },
+    });
     if (target === null) {
       return;
     }
-    context = target.context;
 
     let identity;
     try {

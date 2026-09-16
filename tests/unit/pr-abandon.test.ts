@@ -279,3 +279,42 @@ describe('pr abandon / reactivate — never prompts (FR-008)', () => {
     expect(getExitCode()).toBe(0);
   });
 });
+
+// A 401/403 can just as easily come from the pull request LOOKUP as from the
+// PATCH. The context is resolved before that lookup, so the guidance must name
+// the project either way — reporting project "undefined" here sends the
+// operator hunting for a configuration problem that does not exist.
+describe('pr abandon / reactivate — permission failures name the resolved project', () => {
+  it('names the project when the --pr-number lookup is denied', async () => {
+    vi.mocked(getPullRequestById).mockRejectedValue(
+      new Error('PERMISSION_DENIED: TF401027: you need Read permission'),
+    );
+
+    await runAbandon(['--pr-number', '97']);
+
+    expect(getStderr()).toContain('project "test-project"');
+    expect(getStderr()).not.toContain('undefined');
+    expect(getExitCode()).toBe(4);
+  });
+
+  it('names the project when the branch lookup is denied', async () => {
+    vi.mocked(listPullRequests).mockRejectedValue(
+      new Error('PERMISSION_DENIED: TF401027: you need Read permission'),
+    );
+
+    await runReactivate([]);
+
+    expect(getStderr()).toContain('project "test-project"');
+    expect(getStderr()).not.toContain('undefined');
+    expect(getExitCode()).toBe(4);
+  });
+
+  it('names the repository in a not-found failure raised by the branch lookup', async () => {
+    vi.mocked(listPullRequests).mockRejectedValue(new Error('NOT_FOUND | url=…'));
+
+    await runAbandon([]);
+
+    expect(getStderr()).toContain('Azure DevOps repository not found in test-org/test-project.');
+    expect(getExitCode()).toBe(3);
+  });
+});
