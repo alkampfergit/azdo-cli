@@ -88,12 +88,27 @@ function parsePositivePrNumber(raw: string): number | null {
 // cannot drift between subcommands (FR-005 / contract C-1). `pr status` is a
 // multi-PR list command and intentionally does NOT carry this option (owner
 // decision A on PR #43).
-const PR_NUMBER_HELP =
-  "target the pull request with this numeric id, instead of the current branch's PR. " +
-  'When omitted, the CLI auto-detects the pull request whose source branch equals ' +
-  'refs/heads/<current branch> in the Azure DevOps repository identified by the origin ' +
-  'remote; if zero or more than one open PR matches, the command fails with a message ' +
-  'naming the searched branch.';
+//
+// Parameterised by the status the branch auto-detection actually searches: every
+// command but `pr reactivate` resolves the branch's *active* PR, while
+// `reactivate`'s target is by definition already abandoned (039's `branchStatus`
+// on `resolvePullRequestTarget`). The default keeps every other subcommand's
+// string byte-identical.
+function prNumberHelp(branchStatus: 'active' | 'abandoned' = 'active'): string {
+  const matched = branchStatus === 'abandoned' ? 'abandoned' : 'open';
+  return (
+    "target the pull request with this numeric id, instead of the current branch's PR. " +
+    'When omitted, the CLI auto-detects the pull request whose source branch equals ' +
+    'refs/heads/<current branch> in the Azure DevOps repository identified by the origin ' +
+    `remote; if zero or more than one ${matched} PR matches, the command fails with a message ` +
+    'naming the searched branch.'
+  );
+}
+
+const PR_NUMBER_HELP = prNumberHelp();
+
+// `pr reactivate` only: see prNumberHelp above.
+const PR_NUMBER_HELP_ABANDONED = prNumberHelp('abandoned');
 
 // Shared help text for `--repo`, available on every `pr` subcommand. The
 // origin remote stays the default so existing invocations are unaffected;
@@ -1096,7 +1111,7 @@ export function createPrReactivateCommand(): Command {
       'Reactivate an abandoned pull request (status: active). ' +
         'When --pr-number is omitted the current branch\'s single ABANDONED pull request is used, not the active one.',
     )
-    .option('--pr-number <N>', PR_NUMBER_HELP)
+    .option('--pr-number <N>', PR_NUMBER_HELP_ABANDONED)
     .option('--json', 'output JSON')
     .action(async (_options: PrCommandOptions, command: Command) => {
       await runPrStatusChange(mergedPrOptions(command), 'reactivate');
