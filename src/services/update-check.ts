@@ -1,3 +1,4 @@
+import type { Command } from "commander";
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
@@ -18,6 +19,19 @@ export const REGISTRY_URL = "https://registry.npmjs.org/azdo-cli/latest";
  * space-joined, as the user typed it.
  */
 const UPDATE_CHECK_EXEMPT_COMMANDS: ReadonlySet<string> = new Set(["auth token"]);
+
+/**
+ * The command chain that just ran, root first: `["azdo", "auth", "token"]`.
+ * Commander hands the `postAction` hook the leaf action command; the exemption
+ * list is keyed off the whole chain, so walk up to the root.
+ */
+export function commandPathOf(command: Command): string[] {
+  const names: string[] = [];
+  for (let node: Command | null = command; node !== null; node = node.parent) {
+    names.unshift(node.name());
+  }
+  return names;
+}
 
 /**
  * True when the update check must not run for the command that just executed.

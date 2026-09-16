@@ -70,8 +70,18 @@ return cred.kind === 'pat'
 Same ladder, same errors, same call sequence — every existing caller
 (`azdo-client`, `pr-client`) is behaviourally untouched. The union's `source`
 and `expiresAt` are the two facts the old signature dropped and the new command
-needs; `resolveAuthCredential()` (the diagnostics-facing resolver, which reports
-`source` but not expiry) is left alone.
+needs.
+
+`resolveAuthCredential()` — the resolver the write-side commands actually reach
+through `requireAuthCredential()` — is a projection of `exportCredential()`
+too, so the feature leaves **one** ladder rather than two that can drift (the
+first review round; the original plan left it alone, which would have kept a
+second copy of the precedence rules alive). Two deliberate seams keep its
+callers behaviourally identical: it returns `null` instead of throwing when
+nothing resolves (`CredentialMissingError` is caught; a rejected refresh still
+propagates), and a `.env` PAT folds back to `source: 'env'`, because
+`AuthCredential` has no `dotenv` source and `describeResolvedCredential`'s
+strings are keyed off it.
 
 ### Audit — `src/types/audit.ts`
 

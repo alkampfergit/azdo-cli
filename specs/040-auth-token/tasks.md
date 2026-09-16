@@ -51,3 +51,18 @@
 ## Phase 6 — gate
 
 - [X] **T012** `npm test && npm run lint` green.
+
+## Phase 7 — review round 2
+
+- [X] **T013** `src/program.ts` (new): the `azdo` tree, root options and the
+  `preAction` / `postAction` hooks move out of `src/index.ts`, which keeps only
+  the EPIPE guards and `parseAsync`. `commandPathOf()` moves next to
+  `skipsUpdateCheck()` in `src/services/update-check.ts`. The update-check skip
+  is a property of the wiring, so it must be reachable from a test.
+- [X] **T014** `tests/unit/entry-update-check.test.ts` (new): drives the real
+  tree from `createProgram()` — `auth token` completes without calling
+  `getUpdateNotice`, a sibling (`auth status`) still calls it, and
+  `commandPathOf()` is checked against the real `auth token` command object.
+- [X] **T015** `plan.md` §Service: describe `resolveAuthCredential()` as a
+  projection of `exportCredential()` (round 1 changed it; the plan still said
+  it was left alone).
