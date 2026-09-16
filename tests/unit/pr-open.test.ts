@@ -1,4 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { createPrOpenCommand } from '../../src/commands/pr.js';
 import { createCommandRunner, getExitCode, getStderr, getStdout, setupProcessSpies } from './helpers/command-test-utils.js';
 
@@ -140,5 +143,65 @@ describe('pr open command', () => {
         url: 'https://example.test/pr/12',
       },
     });
+  });
+});
+
+describe('pr open --description-file (038, FR-010)', () => {
+  let tempDir: string;
+
+  beforeEach(() => {
+    // The file-level beforeEach re-arms the mocks but does not clear their call
+    // history, and these cases assert that openPullRequest was NOT reached.
+    vi.clearAllMocks();
+    tempDir = mkdtempSync(join(tmpdir(), 'azdo-pr-open-'));
+  });
+
+  afterEach(() => {
+    rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  function writeTemp(name: string, content: string): string {
+    const path = join(tempDir, name);
+    writeFileSync(path, content, 'utf-8');
+    return path;
+  }
+
+  it('reads the description from a file and composes it as inline text would be', async () => {
+    await run(['--title', 'Title', '--description-file', writeTemp('body.md', '# Heading\n\nBody\n')]);
+
+    expect(vi.mocked(openPullRequest)).toHaveBeenCalledWith(
+      expect.any(Object), 'repo-name', expect.any(Object), 'feature/test', 'Title', '# Heading\n\nBody',
+    );
+  });
+
+  it('rejects --description together with --description-file', async () => {
+    await run(['--title', 'Title', '--description', 'Inline', '--description-file', writeTemp('b.md', 'File')]);
+
+    expect(getStderr()).toContain('Cannot specify both --description and --description-file.');
+    expect(getExitCode()).toBe(1);
+    expect(vi.mocked(openPullRequest)).not.toHaveBeenCalled();
+  });
+
+  it('reports a missing description file', async () => {
+    await run(['--title', 'Title', '--description-file', join(tempDir, 'nope.md')]);
+
+    expect(getStderr()).toContain('File not found:');
+    expect(getExitCode()).toBe(1);
+    expect(vi.mocked(openPullRequest)).not.toHaveBeenCalled();
+  });
+
+  it('rejects an empty description file instead of silently falling back to the template', async () => {
+    await run(['--title', 'Title', '--description-file', writeTemp('empty.md', '   \n')]);
+
+    expect(getStderr()).toContain('Description must not be empty.');
+    expect(getExitCode()).toBe(1);
+  });
+
+  it('still treats an empty inline --description as "use the template"', async () => {
+    await run(['--title', 'Title', '--description', '   ']);
+
+    expect(vi.mocked(openPullRequest)).toHaveBeenCalledWith(
+      expect.any(Object), 'repo-name', expect.any(Object), 'feature/test', 'Title', undefined,
+    );
   });
 });

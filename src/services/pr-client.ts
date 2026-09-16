@@ -30,6 +30,7 @@ import type {
   PullRequestTemplate,
   ComposedDescription,
   PullRequestThreadCreateRequest,
+  PullRequestUpdateRequest,
   Reviewer,
   WorkItemLink,
 } from '../types/pull-request.js';
@@ -624,6 +625,50 @@ export async function openPullRequest(
     created: true,
     pullRequest: mapPullRequest(context, repo, data),
   };
+}
+
+// Updates a pull request's title and/or description (038-pr-update).
+//
+// The body is PARTIAL by design: Azure DevOps documents exactly which
+// properties `PATCH .../pullrequests/{id}` accepts (Status, Title, Description,
+// CompletionOptions, MergeOptions, AutoCompleteSetBy.Id, TargetRefName) and
+// warns that anything else either throws InvalidArgumentValueException or is
+// silently ignored. Sending only the supplied keys is therefore both the
+// cheapest and the only safe shape — an omitted property is left untouched, so
+// `--title` alone provably cannot disturb the description.
+//
+// Unlike `openPullRequest`, no repository template is resolved or prepended:
+// `pr update` replaces the description literally (spec FR-006), because
+// re-prepending the template on every edit would grow it without bound.
+export async function updatePullRequest(
+  context: AzdoContext,
+  repo: string,
+  cred: AuthCredential,
+  prId: number,
+  fields: PullRequestUpdateRequest,
+): Promise<BranchPullRequestMatch> {
+  if (fields.description !== undefined && fields.description.length > MAX_PR_DESCRIPTION_CHARS) {
+    const overflow = fields.description.length - MAX_PR_DESCRIPTION_CHARS;
+    throw new Error(
+      `DESCRIPTION_TOO_LONG: description is ${fields.description.length} characters, exceeding the Azure DevOps limit of ${MAX_PR_DESCRIPTION_CHARS} characters. Shorten the description by at least ${overflow} characters.`,
+    );
+  }
+
+  const url = new URL(
+    `https://dev.azure.com/${encodeURIComponent(context.org)}/${encodeURIComponent(context.project)}/_apis/git/repositories/${encodeURIComponent(repo)}/pullrequests/${prId}`,
+  );
+  url.searchParams.set('api-version', '7.1');
+
+  const response = await fetchWithErrors(url.toString(), {
+    method: 'PATCH',
+    headers: {
+      ...authHeaders(cred),
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(fields),
+  });
+  const data = await readJsonResponse<AzdoPullRequest>(response);
+  return mapPullRequest(context, repo, data);
 }
 
 export async function getPullRequestThreads(

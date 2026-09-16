@@ -73,6 +73,31 @@ export interface PullRequestOpenResult {
   pullRequest: BranchPullRequestMatch;
 }
 
+// The PATCH body `pr update` sends. Deliberately partial: Azure DevOps treats
+// an omitted property as "leave it alone", and sending properties outside the
+// documented updatable set makes the server either throw
+// InvalidArgumentValueException or silently ignore the update — so the whole
+// fetched pull request is never echoed back.
+export interface PullRequestUpdateRequest {
+  title?: string;
+  description?: string;
+}
+
+// Which of the two mutable fields `pr update` actually wrote.
+export type PullRequestUpdatableField = 'title' | 'description';
+
+// Flat JSON shape emitted by `azdo pr update --json`. `updatedFields` is the
+// list of fields that were really written — empty on a no-op, so automation
+// can tell "already correct" from "changed" without diffing.
+export interface PullRequestUpdateResult {
+  pullRequestId: number;
+  title: string;
+  description: string | null;
+  url: string | null;
+  noop: boolean;
+  updatedFields: PullRequestUpdatableField[];
+}
+
 export interface ActivePullRequestComment {
   id: number;
   author: string | null;

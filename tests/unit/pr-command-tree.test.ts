@@ -20,6 +20,7 @@ vi.mock('../../src/services/pr-client.js', async (importOriginal) => {
     addOrUpdatePullRequestReviewer: vi.fn(),
     getPullRequestReviewers: vi.fn(),
     removePullRequestReviewer: vi.fn(),
+    updatePullRequest: vi.fn(),
   };
 });
 
@@ -48,6 +49,7 @@ import {
   addOrUpdatePullRequestReviewer,
   getPullRequestReviewers,
   removePullRequestReviewer,
+  updatePullRequest,
 } from '../../src/services/pr-client.js';
 import { detectRepoName, getCurrentBranch } from '../../src/services/git-remote.js';
 import { requireAuthCredential } from '../../src/services/auth.js';
@@ -264,5 +266,55 @@ describe('pr reviewers add|remove — nested option plumbing', () => {
       reviewer: { id: 'identity-guid', displayName: 'Jane Reviewer', uniqueName: 'jane@example.com', isRequired: true },
       noop: true,
     });
+  });
+});
+
+describe('pr update|edit — option plumbing through the real tree', () => {
+  beforeEach(() => {
+    vi.mocked(updatePullRequest).mockImplementation(async (_ctx, _repo, _cred, prId, fields) => ({
+      ...explicitPr,
+      id: prId,
+      title: fields.title ?? explicitPr.title,
+      description: fields.description ?? explicitPr.description,
+    }));
+  });
+
+  it('honours --pr-number instead of falling back to the branch PR', async () => {
+    await runTree(['pr', 'update', '--pr-number', '4804', '--title', 'Corrected title']);
+
+    expect(vi.mocked(updatePullRequest)).toHaveBeenCalledWith(
+      expect.any(Object), 'repo-name', expect.any(Object), 4804, { title: 'Corrected title' },
+    );
+    expect(vi.mocked(listPullRequests)).not.toHaveBeenCalled();
+  });
+
+  it('is reachable under its "edit" alias', async () => {
+    await runTree(['pr', 'edit', '--pr-number', '4804', '--description', 'Rewritten body']);
+
+    expect(vi.mocked(updatePullRequest)).toHaveBeenCalledWith(
+      expect.any(Object), 'repo-name', expect.any(Object), 4804, { description: 'Rewritten body' },
+    );
+  });
+
+  it('honours --json and --repo', async () => {
+    await runTree(['pr', 'update', '--pr-number', '4804', '--title', 'Corrected title', '--repo', 'other-repo', '--json']);
+
+    expect(vi.mocked(updatePullRequest)).toHaveBeenCalledWith(
+      expect.any(Object), 'other-repo', expect.any(Object), 4804, { title: 'Corrected title' },
+    );
+    expect(JSON.parse(getStdout())).toMatchObject({
+      pullRequestId: 4804,
+      title: 'Corrected title',
+      noop: false,
+      updatedFields: ['title'],
+    });
+  });
+
+  it('falls back to the current branch PR when --pr-number is omitted', async () => {
+    await runTree(['pr', 'update', '--title', 'Corrected title']);
+
+    expect(vi.mocked(updatePullRequest)).toHaveBeenCalledWith(
+      expect.any(Object), 'repo-name', expect.any(Object), 12, { title: 'Corrected title' },
+    );
   });
 });
