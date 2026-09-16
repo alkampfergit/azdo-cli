@@ -36,7 +36,9 @@
 ## Phase 6 — docs
 
 - [X] **T014** `docs/commands.md`: cheat-sheet lines, the `azdo pr update` block (flags, literal replacement, no-op, JSON), the `--description-file` note on `pr open`, and the `-`/stdin note on the comment commands.
-- [X] **T015** `CLAUDE.md` Recent Changes entry. `README.md` deliberately untouched (no install / quick-start / command-group / dev-setup change).
+- [X] **T015** `CLAUDE.md` Recent Changes entry, and `README.md` reviewed and
+  updated per Constitution (feature list + quick-start: `pr update` / `pr edit`,
+  `--description-file` on `pr open`, and `-` for standard input).
 
 ## Phase 7 — gate
 

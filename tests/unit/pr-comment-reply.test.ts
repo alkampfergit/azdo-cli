@@ -36,6 +36,18 @@ vi.mock('../../src/services/context.js', () => ({
   resolveContext: vi.fn(),
 }));
 
+// `--file -` resolves to a synchronous read of file descriptor 0. There is no
+// way to swap the test runner's own stdin, so the read itself is the thing
+// asserted: the command must ask node:fs for fd 0, not for a file named "-".
+vi.mock('node:fs', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs')>();
+  return { ...actual, readFileSync: vi.fn(actual.readFileSync) };
+});
+
+import { readFileSync } from 'node:fs';
+
+const { readFileSync: realReadFileSync } = await vi.importActual<typeof import('node:fs')>('node:fs');
+
 import {
   getPullRequestById,
   getPullRequestThreads,
@@ -67,6 +79,9 @@ beforeEach(() => {
   vi.clearAllMocks();
   setupProcessSpies();
   tempDir = mkdtempSync(join(tmpdir(), 'azdo-pr-reply-'));
+  // The stdin case below swaps this out; re-arm the real reader every test so
+  // the swap cannot leak into the file-reading cases.
+  vi.mocked(readFileSync).mockImplementation(realReadFileSync as never);
   vi.mocked(resolveContext).mockReturnValue({ org: 'test-org', project: 'test-project' });
   vi.mocked(requireAuthCredential).mockResolvedValue({ pat: 'test-pat', source: 'env', kind: 'pat' });
   vi.mocked(detectRepoName).mockReturnValue('repo-name');
@@ -113,6 +128,19 @@ describe('pr comments reply', () => {
 
     expect(vi.mocked(postThreadComment)).toHaveBeenCalledWith(
       expect.any(Object), 'repo-name', expect.any(Object), 64, 148, 'Answer from a file.',
+    );
+  });
+
+  it('reads the reply body from standard input when --file is "-" (038)', async () => {
+    vi.mocked(readFileSync).mockImplementation(((target: unknown, encoding: unknown) => (
+      target === 0 ? 'Piped answer.\n' : realReadFileSync(target as never, encoding as never)
+    )) as never);
+
+    await run(['148', '--file', '-', '--pr-number', '64']);
+
+    expect(vi.mocked(readFileSync)).toHaveBeenCalledWith(0, 'utf-8');
+    expect(vi.mocked(postThreadComment)).toHaveBeenCalledWith(
+      expect.any(Object), 'repo-name', expect.any(Object), 64, 148, 'Piped answer.',
     );
   });
 

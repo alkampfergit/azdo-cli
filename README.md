@@ -15,7 +15,8 @@ Azure DevOps CLI focused on work item read/write workflows.
 - Attach a local file to a work item, or remove a named attachment (`add-attachment`, `delete-attachment`)
 - Read/write rich-text fields as markdown (`get-md-field`, `set-md-field`)
 - Download images embedded in rich-text fields, optionally resized for LLM use (`get-item`/`get-md-field` `--download-images`, `--resize-images`)
-- Check branch pull request status, open PRs to `develop` (optionally pre-filled from a repository-defined template), list PR comment threads for any PR (`--pr-number`), resolve/reopen threads, link/unlink work items, and add/remove required or optional reviewers — all from the CLI (`pr`)
+- Check branch pull request status, open PRs to `develop` (optionally pre-filled from a repository-defined template), update an existing PR's title or description (`pr update`), list PR comment threads for any PR (`--pr-number`), resolve/reopen threads, link/unlink work items, and add/remove required or optional reviewers — all from the CLI (`pr`)
+- Feed long PR titles, descriptions and comment bodies from a file or a pipe instead of the shell (`--title-file`, `--description-file`, `--file`; `-` reads standard input)
 - Persist org/project/default fields in local config (`config`)
 - List all fields of a work item (`list-fields`)
 - Authenticate per Azure DevOps organization with `azdo auth login` — OAuth (Microsoft Entra) by default, or a Personal Access Token via `--use-pat` (or the `AZDO_PAT` env var). Credentials are stored in the OS credential store. Inspect with `azdo auth status`, remove with `azdo auth logout`. Diagnose auth problems with `azdo auth diagnose`. See [docs/authentication.md](docs/authentication.md).
@@ -85,12 +86,21 @@ azdo pr comments edit 148 --file plan.md --pr-number 64        # rewrite it in p
 azdo pr comments reply 148 "Great suggestion, I'll address it."          # human-readable output
 azdo pr comments reply 148 "Done." --pr-number 64 --json                 # JSON: { pullRequestId, threadId, commentId, content }
 azdo pr comment-reply 148 "Done."  --pr-number 64                        # flat alias, identical behaviour
+git log -1 --format=%B | azdo pr comments add --file - --pr-number 64      # "-" reads standard input
 
 # Open a pull request — description from a repo template when you don't pass one
 azdo pr open --title "Fix the thing" --description "Because X was broken"
 azdo pr open --title "Fix the thing"   # uses docs/pull_request_template[/branches/<branch>].md if present
+azdo pr open --title "Fix the thing" --description-file body.md   # or --description-file - to pipe it in
 # The description plus the template must stay within Azure DevOps' 4000-character cap; over it,
 # the command says by how much and creates nothing. See docs/commands.md.
+
+# Fix a title or description after the fact — a PR is no longer write-once
+azdo pr update --pr-number 64 --title "A real title"        # description untouched
+azdo pr update --pr-number 64 --description-file body.md    # replaces literally; no template is prepended
+cat body.md | azdo pr edit --pr-number 64 --description-file -   # "edit" is an alias for "update"
+azdo pr update --pr-number 64 --title "A real title" --json  # { pullRequestId, title, description, url, noop, updatedFields }
+# Re-running with the values it already has writes nothing and reports "noop": true.
 
 # Link/unlink a work item, add/remove reviewers
 azdo pr work-items link 1234 --pr-number 64

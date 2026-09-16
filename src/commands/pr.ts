@@ -666,6 +666,43 @@ function handlePrOpenError(err: unknown, context?: AzdoContext): void {
   handlePrCommandError(err, context, 'write');
 }
 
+// `pr open`'s description, resolved before any network call: the template
+// lookup and the composed-length pre-flight downstream are unchanged, they just
+// receive text that may now have come from a file or a pipe. `undefined` means
+// "none supplied — use the template", `null` means the input was rejected and
+// the error is already on stderr.
+//
+// Not resolveOptionalTextInput(): `pr open --description ''` has always meant
+// "no description supplied — use the template", and turning that into an error
+// would break callers passing an empty shell variable. An empty
+// --description-file IS rejected, because asking to read a body from a file
+// that has none is a mistake, not a fallback.
+function resolveOpenDescription(
+  inline: string | undefined,
+  file: string | undefined,
+): string | undefined | null {
+  if (inline !== undefined && file !== undefined) {
+    writeError('Cannot specify both --description and --description-file.');
+    return null;
+  }
+
+  if (file !== undefined) {
+    const fromFile = readTextSource(file);
+    if (fromFile === null) {
+      return null;
+    }
+    const trimmed = fromFile.trim();
+    if (trimmed === '') {
+      writeError('Description must not be empty. Pass the text inline or use --description-file <path>.');
+      return null;
+    }
+    return trimmed;
+  }
+
+  const trimmedInline = inline?.trim();
+  return trimmedInline ? trimmedInline : undefined;
+}
+
 export function createPrOpenCommand(): Command {
   const command = new Command('open');
 
@@ -698,34 +735,9 @@ export function createPrOpenCommand(): Command {
         return;
       }
 
-      // Resolved here rather than inside openPullRequest: the template lookup
-      // and the composed-length pre-flight downstream are unchanged, they just
-      // receive text that may now have come from a file or a pipe.
-      //
-      // Not resolveOptionalTextInput(): `pr open --description ''` has always
-      // meant "no description supplied — use the template", and turning that
-      // into an error would break callers passing an empty shell variable. An
-      // empty --description-file IS rejected, because asking to read a body
-      // from a file that has none is a mistake, not a fallback.
-      if (options.description !== undefined && options.descriptionFile !== undefined) {
-        writeError('Cannot specify both --description and --description-file.');
+      const description = resolveOpenDescription(options.description, options.descriptionFile);
+      if (description === null) {
         return;
-      }
-
-      let description: string | undefined;
-      if (options.descriptionFile !== undefined) {
-        const fromFile = readTextSource(options.descriptionFile);
-        if (fromFile === null) {
-          return;
-        }
-        description = fromFile.trim();
-        if (description === '') {
-          writeError('Description must not be empty. Pass the text inline or use --description-file <path>.');
-          return;
-        }
-      } else {
-        const trimmedDescription = options.description?.trim();
-        description = trimmedDescription && trimmedDescription.length > 0 ? trimmedDescription : undefined;
       }
 
       let context: AzdoContext | undefined;
@@ -790,27 +802,79 @@ function joinFieldNames(fields: readonly PullRequestUpdatableField[]): string {
   return fields.join(' and ');
 }
 
-async function runPrUpdate(options: PrCommandOptions): Promise<void> {
+// The fields `pr update` was asked to set, resolved from the four inline/file
+// flags before any network call. `null` means the input was rejected and the
+// error is already on stderr; an absent property means "leave that field
+// alone".
+interface RequestedPullRequestFields {
+  title?: string;
+  description?: string;
+}
+
+function resolveRequestedFields(options: PrCommandOptions): RequestedPullRequestFields | null {
   // Both `--title-file -` and `--description-file -` would drain fd 0, and the
   // second read would silently return an empty string. Rejected before any
   // file is touched so the failure names the real cause.
   if (options.titleFile === STDIN_PATH && options.descriptionFile === STDIN_PATH) {
     writeError('Cannot read standard input twice; only one of --title-file and --description-file may be "-".');
-    return;
+    return null;
   }
 
   const title = resolveOptionalTextInput(options.title, options.titleFile, 'title');
   if (title === null) {
-    return;
+    return null;
   }
 
   const description = resolveOptionalTextInput(options.description, options.descriptionFile, 'description');
   if (description === null) {
-    return;
+    return null;
   }
 
   if (title === undefined && description === undefined) {
     writeError('pr update requires at least one of --title, --title-file, --description or --description-file.');
+    return null;
+  }
+
+  return { title, description };
+}
+
+// Which of the requested fields were asked for, and which of those actually
+// differ from what the pull request already holds. Only the differing ones go
+// into the PATCH body — Azure DevOps leaves omitted properties alone, so an
+// unchanged description is never rewritten.
+function diffRequestedFields(
+  requested: RequestedPullRequestFields,
+  current: { title: string; description?: string | null },
+): {
+  fields: PullRequestUpdateRequest;
+  updatedFields: PullRequestUpdatableField[];
+  requestedFields: PullRequestUpdatableField[];
+} {
+  const fields: PullRequestUpdateRequest = {};
+  const updatedFields: PullRequestUpdatableField[] = [];
+  const requestedFields: PullRequestUpdatableField[] = [];
+
+  if (requested.title !== undefined) {
+    requestedFields.push('title');
+    if (requested.title !== current.title) {
+      fields.title = requested.title;
+      updatedFields.push('title');
+    }
+  }
+  if (requested.description !== undefined) {
+    requestedFields.push('description');
+    if (requested.description !== (current.description ?? '')) {
+      fields.description = requested.description;
+      updatedFields.push('description');
+    }
+  }
+
+  return { fields, updatedFields, requestedFields };
+}
+
+async function runPrUpdate(options: PrCommandOptions): Promise<void> {
+  const requested = resolveRequestedFields(options);
+  if (requested === null) {
     return;
   }
 
@@ -824,28 +888,9 @@ async function runPrUpdate(options: PrCommandOptions): Promise<void> {
     context = target.context;
 
     // No-op detection costs nothing: resolvePullRequestTarget already fetched
-    // the pull request, and mapPullRequest projects both mutable fields onto
-    // it. Only the fields that actually differ are sent — Azure DevOps leaves
-    // omitted properties alone, so an unchanged description is never rewritten.
+    // the pull request, and mapPullRequest projects both mutable fields onto it.
     const current = target.pullRequest;
-    const fields: PullRequestUpdateRequest = {};
-    const updatedFields: PullRequestUpdatableField[] = [];
-    const requestedFields: PullRequestUpdatableField[] = [];
-
-    if (title !== undefined) {
-      requestedFields.push('title');
-      if (title !== current.title) {
-        fields.title = title;
-        updatedFields.push('title');
-      }
-    }
-    if (description !== undefined) {
-      requestedFields.push('description');
-      if (description !== (current.description ?? '')) {
-        fields.description = description;
-        updatedFields.push('description');
-      }
-    }
+    const { fields, updatedFields, requestedFields } = diffRequestedFields(requested, current);
 
     if (updatedFields.length === 0) {
       const noopResult: PullRequestUpdateResult = {
