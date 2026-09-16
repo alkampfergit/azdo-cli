@@ -284,6 +284,10 @@ token-shaped runs inside free text), capped at 500 characters, and suppressed en
 response body is the Entra sign-in page rather than an API error. The full, untruncated body is
 still available in the trace file when tracing is enabled.
 
+The `NOT_FOUND` diagnostic (`NOT_FOUND | url=… | body=…`, which the commands translate into their
+own "not found" wording) carries the same redacted, capped detail and the same redacted URL, so a
+404 that answers with a sign-in page or a body quoting a token prints the bare sentinel instead.
+
 Two paths are deliberately outside this contract because they do not go through the shared HTTP
 layer and have their own reporting: `azdo auth diagnose` prints the server's `message` (or a bare
 `HTTP <status>` when the body names none, with no `typeKey` / `errorCode` suffix), and the PAT

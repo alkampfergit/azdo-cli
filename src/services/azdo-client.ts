@@ -111,8 +111,14 @@ export function describeFailureBody(body: string | null, contentType: string): s
   }
 
   const redacted = redactBody(trimmed) ?? trimmed;
+  const fields = renderErrorFields(redacted);
+  if (fields !== null) return truncateDetail(fields);
+
   // No recognisable fields — the whole body is a guess, so show only a prefix.
-  return truncateDetail(renderErrorFields(redacted) ?? redacted.slice(0, MAX_RAW_BODY_CHARS));
+  // Scrub before slicing, not after: a secret straddling the 200-character
+  // boundary would otherwise be cut into a prefix that `redactText` can no
+  // longer recognise, and that prefix would reach the console.
+  return truncateDetail(redactText(redacted).slice(0, MAX_RAW_BODY_CHARS));
 }
 
 // Every rendered detail goes through here, so this is the one place that has to
@@ -136,9 +142,9 @@ export function httpError(response: Response): Error {
 }
 
 // Raw failure bodies, keyed by response, so the curated 400 handlers
-// (BAD_REQUEST / CREATE_REJECTED / UPDATE_REJECTED) and the 404 message can
-// reuse the single read `fetchWithErrors` already performed instead of
-// buffering and decoding the same body a second time.
+// (BAD_REQUEST / CREATE_REJECTED / UPDATE_REJECTED) can reuse the single read
+// `fetchWithErrors` already performed instead of buffering and decoding the
+// same body a second time.
 const failureBodies = new WeakMap<Response, string>();
 
 // The body of a non-ok response, read exactly once. Reads from a clone so the
@@ -186,10 +192,13 @@ function writeTraceEntry(
 async function traceResponse(url: string, init: RequestInit, response: Response): Promise<string | null> {
   const writer = getActiveTraceWriter();
   if (!writer) return null;
-  let responseBody = '';
   // Clone the response so we can read the body for tracing without consuming it.
-  try { responseBody = await response.clone().text(); } catch { /* ignore */ }
-  writeTraceEntry(writer, url, init, response, responseBody);
+  let responseBody: string | null = null;
+  try { responseBody = await response.clone().text(); } catch { /* body unreadable */ }
+  writeTraceEntry(writer, url, init, response, responseBody ?? '');
+  // null, not '', when the clone failed: `readFailureBody` treats any string as
+  // a successful capture and would skip its own fallback, silently dropping the
+  // server detail from every failure whenever tracing is on.
   return responseBody;
 }
 
@@ -205,8 +214,8 @@ export async function fetchWithErrors(url: string, init: RequestInit): Promise<R
   const contentType = response.headers?.get('content-type') ?? '';
 
   // Read the failure body once, here, for every non-2xx status; everything
-  // downstream (the sentinels below, `httpError`, the curated 400 handlers,
-  // the 404 message) works off that single read.
+  // downstream (the sentinels below, `httpError`, the curated 400 handlers)
+  // works off that single read.
   let failureDetail: string | null = null;
   if (!response.ok) {
     const body = await readFailureBody(response, tracedBody);
@@ -218,8 +227,12 @@ export async function fetchWithErrors(url: string, init: RequestInit): Promise<R
   if (response.status === 401) throw new Error(withDetail('AUTH_FAILED', failureDetail));
   if (response.status === 403) throw new Error(withDetail('PERMISSION_DENIED', failureDetail));
   if (response.status === 404) {
-    const body = failureBodies.get(response);
-    throw new Error(body === undefined ? 'NOT_FOUND' : `NOT_FOUND | url=${url} | body=${body}`);
+    // The rendered detail, never the raw body: this message reaches the console
+    // like every other, so it owes the same guarantees — no HTML sign-in page,
+    // no token, no unbounded body. The URL is redacted for the same reason.
+    throw new Error(
+      failureDetail === null ? 'NOT_FOUND' : `NOT_FOUND | url=${redactUrl(url)} | body=${failureDetail}`,
+    );
   }
 
   // AzDO REST APIs always reply with JSON; an HTML body means the unauth'd

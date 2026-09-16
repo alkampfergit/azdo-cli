@@ -8,6 +8,14 @@ import {
 } from '../../src/services/azdo-client.js';
 import { testContext as ctx, testPat as pat } from './helpers/api-test-utils.js';
 
+// Tracing is off by default; `trace.writer` turns it on for the one test that
+// needs to prove the capture still works when the trace clone fails.
+const trace = vi.hoisted(() => ({ writer: null as { append: (entry: unknown) => void } | null }));
+vi.mock('../../src/services/trace-writer.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/services/trace-writer.js')>();
+  return { ...actual, getActiveTraceWriter: () => trace.writer };
+});
+
 // Every error thrown by the HTTP layer now carries whatever Azure DevOps said
 // about the failure, with the sentinel preserved as a prefix (contract C-1).
 // Before this, a 400/500 surfaced as `HTTP_400` and the body — the only place
@@ -76,6 +84,16 @@ describe('describeFailureBody', () => {
     expect(detail).toContain('[REDACTED]');
   });
 
+  it('redacts a secret that straddles the 200-character cap of an unparseable body', () => {
+    // The slice used to happen before `redactText`, so a token whose first
+    // characters fell inside the cap survived as an unrecognisable prefix.
+    const token = 'ab2cd3ef4gh5ij6kl7mn8op9qr0st1uv2wx3yz4ab5cd6ef7gh8ij';
+    const detail = describeFailureBody(`${'upstream error '.repeat(12)}pat=${token}`, 'text/plain');
+    expect(detail).not.toBeNull();
+    expect(detail).not.toContain(token.slice(0, 20));
+    expect(detail).toContain('[REDACTED]');
+  });
+
   it('redacts an Authorization header echoed back inside a plain-text body', () => {
     const detail = describeFailureBody('rejected: Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9', 'text/plain');
     expect(detail).not.toContain('eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9');
@@ -110,6 +128,7 @@ describe('fetchWithErrors enrichment', () => {
   });
 
   afterEach(() => {
+    trace.writer = null;
     vi.restoreAllMocks();
   });
 
@@ -217,6 +236,51 @@ describe('fetchWithErrors enrichment', () => {
     expect(error.message).toContain('NOT_FOUND');
     expect(error.message).toContain('TF401174');
     expect(reads).toBe(1);
+  });
+
+  it('still captures the detail when tracing is on and the trace clone fails', async () => {
+    // A failed trace clone used to be recorded as '', which `readFailureBody`
+    // could not tell from a real empty body — so it skipped its own fallback
+    // and every failure lost its detail whenever tracing was enabled.
+    const appended: unknown[] = [];
+    trace.writer = { append: (entry) => { appended.push(entry); } };
+    let clones = 0;
+    const body = '{"message":"TF400813: The user is not authorized."}';
+    const response = {
+      ok: false,
+      status: 401,
+      headers: new Headers({ 'content-type': 'application/json' }),
+      text: async () => body,
+      json: async () => JSON.parse(body) as unknown,
+      clone: () => { clones += 1; throw new Error('stream already locked'); },
+    } as unknown as Response;
+    vi.mocked(fetch).mockResolvedValue(response);
+
+    const error = await getWorkItem(ctx, 42, pat).catch((err: Error) => err);
+    expect(clones).toBeGreaterThan(0);
+    expect(appended).toHaveLength(1);
+    expect(error.message).toBe('AUTH_FAILED: TF400813: The user is not authorized.');
+  });
+
+  it('never echoes an HTML body or the raw text on a 404', async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      makeResponse(404, '<!DOCTYPE html><html><body>Sign in</body></html>', 'text/html; charset=utf-8'),
+    );
+
+    const error = await getWorkItem(ctx, 42, pat).catch((err: Error) => err);
+    expect(error.message).toBe('NOT_FOUND');
+  });
+
+  it('redacts a secret in the 404 body instead of interpolating it raw', async () => {
+    const token = 'ab2cd3ef4gh5ij6kl7mn8op9qr0st1uv2wx3yz4ab5cd6ef7gh8ij';
+    vi.mocked(fetch).mockResolvedValue(
+      makeResponse(404, `{"message":"no such item for pat=${token}"}`),
+    );
+
+    const error = await getWorkItem(ctx, 42, pat).catch((err: Error) => err);
+    expect(error.message.startsWith('NOT_FOUND')).toBe(true);
+    expect(error.message).not.toContain(token);
+    expect(error.message).toContain('[REDACTED]');
   });
 
   it('leaves the body readable by the caller (the stream is not consumed)', async () => {
