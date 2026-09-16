@@ -42,3 +42,10 @@
   contribution and the exact reduction needed. Previously the template pushed
   the description over the cap silently and the request came back as an opaque
   `HTTP_400` with no pull request created. (#95)
+- A permission or not-found failure raised while a `pr` write command was
+  *looking up* its target pull request now names the project and repository it
+  was working against (`project "my-project"`), instead of reporting
+  `project "undefined"`. The context was already resolved at that point; it
+  simply was not reachable from the error handler. Affects `pr abandon`,
+  `pr reactivate`, `pr update`, `pr comments add|edit|resolve|reopen`,
+  `pr reviewers add|remove` and `pr work-items link|unlink`. (#97)
