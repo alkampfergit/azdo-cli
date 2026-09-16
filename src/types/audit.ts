@@ -5,6 +5,7 @@ export type AuthAuditEventKind =
   | 'auth.delete'
   | 'auth.validate.ok'
   | 'auth.validate.fail'
+  | 'auth.token'
   | 'oauth-login-started'
   | 'oauth-login-success'
   | 'oauth-login-failed'

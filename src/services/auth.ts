@@ -17,7 +17,6 @@ import { resolveOAuthConfig } from './oauth-config.js';
 import { appendAuthAuditEvent } from './audit-log.js';
 import {
   CredentialMissingError,
-  CredentialRefreshError,
   type StoredCredential,
   type StoredOAuthCredential,
   type UsableCredential,
@@ -380,6 +379,64 @@ export async function status(): Promise<StatusReport> {
   return { orgs: out };
 }
 
+/** Where the resolved credential came from, in precedence order. */
+export type CredentialSource = 'env' | 'credential-store' | 'dotenv';
+
+/**
+ * A resolved credential *plus* the metadata needed to describe it: which of the
+ * two Azure DevOps header forms it requires (`Basic` for a PAT, `Bearer` for an
+ * OAuth access token — the docs are explicit that a token is opaque and must
+ * not be decoded to find out), where it came from, and when it expires.
+ */
+export type ExportedCredential =
+  | { kind: 'pat'; token: string; source: CredentialSource }
+  | {
+      kind: 'oauth';
+      token: string;
+      source: 'credential-store';
+      accountId: string;
+      expiresAt: number;
+      scope: string;
+    };
+
+/**
+ * The single credential-resolution ladder: AZDO_PAT → stored credential for the
+ * org (OAuth refreshed transparently when past expiry) → AZDO_PAT in a .env
+ * file. `resolveCredential` (the API callers) and `azdo auth token` (the
+ * operator) both project this, so the token the CLI sends and the token it
+ * prints can never drift.
+ *
+ * Throws CredentialMissingError when nothing resolves, and propagates
+ * CredentialRefreshError unchanged — a failed refresh NEVER deletes the stored
+ * credential (FR-014).
+ */
+export async function exportCredential(org: string): Promise<ExportedCredential> {
+  const envPat = process.env.AZDO_PAT;
+  if (envPat && envPat.length > 0) {
+    return { kind: 'pat', token: envPat, source: 'env' };
+  }
+  const stored: StoredCredential | null = await getStoredCredential(org);
+  if (stored === null) {
+    const dotEnvPat = findDotEnvPat();
+    if (dotEnvPat !== null) {
+      return { kind: 'pat', token: dotEnvPat, source: 'dotenv' };
+    }
+    throw new CredentialMissingError(org);
+  }
+  if (stored.kind === 'pat') {
+    return { kind: 'pat', token: stored.token, source: 'credential-store' };
+  }
+  const fresh: StoredOAuthCredential = await refreshIfNeeded(org, stored);
+  return {
+    kind: 'oauth',
+    token: fresh.accessToken,
+    source: 'credential-store',
+    accountId: fresh.accountId,
+    expiresAt: fresh.expiresAt,
+    scope: fresh.scope,
+  };
+}
+
 /**
  * Resolve a UsableCredential — used by the read-side callers (azdo-client /
  * pr-client) to attach the correct Authorization header. For OAuth, transparently
@@ -387,31 +444,10 @@ export async function status(): Promise<StatusReport> {
  * surfaces CredentialRefreshError so the caller can print FR-014's instructions.
  */
 export async function resolveCredential(org: string): Promise<UsableCredential> {
-  const envPat = process.env.AZDO_PAT;
-  if (envPat && envPat.length > 0) {
-    return { kind: 'pat', token: envPat };
-  }
-  const stored: StoredCredential | null = await getStoredCredential(org);
-  if (stored === null) {
-    const dotEnvPat = findDotEnvPat();
-    if (dotEnvPat !== null) {
-      return { kind: 'pat', token: dotEnvPat };
-    }
-    throw new CredentialMissingError(org);
-  }
-  if (stored.kind === 'pat') {
-    return { kind: 'pat', token: stored.token };
-  }
-  let fresh: StoredOAuthCredential;
-  try {
-    fresh = await refreshIfNeeded(org, stored);
-  } catch (err) {
-    if (err instanceof CredentialRefreshError) {
-      throw err;
-    }
-    throw err;
-  }
-  return { kind: 'oauth', bearerToken: fresh.accessToken, accountId: fresh.accountId };
+  const cred = await exportCredential(org);
+  return cred.kind === 'pat'
+    ? { kind: 'pat', token: cred.token }
+    : { kind: 'oauth', bearerToken: cred.token, accountId: cred.accountId };
 }
 
 // Re-exported types for callers
