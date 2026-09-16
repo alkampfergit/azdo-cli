@@ -44,7 +44,7 @@
 
 ## Phase 6 — docs & wrap-up
 
-- [X] **T023** `docs/commands.md`: `pr open` template contribution, the 4000-character write cap, the 400-character read-side truncation on list responses, and the new enriched error output.
+- [X] **T023** `docs/commands.md`: `pr open` template contribution, the 4000-character write cap, and the new enriched error output. (The 400-character read-side truncation named in an earlier draft is omitted: `research.md` could not confirm it against Learn.)
 - [X] **T024** `CLAUDE.md` / `AGENTS.md` recent-changes entries.
 - [X] **T025** `specs/037-api-error-surfacing/pr-report.md` from the template.
 - [X] **T026** Run `npm test && npm run lint`; open the PR with `Closes #95`.

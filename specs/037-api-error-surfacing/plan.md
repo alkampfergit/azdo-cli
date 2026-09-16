@@ -136,9 +136,10 @@ A shared `sentinelDetail(message, sentinel)` helper returns the text after
 ### 5. Docs
 
 `docs/commands.md`, `pr open` section: the template is appended to
-`--description` (with a blank-line separator), the composed text must stay
-within 4000 characters, and PR **list** responses truncate descriptions to 400
-characters (a different, read-side number).
+`--description` (with a blank-line separator), and the composed text must stay
+within 4000 characters. (An earlier draft also promised a 400-character
+read-side truncation on PR **list** responses; `research.md` could not confirm
+that number against Learn, so it is not documented — see the decision there.)
 
 ## Testing strategy
 

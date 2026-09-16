@@ -443,6 +443,21 @@ describe('pr-client', () => {
         expect(result.created).toBe(true);
       });
 
+      it('names the template contribution numerically when the template is the only contribution', async () => {
+        // Previously this said "all of it from the repository template" and
+        // dropped every count, leaving the operator unable to size their edit.
+        mockOpenPullRequestFetch({ templateContent: 'T'.repeat(4500) });
+
+        const error = await openPullRequest(
+          context, 'repo-name', 'pat', 'feature/test', 'New PR',
+        ).catch((err: Error) => err);
+
+        expect(error.message).toContain('description is 4500 characters');
+        expect(error.message).toContain('0 provided + 0 separator + 4500 from the repository pull request template');
+        expect(error.message).toContain('pull_request_template.md');
+        expect(error.message).toContain('at least 500 characters');
+      });
+
       it('appends the arithmetic when the server rejects the create with a 400 anyway', async () => {
         vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
           const url = String(input);
@@ -721,6 +736,22 @@ describe('pr-client', () => {
 
       await expect(resolveReviewerIdentity('test-org', 'pat', 'jane@example.com'))
         .rejects.toThrow('IDENTITY_SCOPE_MISSING');
+    });
+
+    it('carries the server detail across the IDENTITY_SCOPE_MISSING translation', async () => {
+      const failure = {
+        ok: false,
+        status: 401,
+        headers: new Headers({ 'content-type': 'application/json' }),
+        text: async () => '{"message":"TF400813: The user is not authorized.","typeKey":"UnauthorizedRequestException"}',
+        json: async () => ({ message: 'TF400813: The user is not authorized.' }),
+        clone: () => failure,
+      };
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue(failure as unknown as Response);
+
+      const error = await resolveReviewerIdentity('test-org', 'pat', 'jane@example.com').catch((err: Error) => err);
+      expect(error.message.startsWith('IDENTITY_SCOPE_MISSING')).toBe(true);
+      expect(error.message).toContain('TF400813: The user is not authorized. [UnauthorizedRequestException]');
     });
   });
 

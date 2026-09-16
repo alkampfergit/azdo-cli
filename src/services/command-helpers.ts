@@ -11,6 +11,16 @@ export function isSentinel(message: string, sentinel: string): boolean {
 }
 
 /**
+ * Appends `": <detail>"` to a sentinel when the server explained itself. The
+ * sentinel stays a prefix, so every `isSentinel` / `startsWith` consumer keeps
+ * matching. Shared so the HTTP layer and the sentinel translations in
+ * `pr-client` render the suffix the same way.
+ */
+export function withDetail(sentinel: string, detail: string | null): string {
+  return detail === null || detail === '' ? sentinel : `${sentinel}: ${detail}`;
+}
+
+/**
  * The server-supplied detail carried by a sentinel error, or null when the
  * failure body was empty, HTML, or otherwise not worth printing.
  */

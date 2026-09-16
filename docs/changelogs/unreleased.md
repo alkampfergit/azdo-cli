@@ -12,7 +12,10 @@
   (`message`, plus `typeKey` / `errorCode` when present) under the CLI's curated
   guidance, instead of only a status code. Applies to every command group; the
   detail is redacted, capped at 500 characters, and never echoes the Entra
-  sign-in page. (#95)
+  sign-in page. Redaction now also covers token-shaped runs inside free text, so
+  a `text/plain` error body cannot leak a PAT the way `redactBody` — which only
+  understands JSON fields — allowed. The curated `Request rejected:` messages
+  carry the same `typeKey` / `errorCode` suffix as every other failure. (#95)
 
 ### Fixed
 

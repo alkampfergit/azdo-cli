@@ -1,6 +1,6 @@
 import type { AuthCredential, AzdoContext } from '../types/work-item.js';
 import { authHeaders, fetchWithErrors, httpError } from './azdo-client.js';
-import { isSentinel } from './command-helpers.js';
+import { isSentinel, sentinelDetail, withDetail } from './command-helpers.js';
 import type { AzdoBuild, AzdoBuildListResponse } from '../types/pipeline.js';
 import type {
   ActiveCommentThread,
@@ -524,12 +524,17 @@ function composeDescription(
 // of bisecting their way under an unexplained HTTP 400.
 export function formatDescriptionOverflow(composed: ComposedDescription): string {
   const overflow = composed.totalChars - MAX_PR_DESCRIPTION_CHARS;
-  const breakdown = composed.templateChars > 0 && composed.providedChars > 0
-    ? ` (${composed.providedChars} provided + ${composed.separatorChars} separator + ${composed.templateChars} from the repository pull request template ${composed.templatePath})`
-    : composed.templateChars > 0
-      ? ` (all of it from the repository pull request template ${composed.templatePath})`
-      : '';
-  return `description is ${composed.totalChars} characters${breakdown}, exceeding the Azure DevOps limit of ${MAX_PR_DESCRIPTION_CHARS} characters. Shorten the description by at least ${overflow} characters.`;
+  return `description is ${composed.totalChars} characters${formatContributions(composed)}, exceeding the Azure DevOps limit of ${MAX_PR_DESCRIPTION_CHARS} characters. Shorten the description by at least ${overflow} characters.`;
+}
+
+// Names every contribution once a template was resolved — all three counts,
+// every time, including the template-only case (0 provided) and the
+// empty-template case (0 template). Reporting "all of it from the template"
+// without the numbers leaves the operator unable to tell how much of their
+// budget the template actually took.
+function formatContributions(composed: ComposedDescription): string {
+  if (composed.templatePath === null) return '';
+  return ` (${composed.providedChars} provided + ${composed.separatorChars} separator + ${composed.templateChars} from the repository pull request template ${composed.templatePath})`;
 }
 
 // The same arithmetic, condensed, for appending to a server-side rejection —
@@ -939,7 +944,10 @@ export async function resolveReviewerIdentity(
     // means the PAT is otherwise valid (Code scope works for every other `pr`
     // call) but is missing that specific scope, not a generic auth failure.
     if (err instanceof Error && isSentinel(err.message, 'AUTH_FAILED')) {
-      throw new Error('IDENTITY_SCOPE_MISSING', { cause: err });
+      // Carry the server's own explanation across the translation: the command
+      // handler matches `IDENTITY_SCOPE_MISSING` as a prefix and prints the
+      // suffix underneath its guidance, exactly as it does for AUTH_FAILED.
+      throw new Error(withDetail('IDENTITY_SCOPE_MISSING', sentinelDetail(err.message, 'AUTH_FAILED')), { cause: err });
     }
     throw err;
   }

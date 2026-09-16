@@ -89,6 +89,8 @@ azdo pr comment-reply 148 "Done."  --pr-number 64                        # flat 
 # Open a pull request — description from a repo template when you don't pass one
 azdo pr open --title "Fix the thing" --description "Because X was broken"
 azdo pr open --title "Fix the thing"   # uses docs/pull_request_template[/branches/<branch>].md if present
+# The description plus the template must stay within Azure DevOps' 4000-character cap; over it,
+# the command says by how much and creates nothing. See docs/commands.md.
 
 # Link/unlink a work item, add/remove reviewers
 azdo pr work-items link 1234 --pr-number 64
