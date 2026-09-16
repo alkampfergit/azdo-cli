@@ -23,6 +23,18 @@ vi.mock('../../src/services/context.js', () => ({
   resolveContext: vi.fn(),
 }));
 
+// `-` resolves to a synchronous read of file descriptor 0. There is no way to
+// swap the test runner's own stdin, so the read itself is the thing asserted:
+// the command must ask node:fs for fd 0, not for a file literally named "-".
+vi.mock('node:fs', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs')>();
+  return { ...actual, readFileSync: vi.fn(actual.readFileSync) };
+});
+
+import { readFileSync } from 'node:fs';
+
+const { readFileSync: realReadFileSync } = await vi.importActual<typeof import('node:fs')>('node:fs');
+
 import { openPullRequest } from '../../src/services/pr-client.js';
 import { detectRepoName, getCurrentBranch } from '../../src/services/git-remote.js';
 import { requireAuthCredential } from '../../src/services/auth.js';
@@ -154,6 +166,9 @@ describe('pr open --description-file (038, FR-010)', () => {
     // history, and these cases assert that openPullRequest was NOT reached.
     vi.clearAllMocks();
     tempDir = mkdtempSync(join(tmpdir(), 'azdo-pr-open-'));
+    // The stdin cases below swap this out; re-arm the real reader every test so
+    // the swap cannot leak into the file-reading cases.
+    vi.mocked(readFileSync).mockImplementation(realReadFileSync as never);
   });
 
   afterEach(() => {
@@ -195,6 +210,31 @@ describe('pr open --description-file (038, FR-010)', () => {
 
     expect(getStderr()).toContain('Description must not be empty.');
     expect(getExitCode()).toBe(1);
+  });
+
+  it('reads the description from standard input when the path is "-"', async () => {
+    vi.mocked(readFileSync).mockImplementation(((target: unknown, encoding: unknown) => (
+      target === 0 ? 'Piped body\n' : realReadFileSync(target as never, encoding as never)
+    )) as never);
+
+    await run(['--title', 'Title', '--description-file', '-']);
+
+    expect(vi.mocked(readFileSync)).toHaveBeenCalledWith(0, 'utf-8');
+    expect(vi.mocked(openPullRequest)).toHaveBeenCalledWith(
+      expect.any(Object), 'repo-name', expect.any(Object), 'feature/test', 'Title', 'Piped body',
+    );
+  });
+
+  it('reports a failure to read standard input', async () => {
+    vi.mocked(readFileSync).mockImplementation((() => {
+      throw new Error('EAGAIN');
+    }) as never);
+
+    await run(['--title', 'Title', '--description-file', '-']);
+
+    expect(getStderr()).toContain('Cannot read standard input.');
+    expect(getExitCode()).toBe(1);
+    expect(vi.mocked(openPullRequest)).not.toHaveBeenCalled();
   });
 
   it('still treats an empty inline --description as "use the template"', async () => {

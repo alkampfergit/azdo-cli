@@ -122,5 +122,7 @@ Gate: `npm test && npm run lint`.
 
 `docs/commands.md` — the pull request section: cheat-sheet lines, an
 `azdo pr update` block (flags, literal-replacement rule, no-op, JSON shape),
-and the `--description-file` note under `azdo pr open`. `README.md` is not
-touched: no install, quick-start, command-group or dev-setup change.
+and the `--description-file` note under `azdo pr open`. `README.md` gets the
+same surface at quick-start depth: the `pr` feature bullet names `pr update`, a
+new bullet covers the file/stdin options, and the quick-start gains an
+`azdo pr update` block.

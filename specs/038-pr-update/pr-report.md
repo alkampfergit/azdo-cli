@@ -92,5 +92,7 @@ None. Two deliberate non-changes worth flagging to a reviewer:
 - Clearing a description (setting it to empty) is rejected, not supported. If
   that turns out to be wanted, it needs an explicit flag rather than an
   overloaded empty value.
-- `README.md` is untouched: no install, quick-start, command-group or dev-setup
-  change, per the documentation convention in `AGENTS.md`.
+- `README.md` is updated per Constitution VII: the `pr` feature bullet now names
+  `pr update`, a new bullet covers `--title-file` / `--description-file` /
+  `--file` and `-` for standard input, and the quick-start gained an
+  `azdo pr update` block plus the piped `--file -` / `--description-file` lines.
