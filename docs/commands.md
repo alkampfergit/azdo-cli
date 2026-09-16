@@ -263,9 +263,10 @@ Error: Authentication failed. Check that your PAT is valid and has the "Code (Re
   Token used: PAT from the AZDO_PAT environment variable (it takes precedence over the stored credential). Fix: give that token the scope above, or unset AZDO_PAT to fall back to the stored credential.
 ```
 
-**Every failed request now prints Azure DevOps' own explanation**, not just the status. Whatever
-the server put in the response body — its `message`, plus `typeKey` / `errorCode` when present —
-is shown on an indented line under the CLI's own guidance, for every command group, not just `pr`:
+**Every failed API request now prints Azure DevOps' own explanation**, not just the status.
+Whatever the server put in the response body — its `message`, plus `typeKey` / `errorCode` when
+present — is shown on an indented line under the CLI's own guidance, for every command group, not
+just `pr`:
 
 ```
 Error: Access denied. Your PAT may lack write permissions for project "Demo".
@@ -275,9 +276,18 @@ Error: Azure DevOps request failed with HTTP_400.
   The pull request description is too long. [InvalidArgumentValueException]
 ```
 
-The detail is redacted (tokens are never echoed), capped at 500 characters, and suppressed
-entirely when the response body is the Entra sign-in page rather than an API error. The full,
-untruncated body is still available in the trace file when tracing is enabled.
+The same detail is appended to the curated `Request rejected:` messages, so an
+Azure DevOps rule violation now names its `typeKey` alongside its text.
+
+The detail is redacted (tokens are never echoed — both recognised JSON credential fields and
+token-shaped runs inside free text), capped at 500 characters, and suppressed entirely when the
+response body is the Entra sign-in page rather than an API error. The full, untruncated body is
+still available in the trace file when tracing is enabled.
+
+Two paths are deliberately outside this contract because they do not go through the shared HTTP
+layer and have their own reporting: `azdo auth diagnose` prints the server's `message` (or a bare
+`HTTP <status>` when the body names none, with no `typeKey` / `errorCode` suffix), and the PAT
+validation in `azdo auth login` reports the status only.
 
 Note the two scopes: reads (`pr list`, `pr status`, `pr comments`) need **Code (Read)**, while
 `comments add` / `edit` / `reply` / `comment-resolve` / `comment-reopen`, `pr open`, and

@@ -10,7 +10,8 @@ import type {
   WorkItemCommentsResult,
   WriteResult,
 } from '../types/work-item.js';
-import { getActiveTraceWriter, redactHeaders, redactUrl, redactBody } from './trace-writer.js';
+import { getActiveTraceWriter, redactHeaders, redactUrl, redactBody, redactText } from './trace-writer.js';
+import { withDetail } from './command-helpers.js';
 import type { TraceEntry } from '../types/auth-diagnostics.js';
 import { extractAttachmentGuid } from './image-download.js';
 
@@ -62,6 +63,39 @@ const MAX_RAW_BODY_CHARS = 200;
 // can name it without re-reading (and consuming) the caller's body stream.
 const failureDetails = new WeakMap<Response, string>();
 
+// The `message` / `typeKey` / `errorCode` an Azure DevOps JSON error body
+// carries, rendered as one line. Returns null when the body is not a JSON
+// object, names none of those fields, or — with `requireMessage` — has no
+// `message`, which is the bar the curated 400 handlers have always applied.
+function renderErrorFields(body: string, requireMessage = false): string | null {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(body);
+  } catch {
+    return null;
+  }
+  if (typeof parsed !== 'object' || parsed === null) return null;
+  return renderErrorRecord(parsed as Record<string, unknown>, requireMessage);
+}
+
+function renderErrorRecord(record: Record<string, unknown>, requireMessage: boolean): string | null {
+  const parts: string[] = [];
+  const message = typeof record.message === 'string' ? record.message.trim() : '';
+  if (message !== '') {
+    parts.push(message);
+  } else if (requireMessage) {
+    return null;
+  }
+
+  if (typeof record.typeKey === 'string' && record.typeKey.trim() !== '') {
+    parts.push(`[${record.typeKey.trim()}]`);
+  } else if (typeof record.errorCode === 'number' || typeof record.errorCode === 'string') {
+    parts.push(`[errorCode ${record.errorCode}]`);
+  }
+
+  return parts.length === 0 ? null : parts.join(' ');
+}
+
 // Renders the `message` / `typeKey` / `errorCode` an Azure DevOps error body
 // carries. Returns null when there is nothing safe or useful to print.
 export function describeFailureBody(body: string | null, contentType: string): string | null {
@@ -77,48 +111,20 @@ export function describeFailureBody(body: string | null, contentType: string): s
   }
 
   const redacted = redactBody(trimmed) ?? trimmed;
-
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(redacted);
-  } catch {
-    return truncateDetail(redacted.slice(0, MAX_RAW_BODY_CHARS));
-  }
-
-  if (typeof parsed !== 'object' || parsed === null) {
-    return truncateDetail(redacted.slice(0, MAX_RAW_BODY_CHARS));
-  }
-
-  const record = parsed as Record<string, unknown>;
-  const parts: string[] = [];
-  if (typeof record.message === 'string' && record.message.trim() !== '') {
-    parts.push(record.message.trim());
-  }
-  if (typeof record.typeKey === 'string' && record.typeKey.trim() !== '') {
-    parts.push(`[${record.typeKey.trim()}]`);
-  } else if (typeof record.errorCode === 'number' || typeof record.errorCode === 'string') {
-    parts.push(`[errorCode ${record.errorCode}]`);
-  }
-
-  if (parts.length === 0) {
-    return truncateDetail(redacted.slice(0, MAX_RAW_BODY_CHARS));
-  }
-
-  return truncateDetail(parts.join(' '));
+  // No recognisable fields — the whole body is a guess, so show only a prefix.
+  return truncateDetail(renderErrorFields(redacted) ?? redacted.slice(0, MAX_RAW_BODY_CHARS));
 }
 
+// Every rendered detail goes through here, so this is the one place that has to
+// guarantee "tokens are never echoed": `redactBody` only rewrites recognised
+// JSON fields, which leaves an unparseable body — and a token embedded inside an
+// otherwise ordinary `message` — untouched. `redactText` closes both gaps.
 function truncateDetail(detail: string): string | null {
-  const collapsed = detail.replace(/\s+/g, ' ').trim();
+  const collapsed = redactText(detail).replace(/\s+/g, ' ').trim();
   if (collapsed === '') return null;
   return collapsed.length > MAX_DETAIL_CHARS
     ? `${collapsed.slice(0, MAX_DETAIL_CHARS)}…(truncated)`
     : collapsed;
-}
-
-// Appends ": <detail>" to a sentinel when the server explained itself. The
-// sentinel stays a prefix so every `startsWith` consumer keeps matching.
-function withDetail(sentinel: string, detail: string | null): string {
-  return detail === null ? sentinel : `${sentinel}: ${detail}`;
 }
 
 // The error to throw for a non-ok response that `fetchWithErrors` handed back
@@ -129,8 +135,65 @@ export function httpError(response: Response): Error {
   return new Error(withDetail(`HTTP_${response.status}`, failureDetails.get(response) ?? null));
 }
 
-export async function fetchWithErrors(url: string, init: RequestInit): Promise<Response> {
+// Raw failure bodies, keyed by response, so the curated 400 handlers
+// (BAD_REQUEST / CREATE_REJECTED / UPDATE_REJECTED) and the 404 message can
+// reuse the single read `fetchWithErrors` already performed instead of
+// buffering and decoding the same body a second time.
+const failureBodies = new WeakMap<Response, string>();
+
+// The body of a non-ok response, read exactly once. Reads from a clone so the
+// caller still receives an unconsumed stream, and reuses the tracing read when
+// tracing is on. Returns null when the body is unreadable (a stub response
+// without `clone()`, an already-consumed stream, a transport error mid-body).
+async function readFailureBody(response: Response, tracedBody: string | null): Promise<string | null> {
+  if (tracedBody !== null) return tracedBody;
+  try {
+    return await response.clone().text();
+  } catch {
+    // No usable `clone()`. Every non-ok response either throws here or throws
+    // from its curated handler after reading the cached body, so consuming the
+    // original stream costs the caller nothing.
+    try {
+      return await response.text();
+    } catch {
+      return null;
+    }
+  }
+}
+
+function writeTraceEntry(
+  writer: NonNullable<ReturnType<typeof getActiveTraceWriter>>,
+  url: string,
+  init: RequestInit,
+  response: Response,
+  responseBody: string,
+): void {
+  const respHeaders: Record<string, string> = {};
+  response.headers.forEach((v, k) => { respHeaders[k] = v; });
+  const entry: TraceEntry = {
+    timestamp: new Date().toISOString(),
+    method: (init.method ?? 'GET').toUpperCase(),
+    url: redactUrl(url),
+    requestHeaders: redactHeaders((init.headers ?? {}) as Record<string, string>),
+    requestBody: typeof init.body === 'string' ? redactBody(init.body) : null,
+    responseStatus: response.status,
+    responseHeaders: respHeaders,
+    responseBody,
+  };
+  writer.append(entry);
+}
+
+async function traceResponse(url: string, init: RequestInit, response: Response): Promise<string | null> {
   const writer = getActiveTraceWriter();
+  if (!writer) return null;
+  let responseBody = '';
+  // Clone the response so we can read the body for tracing without consuming it.
+  try { responseBody = await response.clone().text(); } catch { /* ignore */ }
+  writeTraceEntry(writer, url, init, response, responseBody);
+  return responseBody;
+}
+
+export async function fetchWithErrors(url: string, init: RequestInit): Promise<Response> {
   let response: Response;
   try {
     response = await fetch(url, init);
@@ -138,58 +201,25 @@ export async function fetchWithErrors(url: string, init: RequestInit): Promise<R
     throw new Error('NETWORK_ERROR', { cause: err });
   }
 
-  let tracedBody: string | null = null;
-
-  if (writer) {
-    const reqHeaders = redactHeaders((init.headers ?? {}) as Record<string, string>);
-    const reqBody = typeof init.body === 'string' ? redactBody(init.body) : null;
-    let responseBody = '';
-    // Clone the response so we can read the body for tracing without consuming it.
-    const clone = response.clone();
-    try { responseBody = await clone.text(); } catch { /* ignore */ }
-    tracedBody = responseBody;
-    const respHeaders: Record<string, string> = {};
-    response.headers.forEach((v, k) => { respHeaders[k] = v; });
-    const entry: TraceEntry = {
-      timestamp: new Date().toISOString(),
-      method: (init.method ?? 'GET').toUpperCase(),
-      url: redactUrl(url),
-      requestHeaders: reqHeaders,
-      requestBody: reqBody ?? null,
-      responseStatus: response.status,
-      responseHeaders: respHeaders,
-      responseBody,
-    };
-    writer.append(entry);
-  }
-
+  const tracedBody = await traceResponse(url, init, response);
   const contentType = response.headers?.get('content-type') ?? '';
 
-  // Read the failure body once, here, for every non-2xx status. Read from a
-  // clone so the caller still receives an unconsumed stream — the curated 400
-  // handlers below (BAD_REQUEST / CREATE_REJECTED / UPDATE_REJECTED) read it
-  // themselves and must keep working.
+  // Read the failure body once, here, for every non-2xx status; everything
+  // downstream (the sentinels below, `httpError`, the curated 400 handlers,
+  // the 404 message) works off that single read.
   let failureDetail: string | null = null;
   if (!response.ok) {
-    let body = tracedBody;
-    if (body === null) {
-      try { body = await response.clone().text(); } catch { body = null; }
-    }
+    const body = await readFailureBody(response, tracedBody);
+    if (body !== null) failureBodies.set(response, body);
     failureDetail = describeFailureBody(body, contentType);
-    if (failureDetail !== null) {
-      failureDetails.set(response, failureDetail);
-    }
+    if (failureDetail !== null) failureDetails.set(response, failureDetail);
   }
 
   if (response.status === 401) throw new Error(withDetail('AUTH_FAILED', failureDetail));
   if (response.status === 403) throw new Error(withDetail('PERMISSION_DENIED', failureDetail));
   if (response.status === 404) {
-    let detail = '';
-    try {
-      const body = tracedBody ?? await response.text();
-      detail = ` | url=${url} | body=${body}`;
-    } catch { /* ignore */ }
-    throw new Error(`NOT_FOUND${detail}`);
+    const body = failureBodies.get(response);
+    throw new Error(body === undefined ? 'NOT_FOUND' : `NOT_FOUND | url=${url} | body=${body}`);
   }
 
   // AzDO REST APIs always reply with JSON; an HTML body means the unauth'd
@@ -203,16 +233,33 @@ export async function fetchWithErrors(url: string, init: RequestInit): Promise<R
   return response;
 }
 
+// The detail behind the curated 400 messages (`BAD_REQUEST:` /
+// `CREATE_REJECTED:` / `UPDATE_REJECTED:`). Those branches keep their own
+// prefix, but render the same `message [typeKey]` line as every other failure
+// instead of dropping the metadata — and reuse the body `fetchWithErrors`
+// already read rather than decoding it a second time. Still null when the body
+// names no `message`, so a `typeKey`-only 400 falls through to `httpError` as
+// it always did.
 async function readResponseMessage(response: Response): Promise<string | null> {
+  const captured = failureBodies.get(response);
+  const rendered = captured === undefined
+    ? await renderErrorStream(response)
+    : renderErrorFields(redactBody(captured.trim()) ?? captured.trim(), true);
+  return rendered === null ? null : truncateDetail(rendered);
+}
+
+// Fallback for a response whose body `fetchWithErrors` could not capture (a
+// stub without `clone()`/`text()`, or a stream that failed mid-read): parse the
+// original stream, exactly as this did before the capture existed.
+async function renderErrorStream(response: Response): Promise<string | null> {
   try {
-    const body = (await response.json()) as { message?: unknown };
-    if (typeof body.message === 'string' && body.message.trim() !== '') {
-      return body.message.trim();
-    }
+    const body = (await response.json()) as unknown;
+    if (typeof body !== 'object' || body === null) return null;
+    return renderErrorRecord(body as Record<string, unknown>, true);
   } catch {
     // Ignore JSON parse errors from non-JSON error payloads
+    return null;
   }
-  return null;
 }
 
 function normalizeFieldList(fields: string[]): string[] {

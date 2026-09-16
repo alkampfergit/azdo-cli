@@ -68,6 +68,31 @@ describe('describeFailureBody', () => {
     expect(detail).not.toContain('secret-value');
   });
 
+  it('redacts a token embedded in an unparseable body', () => {
+    // `redactBody` only rewrites recognised JSON fields, so before the
+    // `redactText` pass a text/plain error page reached stderr verbatim.
+    const detail = describeFailureBody('auth failed for pat=ab2cd3ef4gh5ij6kl7mn8op9qr0st1uv2wx3yz4ab5cd6ef7gh8ij', 'text/plain');
+    expect(detail).not.toContain('ab2cd3ef4gh5ij6kl7mn8op9qr0st1uv2wx3yz4ab5cd6ef7gh8ij');
+    expect(detail).toContain('[REDACTED]');
+  });
+
+  it('redacts an Authorization header echoed back inside a plain-text body', () => {
+    const detail = describeFailureBody('rejected: Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9', 'text/plain');
+    expect(detail).not.toContain('eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9');
+    expect(detail).toContain('[REDACTED]');
+  });
+
+  it('redacts a token embedded in an otherwise ordinary JSON message', () => {
+    const detail = describeFailureBody('{"message":"token=ab2cd3ef4gh5ij6kl7mn8op9qr0st1uv2wx3yz4ab5cd6ef7gh8ij is invalid"}', 'application/json');
+    expect(detail).not.toContain('ab2cd3ef4gh5ij6kl7mn8op9qr0st1uv2wx3yz4ab5cd6ef7gh8ij');
+  });
+
+  it('leaves an ordinary long word alone', () => {
+    // The opaque-run rule requires both a letter and a digit, so prose and
+    // long identifiers are not mistaken for credentials.
+    expect(describeFailureBody('{"message":"' + 'x'.repeat(60) + '"}', 'application/json')).toBe('x'.repeat(60));
+  });
+
   it('collapses newlines so the detail stays one console line', () => {
     expect(describeFailureBody('{"message":"line one\\nline two"}', 'application/json')).toBe('line one line two');
   });
@@ -147,6 +172,53 @@ describe('fetchWithErrors enrichment', () => {
     );
   });
 
+  it('carries typeKey on a curated 400, keeping the BAD_REQUEST prefix', async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      makeResponse(400, '{"message":"TF401232: Work item field reference is invalid: Foo.Bar","typeKey":"RuleValidationException"}'),
+    );
+
+    await expect(getWorkItem(ctx, 42, pat, ['Foo.Bar'])).rejects.toThrow(
+      'BAD_REQUEST: TF401232: Work item field reference is invalid: Foo.Bar [RuleValidationException]',
+    );
+  });
+
+  it('falls through to HTTP_400 when a curated 400 body names no message', async () => {
+    vi.mocked(fetch).mockResolvedValue(makeResponse(400, '{"typeKey":"RuleValidationException"}'));
+
+    await expect(getWorkItem(ctx, 42, pat, ['Foo.Bar'])).rejects.toThrow(
+      'HTTP_400: [RuleValidationException]',
+    );
+  });
+
+  it('redacts a secret in a curated 400 message', async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      makeResponse(400, '{"message":"pat=ab2cd3ef4gh5ij6kl7mn8op9qr0st1uv2wx3yz4ab5cd6ef7gh8ij rejected"}'),
+    );
+
+    const error = await getWorkItem(ctx, 42, pat, ['Foo.Bar']).catch((err: Error) => err);
+    expect(error.message.startsWith('BAD_REQUEST: ')).toBe(true);
+    expect(error.message).not.toContain('ab2cd3ef4gh5ij6kl7mn8op9qr0st1uv2wx3yz4ab5cd6ef7gh8ij');
+  });
+
+  it('reads a 404 body once and reuses it for the NOT_FOUND message', async () => {
+    let reads = 0;
+    const body = '{"message":"TF401174: The item does not exist."}';
+    const response = {
+      ok: false,
+      status: 404,
+      headers: new Headers({ 'content-type': 'application/json' }),
+      text: async () => { reads += 1; return body; },
+      json: async () => JSON.parse(body) as unknown,
+      clone: () => response,
+    } as unknown as Response;
+    vi.mocked(fetch).mockResolvedValue(response);
+
+    const error = await getWorkItem(ctx, 42, pat).catch((err: Error) => err);
+    expect(error.message).toContain('NOT_FOUND');
+    expect(error.message).toContain('TF401174');
+    expect(reads).toBe(1);
+  });
+
   it('leaves the body readable by the caller (the stream is not consumed)', async () => {
     vi.mocked(fetch).mockResolvedValue(
       makeResponse(400, '{"message":"TF401232: Work item field reference is invalid: Foo.Bar"}'),
@@ -217,6 +289,19 @@ describe('pr error output carries the server detail', () => {
     const stderr = getStderr();
     expect(stderr).toContain('Authentication failed.');
     expect(stderr).toContain('TF400813: not authorized');
+    expect(getExitCode()).toBe(4);
+  });
+
+  it('keeps the identity-scope guidance and prints the detail underneath it', async () => {
+    vi.mocked(listPullRequests).mockRejectedValue(
+      new Error('IDENTITY_SCOPE_MISSING: TF400813: The user is not authorized. [UnauthorizedRequestException]'),
+    );
+
+    await runTree(['pr', 'status']);
+
+    const stderr = getStderr();
+    expect(stderr).toContain('your PAT is missing the "Identity (Read)" scope');
+    expect(stderr).toContain('TF400813: The user is not authorized.');
     expect(getExitCode()).toBe(4);
   });
 

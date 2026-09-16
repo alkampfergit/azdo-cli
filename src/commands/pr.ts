@@ -265,11 +265,12 @@ function handlePrCommandError(err: unknown, context?: AzdoContext, mode: 'read' 
     return;
   }
 
-  if (error.message === 'IDENTITY_SCOPE_MISSING') {
+  if (isSentinel(error.message, 'IDENTITY_SCOPE_MISSING')) {
     writeError(
       'Could not resolve reviewer identity: your PAT is missing the "Identity (Read)" scope required by the Azure DevOps identities API (separate from Code scope).',
       EXIT_NOT_PERMITTED,
     );
+    writeErrorDetail(error.message, 'IDENTITY_SCOPE_MISSING');
     return;
   }
 
@@ -559,6 +560,32 @@ export function createPrStatusCommand(): Command {
   return command;
 }
 
+// The `pr open` failures that are not API failures. Kept out of the action
+// callback so the command body stays a straight line: resolve, create, report.
+function handlePrOpenError(err: unknown, context?: AzdoContext): void {
+  const message = err instanceof Error ? err.message : '';
+
+  if (message.startsWith('AMBIGUOUS_PRS:')) {
+    const ids = message.replace('AMBIGUOUS_PRS:', '').split(',').map((id) => `#${id}`).join(', ');
+    writeError(`Multiple active pull requests already exist for this branch targeting develop: ${ids}. Use pr status to review them.`);
+    return;
+  }
+
+  if (message === 'DESCRIPTION_REQUIRED') {
+    writeError('--description is required for pull request creation.');
+    return;
+  }
+
+  if (message.startsWith('DESCRIPTION_TOO_LONG: ')) {
+    // A validation failure (exit 1), not an API failure: the request was never
+    // sent, so it must not read as "Azure DevOps request failed".
+    writeError(message.slice('DESCRIPTION_TOO_LONG: '.length));
+    return;
+  }
+
+  handlePrCommandError(err, context, 'write');
+}
+
 export function createPrOpenCommand(): Command {
   const command = new Command('open');
 
@@ -625,25 +652,7 @@ export function createPrOpenCommand(): Command {
           `Active pull request already exists for ${resolved.branch} -> develop: #${result.pullRequest.id}\n${result.pullRequest.url ?? '—'}\n`,
         );
       } catch (err) {
-        if (err instanceof Error && err.message.startsWith('AMBIGUOUS_PRS:')) {
-          const ids = err.message.replace('AMBIGUOUS_PRS:', '').split(',').map((id) => `#${id}`).join(', ');
-          writeError(`Multiple active pull requests already exist for this branch targeting develop: ${ids}. Use pr status to review them.`);
-          return;
-        }
-
-        if (err instanceof Error && err.message === 'DESCRIPTION_REQUIRED') {
-          writeError('--description is required for pull request creation.');
-          return;
-        }
-
-        if (err instanceof Error && err.message.startsWith('DESCRIPTION_TOO_LONG: ')) {
-          // A validation failure (exit 1), not an API failure: the request was
-          // never sent, so it must not read as "Azure DevOps request failed".
-          writeError(err.message.slice('DESCRIPTION_TOO_LONG: '.length));
-          return;
-        }
-
-        handlePrCommandError(err, context, 'write');
+        handlePrOpenError(err, context);
       }
     });
 
