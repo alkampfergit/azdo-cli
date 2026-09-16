@@ -126,6 +126,8 @@ azdo pr open --title "…"                   # description from a repo-defined P
 azdo pr open --title "…" --description-file body.md   # description from a file ("-" = stdin)
 azdo pr update --pr-number 96 --title "Real title"    # fix a title after the fact
 azdo pr update --pr-number 96 --description-file body.md  # replace the description literally
+azdo pr abandon --pr-number 97             # abandon a PR (alias: azdo pr close) — reversible
+azdo pr reactivate --pr-number 97          # restore an abandoned PR to active
 azdo pr work-items link 1234 --pr-number 64    # link a work item to a PR
 azdo pr work-items unlink 1234 --pr-number 64  # unlink it
 azdo pr reviewers add jane@example.com --pr-number 64             # add optional reviewer
@@ -198,7 +200,28 @@ work from outside a checkout of the target repository.
 
 - `--pr-number <N>` targets a PR by id; without it the current branch's single active PR is used (same zero-/multi-match rules as the rest of the group)
 - `--json` returns `{ pullRequestId, title, description, url, noop, updatedFields }`, where `updatedFields` lists the fields actually written and is `[]` on a no-op
-- Changing a PR's **status** (abandon / reactivate) is not part of this command — it rides the same `PATCH` but is tracked separately
+- Changing a PR's **status** is not part of this command — see `azdo pr abandon` / `azdo pr reactivate` below, which ride the same `PATCH`
+
+**`azdo pr abandon`** (alias: `azdo pr close`) / **`azdo pr reactivate`**
+- `abandon` sets the pull request's status to `abandoned`; `reactivate` sets it back to `active`. Both send `PATCH .../pullrequests/{id}` with a body of `{"status": …}` and nothing else
+- **Abandoning is not deleting and not completing.** The PR stays visible, keeps its comment threads and its work-item links, and `reactivate` restores it at any time — the web UI's own **Abandon** / **Reactivate** pair. The `close` alias is the verb the Azure DevOps docs use for abandon ("Abandon: Close the PR"); it never merges anything. Completing/merging a PR is not offered by the CLI
+- **No confirmation prompt**, with or without a TTY: the action is reversible, and a prompt would break scripted callers
+- `--pr-number <N>` targets a PR by id. Without it, `abandon` resolves the current branch's single **active** PR and `reactivate` its single **abandoned** one — a reactivation target is by definition not active. Zero or multiple matches fail (exit 1) with a message naming the branch *and* the status searched for:
+
+  ```
+  No abandoned pull request matches branch feature/x. Pass --pr-number to target a specific PR.
+  ```
+
+- Idempotent: abandoning an already-abandoned PR (or reactivating an active one) reports a no-op, issues **no** `PATCH`, and exits 0 (`noop: true` in `--json`)
+- A **completed** PR is refused (exit 1, nothing written) — completion is final in Azure DevOps, and the way back is a revert PR, not a status flip:
+
+  ```
+  Error: Pull request #97 is completed and cannot be abandoned. A completed pull request is final;
+  revert it with a new pull request instead.
+  ```
+
+- `--json` returns `{ pullRequestId, title, status, previousStatus, url, noop }`; on a no-op `status` equals `previousStatus` and both carry the PR's real backend status
+- `azdo pr list --status abandoned` finds abandoned PRs to reactivate
 
 **`azdo pr work-items link <workItemId>`** / **`azdo pr work-items unlink <workItemId>`**
 - Adds or removes an `ArtifactLink` relation between the work item and the target pull request — the same mechanism the Azure DevOps web UI uses when linking a work item from the PR **Overview** tab

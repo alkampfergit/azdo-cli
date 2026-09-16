@@ -73,14 +73,24 @@ export interface PullRequestOpenResult {
   pullRequest: BranchPullRequestMatch;
 }
 
-// The PATCH body `pr update` sends. Deliberately partial: Azure DevOps treats
-// an omitted property as "leave it alone", and sending properties outside the
-// documented updatable set makes the server either throw
-// InvalidArgumentValueException or silently ignore the update — so the whole
-// fetched pull request is never echoed back.
+// The two pull request statuses this CLI writes (039-pr-abandon). The
+// PullRequestStatus enumeration also has `completed`, `notSet` and `all`:
+// `completed` is irreversible and out of scope, the other two are search /
+// default values that are never written.
+export type PullRequestLifecycleStatus = 'active' | 'abandoned';
+
+// The PATCH body `pr update` / `pr abandon` / `pr reactivate` send.
+// Deliberately partial: Azure DevOps treats an omitted property as "leave it
+// alone", and sending properties outside the documented updatable set makes the
+// server either throw InvalidArgumentValueException or silently ignore the
+// update — so the whole fetched pull request is never echoed back. Status,
+// Title and Description are all members of that one documented set on one
+// endpoint, which is why the status change reuses this type rather than adding
+// a second client function.
 export interface PullRequestUpdateRequest {
   title?: string;
   description?: string;
+  status?: PullRequestLifecycleStatus;
 }
 
 // Which of the two mutable fields `pr update` actually wrote.
@@ -96,6 +106,19 @@ export interface PullRequestUpdateResult {
   url: string | null;
   noop: boolean;
   updatedFields: PullRequestUpdatableField[];
+}
+
+// Flat JSON shape emitted by `azdo pr abandon --json` / `pr reactivate --json`.
+// `previousStatus` is the status the pull request held before the call, so a
+// caller can tell an applied change from a no-op without diffing — on a no-op
+// the two are equal and both carry the pull request's real backend status.
+export interface PullRequestStatusChangeResult {
+  pullRequestId: number;
+  title: string;
+  status: string;
+  previousStatus: string;
+  url: string | null;
+  noop: boolean;
 }
 
 export interface ActivePullRequestComment {

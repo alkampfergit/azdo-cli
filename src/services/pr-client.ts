@@ -627,7 +627,8 @@ export async function openPullRequest(
   };
 }
 
-// Updates a pull request's title and/or description (038-pr-update).
+// Updates a pull request's title, description and/or status (038-pr-update,
+// 039-pr-abandon).
 //
 // The body is PARTIAL by design: Azure DevOps documents exactly which
 // properties `PATCH .../pullrequests/{id}` accepts (Status, Title, Description,
@@ -640,6 +641,11 @@ export async function openPullRequest(
 // Unlike `openPullRequest`, no repository template is resolved or prepended:
 // `pr update` replaces the description literally (spec FR-006), because
 // re-prepending the template on every edit would grow it without bound.
+//
+// `status` rides the same body: abandon is `{"status":"abandoned"}` and
+// reactivate `{"status":"active"}`. Status is first on the documented updatable
+// list, so no second helper is needed — and a status-only call never touches
+// the description pre-flight below.
 export async function updatePullRequest(
   context: AzdoContext,
   repo: string,

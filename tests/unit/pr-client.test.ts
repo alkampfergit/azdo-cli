@@ -371,6 +371,17 @@ describe('pr-client', () => {
       expect(String(fetchSpy.mock.calls[0][0])).not.toContain('/items?');
     });
 
+    it('sends a status-only body for abandon / reactivate (039)', async () => {
+      const fetchSpy = mockPatch();
+
+      await updatePullRequest(context, 'repo-name', 'pat', 96, { status: 'abandoned' });
+
+      expect(fetchSpy).toHaveBeenCalledWith(
+        'https://dev.azure.com/test-org/test-project/_apis/git/repositories/repo-name/pullrequests/96?api-version=7.1',
+        expect.objectContaining({ method: 'PATCH', body: JSON.stringify({ status: 'abandoned' }) }),
+      );
+    });
+
     it('rejects an over-long description before issuing the request', async () => {
       const fetchSpy = mockPatch();
 

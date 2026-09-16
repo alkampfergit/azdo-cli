@@ -15,7 +15,7 @@ Azure DevOps CLI focused on work item read/write workflows.
 - Attach a local file to a work item, or remove a named attachment (`add-attachment`, `delete-attachment`)
 - Read/write rich-text fields as markdown (`get-md-field`, `set-md-field`)
 - Download images embedded in rich-text fields, optionally resized for LLM use (`get-item`/`get-md-field` `--download-images`, `--resize-images`)
-- Check branch pull request status, open PRs to `develop` (optionally pre-filled from a repository-defined template), update an existing PR's title or description (`pr update`), list PR comment threads for any PR (`--pr-number`), resolve/reopen threads, link/unlink work items, and add/remove required or optional reviewers — all from the CLI (`pr`)
+- Check branch pull request status, open PRs to `develop` (optionally pre-filled from a repository-defined template), update an existing PR's title or description (`pr update`), abandon or reactivate one (`pr abandon` / `pr reactivate`), list PR comment threads for any PR (`--pr-number`), resolve/reopen threads, link/unlink work items, and add/remove required or optional reviewers — all from the CLI (`pr`)
 - Feed long PR titles, descriptions and comment bodies from a file or a pipe instead of the shell (`--title-file`, `--description-file`, `--file`; `-` reads standard input)
 - Persist org/project/default fields in local config (`config`)
 - List all fields of a work item (`list-fields`)
@@ -101,6 +101,12 @@ azdo pr update --pr-number 64 --description-file body.md    # replaces literally
 cat body.md | azdo pr edit --pr-number 64 --description-file -   # "edit" is an alias for "update"
 azdo pr update --pr-number 64 --title "A real title" --json  # { pullRequestId, title, description, url, noop, updatedFields }
 # Re-running with the values it already has writes nothing and reports "noop": true.
+
+# Abandon a PR you opened by mistake — reversible, never prompts, nothing is deleted
+azdo pr abandon --pr-number 64        # "close" is an alias; it does NOT complete/merge the PR
+azdo pr reactivate --pr-number 64     # bring it back; --pr-number-less lookup searches abandoned PRs
+azdo pr abandon --pr-number 64 --json # { pullRequestId, title, status, previousStatus, url, noop }
+# Already abandoned? noop, exit 0, no write. Already completed? exit 1, no write.
 
 # Link/unlink a work item, add/remove reviewers
 azdo pr work-items link 1234 --pr-number 64

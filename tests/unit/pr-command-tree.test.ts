@@ -318,3 +318,65 @@ describe('pr update|edit — option plumbing through the real tree', () => {
     );
   });
 });
+
+describe('pr abandon|close|reactivate — option plumbing through the real tree', () => {
+  beforeEach(() => {
+    vi.mocked(updatePullRequest).mockImplementation(async (_ctx, _repo, _cred, prId, fields) => ({
+      ...explicitPr,
+      id: prId,
+      status: fields.status ?? explicitPr.status,
+    }));
+  });
+
+  it('honours --pr-number instead of falling back to the branch PR', async () => {
+    await runTree(['pr', 'abandon', '--pr-number', '4804']);
+
+    expect(vi.mocked(updatePullRequest)).toHaveBeenCalledWith(
+      expect.any(Object), 'repo-name', expect.any(Object), 4804, { status: 'abandoned' },
+    );
+    expect(vi.mocked(listPullRequests)).not.toHaveBeenCalled();
+  });
+
+  it('is reachable under its "close" alias', async () => {
+    await runTree(['pr', 'close', '--pr-number', '4804']);
+
+    expect(vi.mocked(updatePullRequest)).toHaveBeenCalledWith(
+      expect.any(Object), 'repo-name', expect.any(Object), 4804, { status: 'abandoned' },
+    );
+  });
+
+  it('honours --json and --repo', async () => {
+    await runTree(['pr', 'abandon', '--pr-number', '4804', '--repo', 'other-repo', '--json']);
+
+    expect(vi.mocked(updatePullRequest)).toHaveBeenCalledWith(
+      expect.any(Object), 'other-repo', expect.any(Object), 4804, { status: 'abandoned' },
+    );
+    expect(JSON.parse(getStdout())).toMatchObject({
+      pullRequestId: 4804,
+      status: 'abandoned',
+      previousStatus: 'active',
+      noop: false,
+    });
+  });
+
+  it('falls back to the current branch PR when --pr-number is omitted', async () => {
+    await runTree(['pr', 'abandon']);
+
+    expect(vi.mocked(updatePullRequest)).toHaveBeenCalledWith(
+      expect.any(Object), 'repo-name', expect.any(Object), 12, { status: 'abandoned' },
+    );
+  });
+
+  it('reactivate looks the branch PR up among the ABANDONED ones', async () => {
+    vi.mocked(listPullRequests).mockResolvedValue([{ ...branchPr, status: 'abandoned' }]);
+
+    await runTree(['pr', 'reactivate']);
+
+    expect(vi.mocked(listPullRequests)).toHaveBeenCalledWith(
+      expect.any(Object), 'repo-name', expect.any(Object), 'feature/test', { status: 'abandoned' },
+    );
+    expect(vi.mocked(updatePullRequest)).toHaveBeenCalledWith(
+      expect.any(Object), 'repo-name', expect.any(Object), 12, { status: 'active' },
+    );
+  });
+});
