@@ -1,5 +1,6 @@
 import type { AuthCredential, AzdoContext } from '../types/work-item.js';
-import { authHeaders, fetchWithErrors } from './azdo-client.js';
+import { authHeaders, fetchWithErrors, httpError } from './azdo-client.js';
+import { isSentinel, sentinelDetail, withDetail } from './command-helpers.js';
 import type { AzdoBuild, AzdoBuildListResponse } from '../types/pipeline.js';
 import type {
   ActiveCommentThread,
@@ -27,7 +28,9 @@ import type {
   PullRequestOpenRequest,
   PullRequestOpenResult,
   PullRequestTemplate,
+  ComposedDescription,
   PullRequestThreadCreateRequest,
+  PullRequestUpdateRequest,
   Reviewer,
   WorkItemLink,
 } from '../types/pull-request.js';
@@ -309,7 +312,7 @@ export function isThreadResolved(status: string): boolean {
 
 async function readJsonResponse<T>(response: Response): Promise<T> {
   if (!response.ok) {
-    throw new Error(`HTTP_${response.status}`);
+    throw httpError(response);
   }
 
   return response.json() as Promise<T>;
@@ -475,20 +478,70 @@ export async function getPullRequestBuilds(
   }));
 }
 
+// Azure DevOps rejects a pull request description longer than this. Documented
+// on the update operation (the create page lists `description` as a plain
+// string, but it is the same field and the same server-side validation):
+// https://learn.microsoft.com/en-us/rest/api/azure/devops/git/pull-requests/update?view=azure-devops-rest-7.1
+// — "These are the properties that can be updated with the API: … Description
+// (up to 4000 characters)". Verified via the Microsoft Learn MCP server and
+// cross-checked against Context7 (Constitution Principle VI).
+export const MAX_PR_DESCRIPTION_CHARS = 4000;
+
+// The blank line `composeDescription` puts between the operator's text and the
+// template. It counts against the limit, so it is reported separately rather
+// than silently folded into one of the two contributions.
+const DESCRIPTION_SEPARATOR = '\n\n';
+
 // Composes the final PR description from the operator's (optional) input and
 // a resolved template (FR-012–FR-014): template alone, text-then-template,
 // text alone, or — when neither is available — `null` (caller must reject).
-function composeDescription(description: string | undefined, template: PullRequestTemplate | null): string | null {
-  if (description !== undefined && template !== null) {
-    return `${description}\n\n${template.content}`;
+// Returns the arithmetic alongside the text: the caller cannot measure the
+// template contribution itself without repeating the whole template lookup.
+function composeDescription(
+  description: string | undefined,
+  template: PullRequestTemplate | null,
+): ComposedDescription | null {
+  if (description === undefined && template === null) {
+    return null;
   }
-  if (description !== undefined) {
-    return description;
-  }
-  if (template !== null) {
-    return template.content;
-  }
-  return null;
+
+  const provided = description ?? '';
+  const templateContent = template?.content ?? '';
+  const separator = description !== undefined && template !== null ? DESCRIPTION_SEPARATOR : '';
+  const text = `${provided}${separator}${templateContent}`;
+
+  return {
+    text,
+    providedChars: provided.length,
+    separatorChars: separator.length,
+    templateChars: templateContent.length,
+    templatePath: template?.path ?? null,
+    totalChars: text.length,
+  };
+}
+
+// The `pr open` pre-flight message: names every contribution, the limit, and
+// the exact reduction required, so the operator can fix it in one edit instead
+// of bisecting their way under an unexplained HTTP 400.
+export function formatDescriptionOverflow(composed: ComposedDescription): string {
+  const overflow = composed.totalChars - MAX_PR_DESCRIPTION_CHARS;
+  return `description is ${composed.totalChars} characters${formatContributions(composed)}, exceeding the Azure DevOps limit of ${MAX_PR_DESCRIPTION_CHARS} characters. Shorten the description by at least ${overflow} characters.`;
+}
+
+// Names every contribution once a template was resolved — all three counts,
+// every time, including the template-only case (0 provided) and the
+// empty-template case (0 template). Reporting "all of it from the template"
+// without the numbers leaves the operator unable to tell how much of their
+// budget the template actually took.
+function formatContributions(composed: ComposedDescription): string {
+  if (composed.templatePath === null) return '';
+  return ` (${composed.providedChars} provided + ${composed.separatorChars} separator + ${composed.templateChars} from the repository pull request template ${composed.templatePath})`;
+}
+
+// The same arithmetic, condensed, for appending to a server-side rejection —
+// the backstop for the case where Azure DevOps' real limit differs from ours.
+function describeDescriptionBudget(composed: ComposedDescription): string {
+  return `description: ${composed.providedChars} provided + ${composed.separatorChars} separator + ${composed.templateChars} template = ${composed.totalChars} characters (client limit ${MAX_PR_DESCRIPTION_CHARS})`;
 }
 
 export async function openPullRequest(
@@ -522,16 +575,22 @@ export async function openPullRequest(
     ? repository.defaultBranch.replace(/^refs\/heads\//, '')
     : 'develop';
   const template = await resolvePullRequestTemplate(context, repo, cred, defaultBranch, 'develop');
-  const finalDescription = composeDescription(description, template);
-  if (finalDescription === null) {
+  const composed = composeDescription(description, template);
+  if (composed === null) {
     throw new Error('DESCRIPTION_REQUIRED');
+  }
+
+  // Pre-flight: the composed length is knowable client-side, so refusing here
+  // costs one less round trip than letting the server answer with a bare 400.
+  if (composed.totalChars > MAX_PR_DESCRIPTION_CHARS) {
+    throw new Error(`DESCRIPTION_TOO_LONG: ${formatDescriptionOverflow(composed)}`);
   }
 
   const payload: PullRequestOpenRequest = {
     sourceRefName: `refs/heads/${sourceBranch}`,
     targetRefName: 'refs/heads/develop',
     title,
-    description: finalDescription,
+    description: composed.text,
   };
 
   const url = new URL(
@@ -539,22 +598,83 @@ export async function openPullRequest(
   );
   url.searchParams.set('api-version', '7.1');
 
-  const response = await fetchWithErrors(url.toString(), {
-    method: 'POST',
-    headers: {
-      ...authHeaders(cred),
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(payload),
-  });
+  let data: AzdoPullRequest;
+  try {
+    const response = await fetchWithErrors(url.toString(), {
+      method: 'POST',
+      headers: {
+        ...authHeaders(cred),
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+    });
+    data = await readJsonResponse<AzdoPullRequest>(response);
+  } catch (err) {
+    // Backstop for a 400 the pre-flight did not predict: whatever the server
+    // objected to, the operator still gets the description arithmetic next to
+    // the server's own message rather than having to guess at it.
+    if (err instanceof Error && err.message.startsWith('HTTP_400')) {
+      throw new Error(`${err.message} | ${describeDescriptionBudget(composed)}`, { cause: err });
+    }
+    throw err;
+  }
 
-  const data = await readJsonResponse<AzdoPullRequest>(response);
   return {
     branch: sourceBranch,
     targetBranch: 'develop',
     created: true,
     pullRequest: mapPullRequest(context, repo, data),
   };
+}
+
+// Updates a pull request's title, description and/or status (038-pr-update,
+// 039-pr-abandon).
+//
+// The body is PARTIAL by design: Azure DevOps documents exactly which
+// properties `PATCH .../pullrequests/{id}` accepts (Status, Title, Description,
+// CompletionOptions, MergeOptions, AutoCompleteSetBy.Id, TargetRefName) and
+// warns that anything else either throws InvalidArgumentValueException or is
+// silently ignored. Sending only the supplied keys is therefore both the
+// cheapest and the only safe shape — an omitted property is left untouched, so
+// `--title` alone provably cannot disturb the description.
+//
+// Unlike `openPullRequest`, no repository template is resolved or prepended:
+// `pr update` replaces the description literally (spec FR-006), because
+// re-prepending the template on every edit would grow it without bound.
+//
+// `status` rides the same body: abandon is `{"status":"abandoned"}` and
+// reactivate `{"status":"active"}`. Status is first on the documented updatable
+// list, so no second helper is needed — and a status-only call never touches
+// the description pre-flight below.
+export async function updatePullRequest(
+  context: AzdoContext,
+  repo: string,
+  cred: AuthCredential,
+  prId: number,
+  fields: PullRequestUpdateRequest,
+): Promise<BranchPullRequestMatch> {
+  if (fields.description !== undefined && fields.description.length > MAX_PR_DESCRIPTION_CHARS) {
+    const overflow = fields.description.length - MAX_PR_DESCRIPTION_CHARS;
+    throw new Error(
+      `DESCRIPTION_TOO_LONG: description is ${fields.description.length} characters, exceeding the Azure DevOps limit of ${MAX_PR_DESCRIPTION_CHARS} characters. Shorten the description by at least ${overflow} characters.`,
+    );
+  }
+
+  const url = new URL(
+    `https://dev.azure.com/${encodeURIComponent(context.org)}/${encodeURIComponent(context.project)}/_apis/git/repositories/${encodeURIComponent(repo)}/pullrequests/${prId}`,
+  );
+  url.searchParams.set('api-version', '7.1');
+
+  const response = await fetchWithErrors(url.toString(), {
+    method: 'PATCH',
+    headers: {
+      ...authHeaders(cred),
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(fields),
+  });
+  const data = await readJsonResponse<AzdoPullRequest>(response);
+  return mapPullRequest(context, repo, data);
 }
 
 export async function getPullRequestThreads(
@@ -779,7 +899,7 @@ async function patchWorkItemRelations(
     body: JSON.stringify([operation]),
   });
   if (!response.ok) {
-    throw new Error(`HTTP_${response.status}`);
+    throw httpError(response);
   }
 }
 
@@ -874,8 +994,11 @@ export async function resolveReviewerIdentity(
     // the separate `vso.identity` ("Identity (Read)") PAT scope — a 401 here
     // means the PAT is otherwise valid (Code scope works for every other `pr`
     // call) but is missing that specific scope, not a generic auth failure.
-    if (err instanceof Error && err.message === 'AUTH_FAILED') {
-      throw new Error('IDENTITY_SCOPE_MISSING', { cause: err });
+    if (err instanceof Error && isSentinel(err.message, 'AUTH_FAILED')) {
+      // Carry the server's own explanation across the translation: the command
+      // handler matches `IDENTITY_SCOPE_MISSING` as a prefix and prints the
+      // suffix underneath its guidance, exactly as it does for AUTH_FAILED.
+      throw new Error(withDetail('IDENTITY_SCOPE_MISSING', sentinelDetail(err.message, 'AUTH_FAILED')), { cause: err });
     }
     throw err;
   }
@@ -973,7 +1096,7 @@ export async function removePullRequestReviewer(
     headers: authHeaders(cred),
   });
   if (!response.ok) {
-    throw new Error(`HTTP_${response.status}`);
+    throw httpError(response);
   }
 
   return { reviewer: existing, noop: false };
@@ -1035,7 +1158,7 @@ async function fetchRepositoryItemContent(
   }
 
   if (!response.ok) {
-    throw new Error(`HTTP_${response.status}`);
+    throw httpError(response);
   }
 
   return response.text();

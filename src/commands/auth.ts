@@ -8,6 +8,8 @@ import {
   logout as logoutService,
   status as statusService,
   resolveAuthCredential,
+  exportCredential,
+  type ExportedCredential,
   type OAuthLoginOptions,
 } from '../services/auth.js';
 import {
@@ -16,8 +18,13 @@ import {
   storePat,
   deletePat,
   probeBackend,
+  suppressCredentialStoreNotices,
 } from '../services/credential-store.js';
-import { CredentialStoreUnavailableError } from '../types/credential.js';
+import {
+  CredentialMissingError,
+  CredentialRefreshError,
+  CredentialStoreUnavailableError,
+} from '../types/credential.js';
 import { resolveOrg, formatResolutionError } from '../services/org-resolver.js';
 import { openUrl } from '../services/browser-open.js';
 import { appendAuthAuditEvent, readAuditEvents } from '../services/audit-log.js';
@@ -365,6 +372,91 @@ async function handleLogout(options: { all?: boolean }, orgFromGlobal: string | 
   }
 }
 
+function describeCredentialSource(cred: ExportedCredential): string {
+  switch (cred.source) {
+    case 'env':
+      return 'the AZDO_PAT environment variable';
+    case 'dotenv':
+      return 'the AZDO_PAT entry in a .env file';
+    default:
+      return `the OS credential store (${probeBackend()})`;
+  }
+}
+
+/**
+ * One line naming the credential that was just exported — and, crucially, the
+ * Authorization header form it needs. Azure DevOps takes a PAT as Basic and an
+ * Entra access token as Bearer, and its own guidance is that a token is opaque:
+ * a caller must not decode one to work out which it holds. Goes to stderr, and
+ * only when a human is watching, so stdout stays exactly the token.
+ */
+function describeExportedCredential(cred: ExportedCredential, org: string): string {
+  const source = describeCredentialSource(cred);
+  if (cred.kind === 'oauth') {
+    const expires = new Date(cred.expiresAt * 1000).toISOString();
+    return (
+      `OAuth access token for org ${org} from ${source}; account ${cred.accountId}, expires ${expires}.\n` +
+      'Send it as: Authorization: Bearer <token>\n'
+    );
+  }
+  return (
+    `PAT for org ${org} from ${source}.\n` +
+    'Send it as: Authorization: Basic base64(":<token>")  (curl: -u :<token>)\n'
+  );
+}
+
+function reportTokenFailure(err: unknown): void {
+  if (err instanceof CredentialStoreUnavailableError) {
+    process.stderr.write(`${err.message}\n`);
+    process.exitCode = 4;
+    return;
+  }
+  if (err instanceof CredentialMissingError || err instanceof CredentialRefreshError) {
+    process.stderr.write(`${err.message}\n`);
+    process.exitCode = 1;
+    return;
+  }
+  throw err;
+}
+
+async function handleToken(orgFromGlobal: string | undefined): Promise<void> {
+  const resolved = resolveOrg({ org: orgFromGlobal });
+  if (!resolved) {
+    process.stderr.write(`${formatResolutionError()}\n`);
+    process.exitCode = 3;
+    return;
+  }
+  const org = resolved.org;
+
+  // Contract: when stderr is not a terminal this command writes nothing to it.
+  // Credential resolution can otherwise emit the legacy-PAT migration notice.
+  const stderrIsTty = Boolean(process.stderr.isTTY);
+  suppressCredentialStoreNotices(!stderrIsTty);
+
+  let cred: ExportedCredential;
+  try {
+    cred = await exportCredential(org);
+  } catch (err) {
+    reportTokenFailure(err);
+    return;
+  }
+
+  // Record the export before handing the token over, so a consumer that dies
+  // mid-pipe still leaves the audit trail. The record carries metadata only —
+  // that an export happened, never what was exported.
+  appendAuthAuditEvent({
+    event: 'auth.token',
+    org,
+    backend: probeBackend(),
+    ...(cred.kind === 'oauth' ? { accountId: cred.accountId } : {}),
+  });
+
+  if (stderrIsTty) {
+    process.stderr.write(describeExportedCredential(cred, org));
+  }
+  process.stdout.write(`${cred.token}\n`);
+}
+
 export function createAuthCommand(): Command {
   const command = new Command('auth');
   command.description(
@@ -475,6 +567,42 @@ Note: \`azdo auth\` (no subcommand) preserves the legacy PAT-prompt entry point;
     const globals = logoutCmd.optsWithGlobals() as GlobalsWithOrg;
     await handleLogout(options, globals.org);
   });
+
+  const tokenCmd = command
+    .command('token')
+    .description(
+      'Print the credential the CLI uses for an org — a PAT or an OAuth access token — to stdout (for scripted API calls)',
+    )
+    .option('--org <name>', 'Azure DevOps organization (defaults: git remote -> config)');
+  tokenCmd.action(async () => {
+    const globals = tokenCmd.optsWithGlobals() as GlobalsWithOrg;
+    await handleToken(globals.org);
+  });
+  tokenCmd.addHelpText(
+    'after',
+    `
+stdout carries the token and nothing else, so it is safe to capture:
+
+  TOKEN=$(azdo auth token --org myorg)
+
+The token is whichever credential the CLI would use itself (AZDO_PAT, then the
+stored credential for the org, then a .env AZDO_PAT); an expired OAuth access
+token is refreshed first. Treat it as a password — it carries your full access.
+
+Azure DevOps needs a different header for each kind:
+
+  PAT               curl -u :"$TOKEN" https://dev.azure.com/myorg/_apis/projects
+  OAuth access tok  curl -H "Authorization: Bearer $TOKEN" https://dev.azure.com/myorg/_apis/projects
+
+When stderr is a terminal the command names the kind, source and expiry there;
+redirected or piped, stderr stays silent. There is deliberately no --json: use
+\`azdo auth status --json\` for machine-readable credential metadata, which never
+includes token material.
+
+Exit codes: 1 no stored credential (or a rejected OAuth refresh), 3 org could
+not be resolved, 4 OS credential store unavailable. stdout stays empty on all.
+`,
+  );
 
   const diagnoseCmd = command
     .command('diagnose')

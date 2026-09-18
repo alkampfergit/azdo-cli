@@ -1,0 +1,7 @@
+hooks:
+  before_specify:
+    - extension: azdo-grounder
+      command: azdo-grounder
+      enabled: true
+      optional: false
+      description: "Ground feature idea against Azure DevOps REST API before specifying"

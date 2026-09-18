@@ -20,6 +20,7 @@ vi.mock('../../src/services/pr-client.js', async (importOriginal) => {
     addOrUpdatePullRequestReviewer: vi.fn(),
     getPullRequestReviewers: vi.fn(),
     removePullRequestReviewer: vi.fn(),
+    updatePullRequest: vi.fn(),
   };
 });
 
@@ -48,6 +49,7 @@ import {
   addOrUpdatePullRequestReviewer,
   getPullRequestReviewers,
   removePullRequestReviewer,
+  updatePullRequest,
 } from '../../src/services/pr-client.js';
 import { detectRepoName, getCurrentBranch } from '../../src/services/git-remote.js';
 import { requireAuthCredential } from '../../src/services/auth.js';
@@ -264,5 +266,137 @@ describe('pr reviewers add|remove — nested option plumbing', () => {
       reviewer: { id: 'identity-guid', displayName: 'Jane Reviewer', uniqueName: 'jane@example.com', isRequired: true },
       noop: true,
     });
+  });
+});
+
+describe('pr update|edit — option plumbing through the real tree', () => {
+  beforeEach(() => {
+    vi.mocked(updatePullRequest).mockImplementation(async (_ctx, _repo, _cred, prId, fields) => ({
+      ...explicitPr,
+      id: prId,
+      title: fields.title ?? explicitPr.title,
+      description: fields.description ?? explicitPr.description,
+    }));
+  });
+
+  it('honours --pr-number instead of falling back to the branch PR', async () => {
+    await runTree(['pr', 'update', '--pr-number', '4804', '--title', 'Corrected title']);
+
+    expect(vi.mocked(updatePullRequest)).toHaveBeenCalledWith(
+      expect.any(Object), 'repo-name', expect.any(Object), 4804, { title: 'Corrected title' },
+    );
+    expect(vi.mocked(listPullRequests)).not.toHaveBeenCalled();
+  });
+
+  it('is reachable under its "edit" alias', async () => {
+    await runTree(['pr', 'edit', '--pr-number', '4804', '--description', 'Rewritten body']);
+
+    expect(vi.mocked(updatePullRequest)).toHaveBeenCalledWith(
+      expect.any(Object), 'repo-name', expect.any(Object), 4804, { description: 'Rewritten body' },
+    );
+  });
+
+  it('honours --json and --repo', async () => {
+    await runTree(['pr', 'update', '--pr-number', '4804', '--title', 'Corrected title', '--repo', 'other-repo', '--json']);
+
+    expect(vi.mocked(updatePullRequest)).toHaveBeenCalledWith(
+      expect.any(Object), 'other-repo', expect.any(Object), 4804, { title: 'Corrected title' },
+    );
+    expect(JSON.parse(getStdout())).toMatchObject({
+      pullRequestId: 4804,
+      title: 'Corrected title',
+      noop: false,
+      updatedFields: ['title'],
+    });
+  });
+
+  it('falls back to the current branch PR when --pr-number is omitted', async () => {
+    await runTree(['pr', 'update', '--title', 'Corrected title']);
+
+    expect(vi.mocked(updatePullRequest)).toHaveBeenCalledWith(
+      expect.any(Object), 'repo-name', expect.any(Object), 12, { title: 'Corrected title' },
+    );
+  });
+});
+
+describe('pr abandon|close|reactivate — option plumbing through the real tree', () => {
+  beforeEach(() => {
+    vi.mocked(updatePullRequest).mockImplementation(async (_ctx, _repo, _cred, prId, fields) => ({
+      ...explicitPr,
+      id: prId,
+      status: fields.status ?? explicitPr.status,
+    }));
+  });
+
+  it('honours --pr-number instead of falling back to the branch PR', async () => {
+    await runTree(['pr', 'abandon', '--pr-number', '4804']);
+
+    expect(vi.mocked(updatePullRequest)).toHaveBeenCalledWith(
+      expect.any(Object), 'repo-name', expect.any(Object), 4804, { status: 'abandoned' },
+    );
+    expect(vi.mocked(listPullRequests)).not.toHaveBeenCalled();
+  });
+
+  it('is reachable under its "close" alias', async () => {
+    await runTree(['pr', 'close', '--pr-number', '4804']);
+
+    expect(vi.mocked(updatePullRequest)).toHaveBeenCalledWith(
+      expect.any(Object), 'repo-name', expect.any(Object), 4804, { status: 'abandoned' },
+    );
+  });
+
+  it('honours --json and --repo', async () => {
+    await runTree(['pr', 'abandon', '--pr-number', '4804', '--repo', 'other-repo', '--json']);
+
+    expect(vi.mocked(updatePullRequest)).toHaveBeenCalledWith(
+      expect.any(Object), 'other-repo', expect.any(Object), 4804, { status: 'abandoned' },
+    );
+    expect(JSON.parse(getStdout())).toMatchObject({
+      pullRequestId: 4804,
+      status: 'abandoned',
+      previousStatus: 'active',
+      noop: false,
+    });
+  });
+
+  it('falls back to the current branch PR when --pr-number is omitted', async () => {
+    await runTree(['pr', 'abandon']);
+
+    expect(vi.mocked(updatePullRequest)).toHaveBeenCalledWith(
+      expect.any(Object), 'repo-name', expect.any(Object), 12, { status: 'abandoned' },
+    );
+  });
+
+  // The `--pr-number` help is shared by every single-PR subcommand, but its
+  // auto-detection sentence is only true for the commands that resolve the
+  // branch's ACTIVE PR. `reactivate` searches abandoned ones, so its help must
+  // not promise an "open PR" match (copilot review on PR #101).
+  it('describes --pr-number auto-detection with the status each command searches', () => {
+    const program = new Command().name('azdo');
+    program.addCommand(createPrCommand());
+    const pr = program.commands.find((c) => c.name() === 'pr');
+    const helpFor = (name: string): string => {
+      const sub = pr?.commands.find((c) => c.name() === name);
+      const option = sub?.options.find((o) => o.long === '--pr-number');
+      return option?.description ?? '';
+    };
+
+    expect(helpFor('reactivate')).toContain('more than one abandoned PR matches');
+    expect(helpFor('reactivate')).not.toContain('open PR');
+    expect(helpFor('abandon')).toContain('more than one open PR matches');
+    expect(helpFor('comments')).toContain('more than one open PR matches');
+  });
+
+  it('reactivate looks the branch PR up among the ABANDONED ones', async () => {
+    vi.mocked(listPullRequests).mockResolvedValue([{ ...branchPr, status: 'abandoned' }]);
+
+    await runTree(['pr', 'reactivate']);
+
+    expect(vi.mocked(listPullRequests)).toHaveBeenCalledWith(
+      expect.any(Object), 'repo-name', expect.any(Object), 'feature/test', { status: 'abandoned' },
+    );
+    expect(vi.mocked(updatePullRequest)).toHaveBeenCalledWith(
+      expect.any(Object), 'repo-name', expect.any(Object), 12, { status: 'active' },
+    );
   });
 });

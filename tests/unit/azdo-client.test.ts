@@ -108,6 +108,16 @@ describe('getWorkItem', () => {
     await expect(getWorkItem(ctx, 42, pat)).rejects.toThrow(expectedError);
   });
 
+  it.each(httpErrorCases)('appends the server detail to %s on HTTP %i', async (status, expectedError) => {
+    vi.mocked(fetch).mockResolvedValue(
+      makeErrorResponse(status, '{"message":"TF400898: An Internal Error Occurred.","typeKey":"InternalServerError"}'),
+    );
+
+    const error = await getWorkItem(ctx, 42, pat).catch((err: Error) => err);
+    expect(error.message.startsWith(expectedError)).toBe(true);
+    expect(error.message).toContain('TF400898: An Internal Error Occurred.');
+  });
+
   it('throws BAD_REQUEST with server message on HTTP 400', async () => {
     vi.mocked(fetch).mockResolvedValue(makeFetchResponse({
       message: 'TF401232: Work item field reference is invalid: Foo.Bar',

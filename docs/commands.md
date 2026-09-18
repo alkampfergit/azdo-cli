@@ -13,13 +13,14 @@
 | `azdo get-md-field <id> <field>` | Get rich-text field as markdown | `--download-images`, `--resize-images <px>`, `--images-path <dir>`, `--org`, `--project` |
 | `azdo set-md-field <id> <field> [content]` | Set markdown field | `--file`, `--json`, `--org`, `--project` |
 | `azdo list-fields <id>` | List all fields of a work item | `--json`, `--org`, `--project` |
-| `azdo pr <subcommand>` | Manage pull requests (current branch or by `--pr-number`) | `status`, `open`, `comments`, `comment-resolve`, `comment-reopen`, `--pr-number`, `--hide-resolved`, `--exclude-resolved`, `--code-related-only`, `--json`, `--org`, `--project` |
+| `azdo pr <subcommand>` | Manage pull requests (current branch or by `--pr-number`) | `status`, `open`, `update`, `comments`, `comment-resolve`, `comment-reopen`, `--pr-number`, `--hide-resolved`, `--exclude-resolved`, `--code-related-only`, `--json`, `--org`, `--project` |
 | `azdo pipeline <subcommand>` | Inspect and operate Azure DevOps pipelines | `list`, `get-runs`, `wait`, `get-run-detail`, `logs`, `start`, `--filter`, `--limit`, `--branch`, `--timeout`, `--poll-interval`, `--log-id`, `--parameter`, `--json`, `--org`, `--project` |
 | `azdo config <subcommand>` | Manage saved settings | `set [--org]`, `get [--org]`, `unset [--org]`, `list`, `org-copy`, `org-move`, `org-delete`, `wizard`, `--json` |
 | `azdo auth login` | Authenticate against an org — OAuth (Microsoft Entra) by default, or a PAT with `--use-pat` | `--org`, `--use-pat`, `--device-code`, `--client-id`, `--tenant-id`, `--scopes`, `--from-stdin`, `--no-browser` |
 | `azdo auth` | Legacy PAT-prompt entry point (back-compat alias of `azdo auth login --use-pat`) | `--org`, `--from-stdin`, `--no-browser` |
 | `azdo auth status` | Report stored credentials (kind `pat`/`oauth`, org, account/expiry, backend) — never the token | `--org`, `--json` |
 | `azdo auth logout` | Remove the stored credential (PAT or OAuth) for an org, or every org with `--all` | `--org`, `--all` |
+| `azdo auth token` | Print the token the CLI uses for an org on stdout, for API calls the CLI does not wrap (no `--json` — see [authentication.md](authentication.md#exporting-the-token)) | `--org` |
 | `azdo auth diagnose` | Show auth type, credential source, org, and live connectivity test result | `--org`, `--project`, `--json` |
 | `azdo clear-pat` | **Deprecated** alias for `azdo auth logout` | `--org` |
 
@@ -123,6 +124,11 @@ azdo pr list --branch feature/x --json     # which PR belongs to this branch?
 azdo pr status                             # list PRs for current branch + checks
 azdo pr open --title "…" --description "…"      # open PR targeting develop
 azdo pr open --title "…"                   # description from a repo-defined PR template, if one exists
+azdo pr open --title "…" --description-file body.md   # description from a file ("-" = stdin)
+azdo pr update --pr-number 96 --title "Real title"    # fix a title after the fact
+azdo pr update --pr-number 96 --description-file body.md  # replace the description literally
+azdo pr abandon --pr-number 97             # abandon a PR (alias: azdo pr close) — reversible
+azdo pr reactivate --pr-number 97          # restore an abandoned PR to active
 azdo pr work-items link 1234 --pr-number 64    # link a work item to a PR
 azdo pr work-items unlink 1234 --pr-number 64  # unlink it
 azdo pr reviewers add jane@example.com --pr-number 64             # add optional reviewer
@@ -165,9 +171,58 @@ work from outside a checkout of the target repository.
 - Requires `--title`; `--description` is optional
 - When `--description` is omitted, looks for a repository-defined pull request template — Azure DevOps's own `pull_request_template[/branches/<branch>].md` convention, checked under `.azuredevops/`, `.vsts/`, `docs/`, and the repository root, always read from the repository's **default** branch (never the PR's source/target branch). Branch-specific templates fall back from the most-specific branch segment down to the least (`feature/foo/december` → `feature/foo` → `feature`), then the repository-wide default template
 - When both `--description` and a template apply, the description is the supplied text followed by the template content; with neither, the command fails exactly as before (`--description is required for pull request creation.`)
+- **Length limit — 4000 characters.** Azure DevOps caps a pull request description at [4000 characters](https://learn.microsoft.com/en-us/rest/api/azure/devops/git/pull-requests/update?view=azure-devops-rest-7.1). That budget covers the **composed** text — your `--description`, the blank-line separator, *and* the repository template — so a description that fits on its own can still be over the limit once the template is appended. The command measures it client-side and fails before the create call, naming every contribution:
+
+  ```
+  Error: description is 4172 characters (2299 provided + 2 separator + 1871 from the repository
+  pull request template .azuredevops/pull_request_template.md), exceeding the Azure DevOps limit
+  of 4000 characters. Shorten the description by at least 172 characters.
+  ```
+
+  Exit code `1` — nothing was sent, so no pull request was created. There is no `--truncate`: silently clipping a description is the failure mode this replaces. If Azure DevOps rejects the create anyway, the same arithmetic is appended to the server's own message.
+- `--description-file <path>` reads the description from a UTF-8 file instead of `--description`; the two are mutually exclusive. `-` means **standard input**, so `cat body.md | azdo pr open --title "…" --description-file -` works. The file's content is composed with the repository template exactly as inline text is — `--description-file` changes where the text comes from, nothing else. An empty file is an error (unlike an empty `--description`, which has always meant "use the template")
 - Always targets `develop`
 - Reuses an existing active PR if one already matches the branch and target
 - Fails when run from `develop` or when multiple active PRs exist
+
+**`azdo pr update`** (alias: `azdo pr edit`)
+- Updates the title and/or the description of an existing pull request — the counterpart to `pr open`, which cannot change a PR it did not create. Re-running `pr open` on a branch that already has an active PR reports `created: false` and changes nothing, by design
+- `--title <s>` / `--title-file <path>` and `--description <s>` / `--description-file <path>`; each pair is mutually exclusive and at least one of the four is required. `-` means standard input for either file flag — but only one of them per invocation, since stdin can be drained only once
+- **Only the fields you pass are sent.** `azdo pr update --title X` issues `PATCH` with `{"title": "X"}`, so the description is provably untouched — Azure DevOps leaves omitted properties alone
+- **`--description` replaces the description literally.** No repository pull request template is looked up or prepended, unlike `pr open` — prepending it on update would re-prepend it on every subsequent edit. If you want the template, paste it into your file
+- Values are trimmed, and an empty title or description is rejected rather than clearing the field
+- Idempotent: when every field you passed already holds that value, the command reports a no-op, issues **no** `PATCH`, and exits 0 (`noop: true` in `--json`)
+- The 4000-character description cap applies here too and is checked client-side before the request:
+
+  ```
+  Error: description is 4207 characters, exceeding the Azure DevOps limit of 4000 characters.
+  Shorten the description by at least 207 characters.
+  ```
+
+- `--pr-number <N>` targets a PR by id; without it the current branch's single active PR is used (same zero-/multi-match rules as the rest of the group)
+- `--json` returns `{ pullRequestId, title, description, url, noop, updatedFields }`, where `updatedFields` lists the fields actually written and is `[]` on a no-op
+- Changing a PR's **status** is not part of this command — see `azdo pr abandon` / `azdo pr reactivate` below, which ride the same `PATCH`
+
+**`azdo pr abandon`** (alias: `azdo pr close`) / **`azdo pr reactivate`**
+- `abandon` sets the pull request's status to `abandoned`; `reactivate` sets it back to `active`. Both send `PATCH .../pullrequests/{id}` with a body of `{"status": …}` and nothing else
+- **Abandoning is not deleting and not completing.** The PR stays visible, keeps its comment threads and its work-item links, and `reactivate` restores it at any time — the web UI's own **Abandon** / **Reactivate** pair. The `close` alias is the verb the Azure DevOps docs use for abandon ("Abandon: Close the PR"); it never merges anything. Completing/merging a PR is not offered by the CLI
+- **No confirmation prompt**, with or without a TTY: the action is reversible, and a prompt would break scripted callers
+- `--pr-number <N>` targets a PR by id. Without it, `abandon` resolves the current branch's single **active** PR and `reactivate` its single **abandoned** one — a reactivation target is by definition not active. Zero or multiple matches fail (exit 1) with a message naming the branch *and* the status searched for:
+
+  ```
+  No abandoned pull request matches branch feature/x. Pass --pr-number to target a specific PR.
+  ```
+
+- Idempotent: abandoning an already-abandoned PR (or reactivating an active one) reports a no-op, issues **no** `PATCH`, and exits 0 (`noop: true` in `--json`)
+- A **completed** PR is refused (exit 1, nothing written) — completion is final in Azure DevOps, and the way back is a revert PR, not a status flip:
+
+  ```
+  Error: Pull request #97 is completed and cannot be abandoned. A completed pull request is final;
+  revert it with a new pull request instead.
+  ```
+
+- `--json` returns `{ pullRequestId, title, status, previousStatus, url, noop }`; on a no-op `status` equals `previousStatus` and both carry the PR's real backend status
+- `azdo pr list --status abandoned` finds abandoned PRs to reactivate
 
 **`azdo pr work-items link <workItemId>`** / **`azdo pr work-items unlink <workItemId>`**
 - Adds or removes an `ArtifactLink` relation between the work item and the target pull request — the same mechanism the Azure DevOps web UI uses when linking a work item from the PR **Overview** tab
@@ -198,7 +253,7 @@ work from outside a checkout of the target repository.
 
 **`azdo pr comments add [text]`** (alias: `azdo pr comment-add`)
 - Posts a **new** comment thread on the pull request overview — `reply` can only append to an existing thread
-- Body comes from the inline argument or `--file <path>` (UTF-8, typically markdown); the two are mutually exclusive and one is required
+- Body comes from the inline argument or `--file <path>` (UTF-8, typically markdown); the two are mutually exclusive and one is required. `--file -` reads standard input
 - `--status active|fixed|wontFix|closed|byDesign|pending` makes the thread resolvable; omit it for a plain overview comment
 - `--dry-run` resolves the target pull request, prints exactly what would be posted, and exits 0 without writing anything
 - `--json` returns `{ pullRequestId, threadId, commentId, status, content, dryRun }`
@@ -211,7 +266,7 @@ work from outside a checkout of the target repository.
 
 **`azdo pr comments reply <threadId> [text]`** (alias: `azdo pr comment-reply`)
 - Appends a reply to an existing thread
-- The body can now come from `--file <path>` instead of the inline argument
+- The body can now come from `--file <path>` instead of the inline argument (`-` reads standard input)
 
 **`azdo pr comment-resolve <threadId>`**
 - Marks a single comment thread as resolved on the target PR
@@ -253,6 +308,36 @@ used**:
 Error: Authentication failed. Check that your PAT is valid and has the "Code (Read & Write)" scope.
   Token used: PAT from the AZDO_PAT environment variable (it takes precedence over the stored credential). Fix: give that token the scope above, or unset AZDO_PAT to fall back to the stored credential.
 ```
+
+**Every failed API request now prints Azure DevOps' own explanation**, not just the status.
+Whatever the server put in the response body — its `message`, plus `typeKey` / `errorCode` when
+present — is shown on an indented line under the CLI's own guidance, for every command group, not
+just `pr`:
+
+```
+Error: Access denied. Your PAT may lack write permissions for project "Demo".
+  TF401019: The Git repository with name or identifier demo is disabled. [GitRepositoryDisabledException]
+
+Error: Azure DevOps request failed with HTTP_400.
+  The pull request description is too long. [InvalidArgumentValueException]
+```
+
+The same detail is appended to the curated `Request rejected:` messages, so an
+Azure DevOps rule violation now names its `typeKey` alongside its text.
+
+The detail is redacted (tokens are never echoed — both recognised JSON credential fields and
+token-shaped runs inside free text), capped at 500 characters, and suppressed entirely when the
+response body is the Entra sign-in page rather than an API error. The full, untruncated body is
+still available in the trace file when tracing is enabled.
+
+The `NOT_FOUND` diagnostic (`NOT_FOUND | url=… | body=…`, which the commands translate into their
+own "not found" wording) carries the same redacted, capped detail and the same redacted URL, so a
+404 that answers with a sign-in page or a body quoting a token prints the bare sentinel instead.
+
+Two paths are deliberately outside this contract because they do not go through the shared HTTP
+layer and have their own reporting: `azdo auth diagnose` prints the server's `message` (or a bare
+`HTTP <status>` when the body names none, with no `typeKey` / `errorCode` suffix), and the PAT
+validation in `azdo auth login` reports the status only.
 
 Note the two scopes: reads (`pr list`, `pr status`, `pr comments`) need **Code (Read)**, while
 `comments add` / `edit` / `reply` / `comment-resolve` / `comment-reopen`, `pr open`, and

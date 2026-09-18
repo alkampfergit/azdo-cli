@@ -94,6 +94,65 @@ azdo auth status --org myorg --json
 
 Status reports the credential `kind` (`pat` or `oauth`), the account id (OAuth only — Entra `oid` or `preferred_username`), the expiry timestamp (OAuth), the granted scope set (OAuth), and the keyring backend. **It never prints token material.**
 
+### Exporting the token
+
+```bash
+# The credential the CLI itself would use, on stdout and nothing else.
+azdo auth token --org myorg
+
+# Capture it for an API call the CLI does not wrap yet.
+TOKEN=$(azdo auth token --org myorg)
+```
+
+stdout carries the token and a single trailing newline — no banner, no prompt,
+nothing to strip. The token is resolved through the same ladder as every other
+command (`AZDO_PAT` → stored credential → `.env`), and an OAuth access token
+past its expiry is **refreshed first**, so you never receive a dead token.
+
+The two credential kinds need different `Authorization` headers, and Azure
+DevOps [documents tokens as opaque](https://learn.microsoft.com/azure/devops/integrate/get-started/authentication/authentication-guidance?view=azure-devops#frequently-asked-questions-faq)
+— you must not decode one to find out which you hold:
+
+```bash
+# PAT
+curl -u :"$TOKEN" https://dev.azure.com/myorg/_apis/projects?api-version=7.1
+
+# OAuth access token
+curl -H "Authorization: Bearer $TOKEN" https://dev.azure.com/myorg/_apis/projects?api-version=7.1
+```
+
+So when **stderr is a terminal** the command names the credential there — kind,
+source, account and expiry (OAuth), and the header form to use. Redirected or
+piped, stderr stays silent, so scripts see nothing but the token on stdout —
+including the advisory notices the credential store emits elsewhere (the
+legacy-PAT migration line), which are suppressed for this command on a
+non-terminal stderr. The migration still happens and is still audited.
+
+The command also skips the background update check every other command runs
+after it finishes, so refreshing an expired OAuth access token is the only
+network request `azdo auth token` can make, and a script waiting on the token
+never waits on the npm registry.
+
+There is deliberately **no `--json`**: the payload is one opaque string, and a
+JSON envelope would only invite the token into machine-read logs. Use
+`azdo auth status --json` for machine-readable credential metadata — it never
+includes token material.
+
+The command never prompts and is not gated behind a flag (it matches
+`gh auth token` and `az account get-access-token`). **Treat the output like a
+password**: it carries your full access to the organisation for as long as it
+lives. Every export appends an `auth.token` entry to the audit log.
+
+| Exit code | Condition |
+| --- | --- |
+| `0` | token written to stdout |
+| `1` | no stored credential for the org, or an OAuth refresh the IdP rejected |
+| `3` | organisation could not be resolved |
+| `4` | OS credential store unavailable |
+
+stdout is empty on every non-zero exit, so `TOKEN=$(azdo auth token)` yields an
+empty string rather than an error message.
+
 ### Removing
 
 ```bash
@@ -133,6 +192,7 @@ Every credential-store event is appended to `~/.azdo/audit.log` (JSON lines, `06
 | Event kind | When |
 | --- | --- |
 | `auth.store` / `auth.delete` / `auth.validate.ok` / `auth.validate.fail` | PAT lifecycle |
+| `auth.token` | A credential was exported with `azdo auth token` (records the org and, for OAuth, the account — never the token) |
 | `oauth-login-started` / `oauth-login-success` / `oauth-login-failed` | OAuth login attempts (with `flow`, `clientIdSource`, `accountId`, `scope`, `tokenLifetimeSec`, `reason`) |
 | `oauth-refresh-success` / `oauth-refresh-failed` | Silent-refresh outcomes (with `reason` = `revoked` / `window-exceeded` / `invalid-grant` / `network` / `unknown`) |
 | `oauth-logout` | OAuth credential removal |

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { redactHeaders, redactUrl, redactBody, TraceWriter, initTraceWriter } from '../../src/services/trace-writer.js';
+import { redactHeaders, redactUrl, redactBody, redactText, TraceWriter, initTraceWriter } from '../../src/services/trace-writer.js';
 import type { TraceEntry } from '../../src/types/auth-diagnostics.js';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -157,5 +157,40 @@ describe('initTraceWriter / getActiveTraceWriter', () => {
     initTraceWriter('/no/such/directory/trace.log');
     stderrSpy.mockRestore();
     // no exception thrown is the pass condition
+  });
+});
+
+// `redactBody` only rewrites recognised JSON fields, so anything that will not
+// parse as JSON reached the console untouched. `redactText` is the guarantee
+// behind "tokens are never echoed" for those bodies.
+describe('redactText', () => {
+  const secret = 'ab2cd3ef4gh5ij6kl7mn8op9qr0st1uv2wx3yz4ab5cd6ef7gh8ij';
+
+  it('redacts a bearer token while keeping the scheme', () => {
+    expect(redactText('Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9'))
+      .toBe('Authorization: Bearer [REDACTED]');
+  });
+
+  it('redacts a basic credential', () => {
+    expect(redactText(`Basic ${secret}`)).toBe('Basic [REDACTED]');
+  });
+
+  it('redacts a key=value secret in plain text, keeping the key', () => {
+    expect(redactText('pat=hunter2-and-more')).toBe('pat=[REDACTED]');
+    expect(redactText('accessToken: "s3cr3t-value"')).toBe('accessToken: "[REDACTED]"');
+  });
+
+  it('redacts a bare token-shaped run', () => {
+    expect(redactText(`rejected ${secret} for user`)).toBe('rejected [REDACTED] for user');
+  });
+
+  it('leaves ordinary prose and long letter-only words alone', () => {
+    const prose = `the request was rejected because ${'x'.repeat(60)} is not a valid area path`;
+    expect(redactText(prose)).toBe(prose);
+  });
+
+  it('is a no-op on text with nothing secret-shaped', () => {
+    expect(redactText('TF401232: Work item field reference is invalid: Foo.Bar'))
+      .toBe('TF401232: Work item field reference is invalid: Foo.Bar');
   });
 });

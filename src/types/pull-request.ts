@@ -73,6 +73,54 @@ export interface PullRequestOpenResult {
   pullRequest: BranchPullRequestMatch;
 }
 
+// The two pull request statuses this CLI writes (039-pr-abandon). The
+// PullRequestStatus enumeration also has `completed`, `notSet` and `all`:
+// `completed` is irreversible and out of scope, the other two are search /
+// default values that are never written.
+export type PullRequestLifecycleStatus = 'active' | 'abandoned';
+
+// The PATCH body `pr update` / `pr abandon` / `pr reactivate` send.
+// Deliberately partial: Azure DevOps treats an omitted property as "leave it
+// alone", and sending properties outside the documented updatable set makes the
+// server either throw InvalidArgumentValueException or silently ignore the
+// update — so the whole fetched pull request is never echoed back. Status,
+// Title and Description are all members of that one documented set on one
+// endpoint, which is why the status change reuses this type rather than adding
+// a second client function.
+export interface PullRequestUpdateRequest {
+  title?: string;
+  description?: string;
+  status?: PullRequestLifecycleStatus;
+}
+
+// Which of the two mutable fields `pr update` actually wrote.
+export type PullRequestUpdatableField = 'title' | 'description';
+
+// Flat JSON shape emitted by `azdo pr update --json`. `updatedFields` is the
+// list of fields that were really written — empty on a no-op, so automation
+// can tell "already correct" from "changed" without diffing.
+export interface PullRequestUpdateResult {
+  pullRequestId: number;
+  title: string;
+  description: string | null;
+  url: string | null;
+  noop: boolean;
+  updatedFields: PullRequestUpdatableField[];
+}
+
+// Flat JSON shape emitted by `azdo pr abandon --json` / `pr reactivate --json`.
+// `previousStatus` is the status the pull request held before the call, so a
+// caller can tell an applied change from a no-op without diffing — on a no-op
+// the two are equal and both carry the pull request's real backend status.
+export interface PullRequestStatusChangeResult {
+  pullRequestId: number;
+  title: string;
+  status: string;
+  previousStatus: string;
+  url: string | null;
+  noop: boolean;
+}
+
 export interface ActivePullRequestComment {
   id: number;
   author: string | null;
@@ -286,6 +334,20 @@ export interface PullRequestTemplate {
   path: string;
   content: string;
   kind: 'branch' | 'default';
+}
+
+// The description `pr open` will send, plus the arithmetic that produced it.
+// The caller cannot re-derive these numbers on its own: it does not know
+// whether a template was found, where it lives, or how long it is — which is
+// exactly why an over-long description used to fail as an opaque HTTP 400.
+// Invariant: totalChars === providedChars + separatorChars + templateChars.
+export interface ComposedDescription {
+  text: string;
+  providedChars: number;
+  separatorChars: number;
+  templateChars: number;
+  templatePath: string | null;
+  totalChars: number;
 }
 
 // Minimal shape of GET .../_apis/git/repositories/{repo}. `id` builds the

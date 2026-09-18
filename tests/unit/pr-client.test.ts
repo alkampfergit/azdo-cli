@@ -11,6 +11,7 @@ import {
   listPullRequests,
   listRepositoryPullRequests,
   openPullRequest,
+  updatePullRequest,
   patchThreadStatus,
   postThreadComment,
   resolveProjectId,
@@ -308,6 +309,90 @@ describe('pr-client', () => {
     });
   });
 
+  describe('updatePullRequest', () => {
+    function mockPatch(): ReturnType<typeof vi.spyOn> {
+      return vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          pullRequestId: 96,
+          title: 'Corrected title',
+          description: 'Corrected body',
+          status: 'active',
+          sourceRefName: 'refs/heads/feature/test',
+          targetRefName: 'refs/heads/develop',
+          createdBy: { displayName: 'Alice' },
+          _links: { web: { href: 'https://example.test/pr/96' } },
+        }),
+      } as unknown as Response);
+    }
+
+    it('PATCHes the documented update route', async () => {
+      const fetchSpy = mockPatch();
+
+      const result = await updatePullRequest(context, 'repo-name', 'pat', 96, { title: 'Corrected title' });
+
+      expect(fetchSpy).toHaveBeenCalledWith(
+        'https://dev.azure.com/test-org/test-project/_apis/git/repositories/repo-name/pullrequests/96?api-version=7.1',
+        expect.objectContaining({ method: 'PATCH' }),
+      );
+      expect(result.id).toBe(96);
+      expect(result.title).toBe('Corrected title');
+    });
+
+    it('sends ONLY the supplied fields, so an omitted one cannot be disturbed', async () => {
+      const fetchSpy = mockPatch();
+
+      await updatePullRequest(context, 'repo-name', 'pat', 96, { title: 'Only the title' });
+
+      expect(fetchSpy).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({ body: JSON.stringify({ title: 'Only the title' }) }),
+      );
+    });
+
+    it('sends both fields when both are supplied', async () => {
+      const fetchSpy = mockPatch();
+
+      await updatePullRequest(context, 'repo-name', 'pat', 96, { title: 'T', description: 'D' });
+
+      expect(fetchSpy).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({ body: JSON.stringify({ title: 'T', description: 'D' }) }),
+      );
+    });
+
+    it('never prepends a pull request template (no template lookup at all)', async () => {
+      const fetchSpy = mockPatch();
+
+      await updatePullRequest(context, 'repo-name', 'pat', 96, { description: 'Literal replacement' });
+
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+      expect(String(fetchSpy.mock.calls[0][0])).not.toContain('/items?');
+    });
+
+    it('sends a status-only body for abandon / reactivate (039)', async () => {
+      const fetchSpy = mockPatch();
+
+      await updatePullRequest(context, 'repo-name', 'pat', 96, { status: 'abandoned' });
+
+      expect(fetchSpy).toHaveBeenCalledWith(
+        'https://dev.azure.com/test-org/test-project/_apis/git/repositories/repo-name/pullrequests/96?api-version=7.1',
+        expect.objectContaining({ method: 'PATCH', body: JSON.stringify({ status: 'abandoned' }) }),
+      );
+    });
+
+    it('rejects an over-long description before issuing the request', async () => {
+      const fetchSpy = mockPatch();
+
+      await expect(
+        updatePullRequest(context, 'repo-name', 'pat', 96, { description: 'x'.repeat(4207) }),
+      ).rejects.toThrow(/DESCRIPTION_TOO_LONG: description is 4207 characters, exceeding the Azure DevOps limit of 4000 characters\. Shorten the description by at least 207 characters\./);
+
+      expect(fetchSpy).not.toHaveBeenCalled();
+    });
+  });
+
   describe('openPullRequest', () => {
     // Routes by URL/method instead of call order, since resolving the
     // repository + searching for a pull request template now happens
@@ -396,6 +481,99 @@ describe('pr-client', () => {
 
       await expect(openPullRequest(context, 'repo-name', 'pat', 'feature/test', 'New PR'))
         .rejects.toThrow('DESCRIPTION_REQUIRED');
+    });
+
+    // Azure DevOps caps a PR description at 4000 characters (Learn: git
+    // pull-requests/update). The template contribution is invisible to the
+    // caller, so the overflow has to be named for them, client-side, before
+    // the create call turns it into an opaque HTTP 400.
+    describe('description length pre-flight', () => {
+      it('rejects a composed description over the limit before issuing the create call', async () => {
+        const fetchSpy = mockOpenPullRequestFetch({ templateContent: 'T'.repeat(1871) });
+
+        const error = await openPullRequest(
+          context, 'repo-name', 'pat', 'feature/test', 'New PR', 'D'.repeat(2299),
+        ).catch((err: Error) => err);
+
+        expect(error.message).toContain('DESCRIPTION_TOO_LONG');
+        expect(error.message).toContain('description is 4172 characters');
+        expect(error.message).toContain('2299 provided + 2 separator + 1871 from the repository pull request template');
+        expect(error.message).toContain('pull_request_template.md');
+        expect(error.message).toContain('limit of 4000 characters');
+        expect(error.message).toContain('Shorten the description by at least 172 characters');
+
+        const postCalls = fetchSpy.mock.calls.filter(([, init]) => (init as RequestInit | undefined)?.method === 'POST');
+        expect(postCalls).toHaveLength(0);
+      });
+
+      it('rejects an over-long description even when no template exists', async () => {
+        mockOpenPullRequestFetch();
+
+        const error = await openPullRequest(
+          context, 'repo-name', 'pat', 'feature/test', 'New PR', 'D'.repeat(4500),
+        ).catch((err: Error) => err);
+
+        expect(error.message).toContain('description is 4500 characters, exceeding');
+        expect(error.message).not.toContain('template');
+        expect(error.message).toContain('at least 500 characters');
+      });
+
+      it('accepts a composed description of exactly 4000 characters', async () => {
+        mockOpenPullRequestFetch({ templateContent: 'T'.repeat(1000) });
+
+        const result = await openPullRequest(
+          context, 'repo-name', 'pat', 'feature/test', 'New PR', 'D'.repeat(2998),
+        );
+
+        expect(result.created).toBe(true);
+      });
+
+      it('names the template contribution numerically when the template is the only contribution', async () => {
+        // Previously this said "all of it from the repository template" and
+        // dropped every count, leaving the operator unable to size their edit.
+        mockOpenPullRequestFetch({ templateContent: 'T'.repeat(4500) });
+
+        const error = await openPullRequest(
+          context, 'repo-name', 'pat', 'feature/test', 'New PR',
+        ).catch((err: Error) => err);
+
+        expect(error.message).toContain('description is 4500 characters');
+        expect(error.message).toContain('0 provided + 0 separator + 4500 from the repository pull request template');
+        expect(error.message).toContain('pull_request_template.md');
+        expect(error.message).toContain('at least 500 characters');
+      });
+
+      it('appends the arithmetic when the server rejects the create with a 400 anyway', async () => {
+        vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+          const url = String(input);
+          const method = init?.method ?? 'GET';
+          if (url.includes('/pullrequests?') && method === 'GET') {
+            return { ok: true, status: 200, json: async () => ({ count: 0, value: [] }) } as Response;
+          }
+          if (url.includes('/repositories/repo-name?')) {
+            return { ok: true, status: 200, json: async () => ({ id: 'repo-guid', defaultBranch: 'refs/heads/develop' }) } as Response;
+          }
+          if (url.includes('/repositories/repo-name/items?')) {
+            return { ok: false, status: 404, headers: { get: () => null } } as unknown as Response;
+          }
+          const failure = {
+            ok: false,
+            status: 400,
+            headers: new Headers({ 'content-type': 'application/json' }),
+            text: async () => '{"message":"The pull request description is too long."}',
+            json: async () => ({ message: 'The pull request description is too long.' }),
+            clone: () => failure,
+          };
+          return failure as unknown as Response;
+        });
+
+        const error = await openPullRequest(
+          context, 'repo-name', 'pat', 'feature/test', 'New PR', 'D'.repeat(100),
+        ).catch((err: Error) => err);
+
+        expect(error.message).toContain('HTTP_400: The pull request description is too long.');
+        expect(error.message).toContain('description: 100 provided + 0 separator + 0 template = 100 characters (client limit 4000)');
+      });
     });
 
     it('reuses an existing active pull request', async () => {
@@ -643,6 +821,22 @@ describe('pr-client', () => {
 
       await expect(resolveReviewerIdentity('test-org', 'pat', 'jane@example.com'))
         .rejects.toThrow('IDENTITY_SCOPE_MISSING');
+    });
+
+    it('carries the server detail across the IDENTITY_SCOPE_MISSING translation', async () => {
+      const failure = {
+        ok: false,
+        status: 401,
+        headers: new Headers({ 'content-type': 'application/json' }),
+        text: async () => '{"message":"TF400813: The user is not authorized.","typeKey":"UnauthorizedRequestException"}',
+        json: async () => ({ message: 'TF400813: The user is not authorized.' }),
+        clone: () => failure,
+      };
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue(failure as unknown as Response);
+
+      const error = await resolveReviewerIdentity('test-org', 'pat', 'jane@example.com').catch((err: Error) => err);
+      expect(error.message.startsWith('IDENTITY_SCOPE_MISSING')).toBe(true);
+      expect(error.message).toContain('TF400813: The user is not authorized. [UnauthorizedRequestException]');
     });
   });
 

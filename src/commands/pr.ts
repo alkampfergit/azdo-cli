@@ -8,14 +8,20 @@ import type {
   CreatableThreadStatus,
   PullRequestCommentsResult,
   PullRequestCheck,
+  PullRequestLifecycleStatus,
+  PullRequestStatusChangeResult,
   PullRequestStatusPullRequest,
   PullRequestStatusResult,
+  PullRequestUpdatableField,
+  PullRequestUpdateRequest,
+  PullRequestUpdateResult,
 } from '../types/pull-request.js';
 import type { AuthCredential, AzdoContext } from '../types/work-item.js';
 import {
   listPullRequests,
   listRepositoryPullRequests,
   openPullRequest,
+  updatePullRequest,
   createPullRequestThread,
   getPullRequestThread,
   getPullRequestThreads,
@@ -37,7 +43,7 @@ import {
 } from '../services/pr-client.js';
 import { describeResolvedCredential, requireAuthCredential } from '../services/auth.js';
 import { resolveContext } from '../services/context.js';
-import { validateOrgProjectPair } from '../services/command-helpers.js';
+import { isSentinel, splitSentinel, validateOrgProjectPair, writeErrorDetail } from '../services/command-helpers.js';
 import { detectRepoName, getCurrentBranch } from '../services/git-remote.js';
 
 interface PrCommandOptions {
@@ -58,6 +64,12 @@ interface PrCommandOptions {
   file?: string;
   status?: string;
   dryRun?: boolean;
+  // `pr update` only: the two mutable pull request fields, each available
+  // inline or from a file (`-` = stdin).
+  title?: string;
+  titleFile?: string;
+  description?: string;
+  descriptionFile?: string;
 }
 
 // Parses `--pr-number <N>` into a positive integer. Returns null on any
@@ -76,12 +88,27 @@ function parsePositivePrNumber(raw: string): number | null {
 // cannot drift between subcommands (FR-005 / contract C-1). `pr status` is a
 // multi-PR list command and intentionally does NOT carry this option (owner
 // decision A on PR #43).
-const PR_NUMBER_HELP =
-  "target the pull request with this numeric id, instead of the current branch's PR. " +
-  'When omitted, the CLI auto-detects the pull request whose source branch equals ' +
-  'refs/heads/<current branch> in the Azure DevOps repository identified by the origin ' +
-  'remote; if zero or more than one open PR matches, the command fails with a message ' +
-  'naming the searched branch.';
+//
+// Parameterised by the status the branch auto-detection actually searches: every
+// command but `pr reactivate` resolves the branch's *active* PR, while
+// `reactivate`'s target is by definition already abandoned (039's `branchStatus`
+// on `resolvePullRequestTarget`). The default keeps every other subcommand's
+// string byte-identical.
+function prNumberHelp(branchStatus: 'active' | 'abandoned' = 'active'): string {
+  const matched = branchStatus === 'abandoned' ? 'abandoned' : 'open';
+  return (
+    "target the pull request with this numeric id, instead of the current branch's PR. " +
+    'When omitted, the CLI auto-detects the pull request whose source branch equals ' +
+    'refs/heads/<current branch> in the Azure DevOps repository identified by the origin ' +
+    `remote; if zero or more than one ${matched} PR matches, the command fails with a message ` +
+    'naming the searched branch.'
+  );
+}
+
+const PR_NUMBER_HELP = prNumberHelp();
+
+// `pr reactivate` only: see prNumberHelp above.
+const PR_NUMBER_HELP_ABANDONED = prNumberHelp('abandoned');
 
 // Shared help text for `--repo`, available on every `pr` subcommand. The
 // origin remote stays the default so existing invocations are unaffected;
@@ -131,6 +158,21 @@ function autoDetectMultiMatch(branch: string, ids: number[]): string {
   return `Multiple open pull requests match branch ${branch}: ${idList}. Re-run with --pr-number to choose.`;
 }
 
+// The abandoned-PR counterparts of C-2/C-3, used only by `pr reactivate`, whose
+// branch lookup searches abandoned pull requests (an active one is never a
+// reactivation target). Kept separate so the pinned strings above — matched
+// verbatim by the 019 contract tests — cannot drift, and so the advice differs:
+// "push the branch and open a pull request" is nonsense when the ask was to
+// restore an existing one.
+function abandonedAutoDetectZeroMatch(branch: string): string {
+  return `No abandoned pull request matches branch ${branch}. Pass --pr-number to target a specific PR.`;
+}
+
+function abandonedAutoDetectMultiMatch(branch: string, ids: number[]): string {
+  const idList = ids.map((id) => `#${id}`).join(', ');
+  return `Multiple abandoned pull requests match branch ${branch}: ${idList}. Re-run with --pr-number to choose.`;
+}
+
 // Writes a contract error line verbatim to stderr (no "Error: " prefix, unlike
 // writeError) and flags a non-zero exit. Used for the C-2/C-3 strings whose
 // exact text is pinned by contract. Callers MUST `return` afterwards.
@@ -142,6 +184,39 @@ function writeContractError(line: string): void {
 // Wording shared by every "no body supplied" / "empty body" rejection, so the
 // two authoring commands (add / edit) and reply fail identically.
 const EMPTY_BODY_ERROR = 'Comment text must not be empty. Pass the text inline or use --file <path>.';
+
+// The POSIX "read standard input" path, accepted by every `--file` /
+// `--*-file` option in the `pr` group so a body can be piped in
+// (`gh issue view 96 | azdo pr update --description-file -`).
+const STDIN_PATH = '-';
+
+// Reads a text source named by a `--file` style option: `-` means standard
+// input, anything else is a UTF-8 file path. Returns null when the source
+// could not be read — the error is already on stderr and the exit code set.
+function readTextSource(file: string): string | null {
+  if (file === STDIN_PATH) {
+    // fd 0 is read synchronously: the CLI has nothing else to do until the
+    // body arrives, and stdin can only be drained once per process — which is
+    // also why callers reject `-` used for two options at once.
+    try {
+      return readFileSync(0, 'utf-8');
+    } catch {
+      writeError('Cannot read standard input.');
+      return null;
+    }
+  }
+
+  if (!existsSync(file)) {
+    writeError(`File not found: ${file}`);
+    return null;
+  }
+  try {
+    return readFileSync(file, 'utf-8');
+  } catch {
+    writeError(`Cannot read file: ${file}`);
+    return null;
+  }
+}
 
 // Resolves a comment body from the inline positional argument or --file, which
 // are mutually exclusive. Returns null when the input is unusable — the error
@@ -160,16 +235,11 @@ function resolveCommentBody(
 
   let body: string;
   if (file !== undefined) {
-    if (!existsSync(file)) {
-      writeError(`File not found: ${file}`);
+    const read = readTextSource(file);
+    if (read === null) {
       return null;
     }
-    try {
-      body = readFileSync(file, 'utf-8');
-    } catch {
-      writeError(`Cannot read file: ${file}`);
-      return null;
-    }
+    body = read;
   } else if (inline !== undefined) {
     body = inline;
   } else {
@@ -178,6 +248,48 @@ function resolveCommentBody(
   }
 
   const trimmed = body.trim();
+  if (trimmed === '') {
+    writeError(emptyMessage);
+    return null;
+  }
+
+  return trimmed;
+}
+
+// Same resolution for an OPTIONAL value carried by a `--x` / `--x-file` pair.
+// Three outcomes, which is why this cannot reuse resolveCommentBody's
+// two-valued return: `undefined` means "the operator supplied neither, leave
+// the field alone", `null` means "the input was rejected, the error is already
+// on stderr", a string is the trimmed value.
+function resolveOptionalTextInput(
+  inline: string | undefined,
+  file: string | undefined,
+  flag: 'title' | 'description',
+): string | undefined | null {
+  if (inline !== undefined && file !== undefined) {
+    writeError(`Cannot specify both --${flag} and --${flag}-file.`);
+    return null;
+  }
+
+  if (inline === undefined && file === undefined) {
+    return undefined;
+  }
+
+  const label = flag === 'title' ? 'Title' : 'Description';
+  const emptyMessage = `${label} must not be empty. Pass the text inline or use --${flag}-file <path>.`;
+
+  let value: string;
+  if (file !== undefined) {
+    const read = readTextSource(file);
+    if (read === null) {
+      return null;
+    }
+    value = read;
+  } else {
+    value = inline!;
+  }
+
+  const trimmed = value.trim();
   if (trimmed === '') {
     writeError(emptyMessage);
     return null;
@@ -249,7 +361,7 @@ function writeError(message: string, exitCode = 1): void {
 function handlePrCommandError(err: unknown, context?: AzdoContext, mode: 'read' | 'write' = 'read'): void {
   const error = err instanceof Error ? err : new Error(String(err));
 
-  if (error.message === 'AUTH_FAILED') {
+  if (isSentinel(error.message, 'AUTH_FAILED')) {
     // The first line is unchanged from previous releases (callers match it);
     // the token-source line is additive and is what makes the failure
     // actionable — a PAT scoped for Work Items but not Code makes every `pr`
@@ -261,19 +373,22 @@ function handlePrCommandError(err: unknown, context?: AzdoContext, mode: 'read' 
     if (credentialHint !== null) {
       process.stderr.write(`  ${credentialHint}\n`);
     }
+    writeErrorDetail(error.message, 'AUTH_FAILED');
     return;
   }
 
-  if (error.message === 'IDENTITY_SCOPE_MISSING') {
+  if (isSentinel(error.message, 'IDENTITY_SCOPE_MISSING')) {
     writeError(
       'Could not resolve reviewer identity: your PAT is missing the "Identity (Read)" scope required by the Azure DevOps identities API (separate from Code scope).',
       EXIT_NOT_PERMITTED,
     );
+    writeErrorDetail(error.message, 'IDENTITY_SCOPE_MISSING');
     return;
   }
 
-  if (error.message === 'PERMISSION_DENIED') {
+  if (isSentinel(error.message, 'PERMISSION_DENIED')) {
     writeError(`Access denied. Your PAT may lack ${mode} permissions for project "${context?.project}".`, EXIT_NOT_PERMITTED);
+    writeErrorDetail(error.message, 'PERMISSION_DENIED');
     return;
   }
 
@@ -288,7 +403,13 @@ function handlePrCommandError(err: unknown, context?: AzdoContext, mode: 'read' 
   }
 
   if (error.message.startsWith('HTTP_')) {
-    writeError(`Azure DevOps request failed with ${error.message}.`);
+    // `HTTP_<status>[: <server detail>]` — the status keeps the sentence it
+    // always had, the server's own explanation goes underneath it.
+    const { sentinel, detail } = splitSentinel(error.message);
+    writeError(`Azure DevOps request failed with ${sentinel}.`);
+    if (detail !== null) {
+      process.stderr.write(`  ${detail}\n`);
+    }
     return;
   }
 
@@ -551,6 +672,72 @@ export function createPrStatusCommand(): Command {
   return command;
 }
 
+// The `pr open` failures that are not API failures. Kept out of the action
+// callback so the command body stays a straight line: resolve, create, report.
+function handlePrOpenError(err: unknown, context?: AzdoContext): void {
+  const message = err instanceof Error ? err.message : '';
+
+  if (message.startsWith('AMBIGUOUS_PRS:')) {
+    const ids = message.replace('AMBIGUOUS_PRS:', '').split(',').map((id) => `#${id}`).join(', ');
+    writeError(`Multiple active pull requests already exist for this branch targeting develop: ${ids}. Use pr status to review them.`);
+    return;
+  }
+
+  if (message === 'DESCRIPTION_REQUIRED') {
+    writeError('--description is required for pull request creation.');
+    return;
+  }
+
+  if (message.startsWith('DESCRIPTION_TOO_LONG: ')) {
+    // A validation failure (exit 1), not an API failure: the request was never
+    // sent, so it must not read as "Azure DevOps request failed".
+    writeError(message.slice('DESCRIPTION_TOO_LONG: '.length));
+    return;
+  }
+
+  handlePrCommandError(err, context, 'write');
+}
+
+// `pr open`'s description, resolved before any network call: the template
+// lookup and the composed-length pre-flight downstream are unchanged, they just
+// receive text that may now have come from a file or a pipe. `undefined` means
+// "none supplied — use the template", `null` means the input was rejected and
+// the error is already on stderr.
+//
+// Not resolveOptionalTextInput(): `pr open --description ''` has always meant
+// "no description supplied — use the template", and turning that into an error
+// would break callers passing an empty shell variable. An empty
+// --description-file IS rejected, because asking to read a body from a file
+// that has none is a mistake, not a fallback.
+function resolveOpenDescription(
+  inline: string | undefined,
+  file: string | undefined,
+): string | undefined | null {
+  if (inline !== undefined && file !== undefined) {
+    writeError('Cannot specify both --description and --description-file.');
+    return null;
+  }
+
+  if (file !== undefined) {
+    const fromFile = readTextSource(file);
+    if (fromFile === null) {
+      return null;
+    }
+    const trimmed = fromFile.trim();
+    if (trimmed === '') {
+      writeError('Description must not be empty. Pass the text inline or use --description-file <path>.');
+      return null;
+    }
+    return trimmed;
+  }
+
+  const trimmedInline = inline?.trim();
+  if (trimmedInline === undefined || trimmedInline === '') {
+    return undefined;
+  }
+  return trimmedInline;
+}
+
 export function createPrOpenCommand(): Command {
   const command = new Command('open');
 
@@ -561,10 +748,15 @@ export function createPrOpenCommand(): Command {
       '--description <description>',
       'pull request description; when omitted, a repository-defined pull request template is used if one exists (prepended by this text when both are present)',
     )
+    .option(
+      '--description-file <path>',
+      'read the description from a UTF-8 file instead of --description; "-" reads standard input',
+    )
     .option('--json', 'output JSON')
     .action(async (options: {
       title?: string;
       description?: string;
+      descriptionFile?: string;
       org?: string;
       project?: string;
       repo?: string;
@@ -578,8 +770,10 @@ export function createPrOpenCommand(): Command {
         return;
       }
 
-      const trimmedDescription = options.description?.trim();
-      const description = trimmedDescription && trimmedDescription.length > 0 ? trimmedDescription : undefined;
+      const description = resolveOpenDescription(options.description, options.descriptionFile);
+      if (description === null) {
+        return;
+      }
 
       let context: AzdoContext | undefined;
 
@@ -617,21 +811,318 @@ export function createPrOpenCommand(): Command {
           `Active pull request already exists for ${resolved.branch} -> develop: #${result.pullRequest.id}\n${result.pullRequest.url ?? '—'}\n`,
         );
       } catch (err) {
-        if (err instanceof Error && err.message.startsWith('AMBIGUOUS_PRS:')) {
-          const ids = err.message.replace('AMBIGUOUS_PRS:', '').split(',').map((id) => `#${id}`).join(', ');
-          writeError(`Multiple active pull requests already exist for this branch targeting develop: ${ids}. Use pr status to review them.`);
-          return;
-        }
-
-        if (err instanceof Error && err.message === 'DESCRIPTION_REQUIRED') {
-          writeError('--description is required for pull request creation.');
-          return;
-        }
-
-        handlePrCommandError(err, context, 'write');
+        handlePrOpenError(err, context);
       }
     });
 
+  return command;
+}
+
+// `pr update` failures that are validation, not API failures: the composed
+// length is measured client-side, so it must not read as "Azure DevOps request
+// failed". Mirrors handlePrOpenError's treatment of the same sentinel.
+function handlePrUpdateError(err: unknown, context?: AzdoContext): void {
+  const message = err instanceof Error ? err.message : '';
+
+  if (message.startsWith('DESCRIPTION_TOO_LONG: ')) {
+    writeError(message.slice('DESCRIPTION_TOO_LONG: '.length));
+    return;
+  }
+
+  handlePrCommandError(err, context, 'write');
+}
+
+// Human wording for the field list in both the applied and the no-op line.
+function joinFieldNames(fields: readonly PullRequestUpdatableField[]): string {
+  return fields.join(' and ');
+}
+
+// The fields `pr update` was asked to set, resolved from the four inline/file
+// flags before any network call. `null` means the input was rejected and the
+// error is already on stderr; an absent property means "leave that field
+// alone".
+interface RequestedPullRequestFields {
+  title?: string;
+  description?: string;
+}
+
+function resolveRequestedFields(options: PrCommandOptions): RequestedPullRequestFields | null {
+  // Both `--title-file -` and `--description-file -` would drain fd 0, and the
+  // second read would silently return an empty string. Rejected before any
+  // file is touched so the failure names the real cause.
+  if (options.titleFile === STDIN_PATH && options.descriptionFile === STDIN_PATH) {
+    writeError('Cannot read standard input twice; only one of --title-file and --description-file may be "-".');
+    return null;
+  }
+
+  const title = resolveOptionalTextInput(options.title, options.titleFile, 'title');
+  if (title === null) {
+    return null;
+  }
+
+  const description = resolveOptionalTextInput(options.description, options.descriptionFile, 'description');
+  if (description === null) {
+    return null;
+  }
+
+  if (title === undefined && description === undefined) {
+    writeError('pr update requires at least one of --title, --title-file, --description or --description-file.');
+    return null;
+  }
+
+  return { title, description };
+}
+
+// Which of the requested fields were asked for, and which of those actually
+// differ from what the pull request already holds. Only the differing ones go
+// into the PATCH body — Azure DevOps leaves omitted properties alone, so an
+// unchanged description is never rewritten.
+function diffRequestedFields(
+  requested: RequestedPullRequestFields,
+  current: { title: string; description?: string | null },
+): {
+  fields: PullRequestUpdateRequest;
+  updatedFields: PullRequestUpdatableField[];
+  requestedFields: PullRequestUpdatableField[];
+} {
+  const fields: PullRequestUpdateRequest = {};
+  const updatedFields: PullRequestUpdatableField[] = [];
+  const requestedFields: PullRequestUpdatableField[] = [];
+
+  if (requested.title !== undefined) {
+    requestedFields.push('title');
+    if (requested.title !== current.title) {
+      fields.title = requested.title;
+      updatedFields.push('title');
+    }
+  }
+  if (requested.description !== undefined) {
+    requestedFields.push('description');
+    if (requested.description !== (current.description ?? '')) {
+      fields.description = requested.description;
+      updatedFields.push('description');
+    }
+  }
+
+  return { fields, updatedFields, requestedFields };
+}
+
+async function runPrUpdate(options: PrCommandOptions): Promise<void> {
+  const requested = resolveRequestedFields(options);
+  if (requested === null) {
+    return;
+  }
+
+  let context: AzdoContext | undefined;
+
+  try {
+    const target = await resolvePullRequestTarget(options, {
+      onContextResolved: (resolved) => {
+        context = resolved;
+      },
+    });
+    if (target === null) {
+      return;
+    }
+
+    // No-op detection costs nothing: resolvePullRequestTarget already fetched
+    // the pull request, and mapPullRequest projects both mutable fields onto it.
+    const current = target.pullRequest;
+    const { fields, updatedFields, requestedFields } = diffRequestedFields(requested, current);
+
+    if (updatedFields.length === 0) {
+      const noopResult: PullRequestUpdateResult = {
+        pullRequestId: current.id,
+        title: current.title,
+        description: current.description ?? null,
+        url: current.url,
+        noop: true,
+        updatedFields: [],
+      };
+      if (options.json) {
+        process.stdout.write(`${JSON.stringify(noopResult, null, 2)}\n`);
+        return;
+      }
+      process.stdout.write(
+        `Pull request #${current.id} already has the requested ${joinFieldNames(requestedFields)}; nothing to update.\n`,
+      );
+      return;
+    }
+
+    const updated = await updatePullRequest(target.context, target.repo, target.pat, current.id, fields);
+    const result: PullRequestUpdateResult = {
+      pullRequestId: updated.id,
+      title: updated.title,
+      description: updated.description ?? null,
+      url: updated.url,
+      noop: false,
+      updatedFields,
+    };
+
+    if (options.json) {
+      process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+      return;
+    }
+
+    process.stdout.write(
+      `Updated pull request #${updated.id} (${updatedFields.join(', ')}).\n${updated.url ?? '—'}\n`,
+    );
+  } catch (err) {
+    handlePrUpdateError(err, context);
+  }
+}
+
+export function createPrUpdateCommand(): Command {
+  const command = new Command('update');
+  withCommonPrOptions(configureUnwrappedHelp(command))
+    .alias('edit')
+    .description('Update a pull request\'s title and/or description')
+    .option('--pr-number <N>', PR_NUMBER_HELP)
+    .option('--title <title>', 'new pull request title')
+    .option('--title-file <path>', 'read the new title from a UTF-8 file; "-" reads standard input')
+    .option(
+      '--description <description>',
+      'new pull request description; REPLACES the existing description literally — no repository pull request template is looked up or prepended, unlike "azdo pr open"',
+    )
+    .option('--description-file <path>', 'read the new description from a UTF-8 file; "-" reads standard input')
+    .option('--json', 'output JSON')
+    .action(async (_options: PrCommandOptions, command: Command) => {
+      await runPrUpdate(mergedPrOptions(command));
+    });
+  return command;
+}
+
+// The two directions `pr abandon` / `pr reactivate` drive, each pairing the
+// status it writes with the status its branch lookup searches for and the
+// wording it reports. Everything that differs between the two commands lives
+// here, so the runner below has no per-command branching beyond a lookup.
+const PR_STATUS_CHANGES = {
+  abandon: {
+    target: 'abandoned',
+    search: 'active',
+    verb: 'abandoned',
+    applied: 'Abandoned',
+    refusal: 'abandoned',
+  },
+  reactivate: {
+    target: 'active',
+    search: 'abandoned',
+    verb: 'active',
+    applied: 'Reactivated',
+    refusal: 'reactivated',
+  },
+} as const satisfies Record<string, {
+  target: PullRequestLifecycleStatus;
+  search: PullRequestLifecycleStatus;
+  verb: string;
+  applied: string;
+  refusal: string;
+}>;
+
+type PrStatusDirection = keyof typeof PR_STATUS_CHANGES;
+
+// Azure DevOps treats a completed pull request as final: the web UI drops the
+// Abandon action once a PR is completed, and the way back from a completed PR
+// is a revert (a new PR), not a status flip. Checked against the status the
+// target resolution already fetched, so the refusal costs no extra call and no
+// write is attempted. A rejection this check does not predict still reaches the
+// operator with the server's own message (037).
+const COMPLETED_STATUS = 'completed';
+
+async function runPrStatusChange(options: PrCommandOptions, direction: PrStatusDirection): Promise<void> {
+  const change = PR_STATUS_CHANGES[direction];
+  let context: AzdoContext | undefined;
+
+  try {
+    const target = await resolvePullRequestTarget(options, {
+      branchStatus: change.search,
+      onContextResolved: (resolved) => {
+        context = resolved;
+      },
+    });
+    if (target === null) {
+      return;
+    }
+
+    const current = target.pullRequest;
+    if (current.status === COMPLETED_STATUS) {
+      writeError(
+        `Pull request #${current.id} is completed and cannot be ${change.refusal}. ` +
+          'A completed pull request is final; revert it with a new pull request instead.',
+      );
+      return;
+    }
+
+    if (current.status === change.target) {
+      const noopResult: PullRequestStatusChangeResult = {
+        pullRequestId: current.id,
+        title: current.title,
+        status: current.status,
+        previousStatus: current.status,
+        url: current.url,
+        noop: true,
+      };
+      if (options.json) {
+        process.stdout.write(`${JSON.stringify(noopResult, null, 2)}\n`);
+        return;
+      }
+      process.stdout.write(`Pull request #${current.id} is already ${change.verb}; nothing to do.\n`);
+      return;
+    }
+
+    const updated = await updatePullRequest(target.context, target.repo, target.pat, current.id, {
+      status: change.target,
+    });
+    const result: PullRequestStatusChangeResult = {
+      pullRequestId: updated.id,
+      title: updated.title,
+      status: updated.status,
+      previousStatus: current.status,
+      url: updated.url,
+      noop: false,
+    };
+
+    if (options.json) {
+      process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+      return;
+    }
+
+    process.stdout.write(`${change.applied} pull request #${updated.id} (${updated.title}).\n${updated.url ?? '—'}\n`);
+  } catch (err) {
+    handlePrCommandError(err, context, 'write');
+  }
+}
+
+export function createPrAbandonCommand(): Command {
+  const command = new Command('abandon');
+  withCommonPrOptions(configureUnwrappedHelp(command))
+    // "Abandon: Close the PR" is the Azure DevOps documentation's own wording,
+    // and `close` is the verb gh users reach for. It does NOT complete or merge.
+    .alias('close')
+    .description(
+      'Abandon a pull request (status: abandoned) — reversible with "azdo pr reactivate". ' +
+        'This does NOT complete or merge the pull request; nothing is deleted and no confirmation is asked.',
+    )
+    .option('--pr-number <N>', PR_NUMBER_HELP)
+    .option('--json', 'output JSON')
+    .action(async (_options: PrCommandOptions, command: Command) => {
+      await runPrStatusChange(mergedPrOptions(command), 'abandon');
+    });
+  return command;
+}
+
+export function createPrReactivateCommand(): Command {
+  const command = new Command('reactivate');
+  withCommonPrOptions(configureUnwrappedHelp(command))
+    .description(
+      'Reactivate an abandoned pull request (status: active). ' +
+        'When --pr-number is omitted the current branch\'s single ABANDONED pull request is used, not the active one.',
+    )
+    .option('--pr-number <N>', PR_NUMBER_HELP_ABANDONED)
+    .option('--json', 'output JSON')
+    .action(async (_options: PrCommandOptions, command: Command) => {
+      await runPrStatusChange(mergedPrOptions(command), 'reactivate');
+    });
   return command;
 }
 
@@ -807,49 +1298,115 @@ interface ResolvedThreadTarget extends ResolvedPullRequestTarget {
   threadId: number;
 }
 
+// --pr-number, parsed once before any network call: the number itself, 'none'
+// when the option was not supplied (the current branch decides the target), or
+// 'invalid' when it was supplied but is not a positive integer — in which case
+// the error is already on stderr.
+function parseTargetPrNumber(options: PrCommandOptions): number | 'none' | 'invalid' {
+  if (options.prNumber === undefined) {
+    return 'none';
+  }
+
+  const parsed = parsePositivePrNumber(options.prNumber);
+  if (parsed === null) {
+    writeError(`Invalid --pr-number "${options.prNumber}"; expected a positive integer.`);
+    return 'invalid';
+  }
+
+  return parsed;
+}
+
+// The explicit --pr-number lookup. A missing PR is the caller's typo, not an
+// API failure, so it gets its own message and exit code; anything else is a
+// real API failure and keeps travelling to handlePrCommandError.
+async function fetchTargetById(
+  resolved: ResolvedPrCommandContext,
+  prId: number,
+): Promise<BranchPullRequestMatch | null> {
+  try {
+    return await getPullRequestById(resolved.context, resolved.repo, resolved.pat, prId);
+  } catch (err) {
+    if (err instanceof Error && err.message.startsWith('NOT_FOUND')) {
+      writeError(
+        `Pull request #${prId} not found in ${resolved.context.org}/${resolved.context.project}/${resolved.repo}.`,
+        EXIT_NOT_FOUND,
+      );
+      return null;
+    }
+    throw err;
+  }
+}
+
+// The branch lookup: exactly one pull request of the requested status must
+// match, otherwise the operator is told which ids to disambiguate between. The
+// active wording is pinned by contract (019 C-2/C-3); the abandoned one is
+// `pr reactivate`'s.
+async function findBranchPullRequest(
+  resolved: ResolvedPrCommandContext,
+  branch: string,
+  branchStatus: PullRequestLifecycleStatus,
+): Promise<BranchPullRequestMatch | null> {
+  const pullRequests = await listPullRequests(resolved.context, resolved.repo, resolved.pat, branch, {
+    status: branchStatus,
+  });
+  const abandoned = branchStatus === 'abandoned';
+
+  if (pullRequests.length === 0) {
+    writeContractError(abandoned ? abandonedAutoDetectZeroMatch(branch) : autoDetectZeroMatch(branch));
+    return null;
+  }
+
+  if (pullRequests.length > 1) {
+    const ids = pullRequests.map((pr) => pr.id);
+    writeContractError(
+      abandoned ? abandonedAutoDetectMultiMatch(branch, ids) : autoDetectMultiMatch(branch, ids),
+    );
+    return null;
+  }
+
+  return pullRequests[0];
+}
+
 // Resolves the pull request a write command targets: either the explicit
-// --pr-number or the single open PR of the current branch. Returns null when
+// --pr-number or the single PR of the current branch. Returns null when
 // resolution failed — the error is already on stderr and the exit code set.
+//
+// `branchStatus` selects which pull requests the branch lookup considers, and
+// defaults to the active ones every existing caller wants. `pr reactivate`
+// passes 'abandoned': its target is by definition not active, so the default
+// search would find nothing on a branch whose only PR is the one to restore.
+//
+// `onContextResolved` fires as soon as the org/project/repo are known, which is
+// BEFORE the pull request lookup that can still fail with 401/403. Callers hand
+// it their catch-block `context` variable: without it a permission failure from
+// the lookup itself reports project "undefined", even though the project had
+// been resolved successfully a moment earlier.
 async function resolvePullRequestTarget(
   options: PrCommandOptions,
+  {
+    branchStatus = 'active',
+    onContextResolved,
+  }: {
+    branchStatus?: PullRequestLifecycleStatus;
+    onContextResolved?: (context: AzdoContext) => void;
+  } = {},
 ): Promise<ResolvedPullRequestTarget | null> {
   validateOrgProjectPair(options);
 
-  let explicitPrId: number | null = null;
-  if (options.prNumber !== undefined) {
-    explicitPrId = parsePositivePrNumber(options.prNumber);
-    if (explicitPrId === null) {
-      writeError(`Invalid --pr-number "${options.prNumber}"; expected a positive integer.`);
-      return null;
-    }
+  const explicitPrId = parseTargetPrNumber(options);
+  if (explicitPrId === 'invalid') {
+    return null;
   }
 
-  const resolved = await resolvePrCommandContext(options, { requireBranch: explicitPrId === null });
+  const byBranch = explicitPrId === 'none';
+  const resolved = await resolvePrCommandContext(options, { requireBranch: byBranch });
+  onContextResolved?.(resolved.context);
 
-  let pullRequest: BranchPullRequestMatch;
-  if (explicitPrId !== null) {
-    try {
-      pullRequest = await getPullRequestById(resolved.context, resolved.repo, resolved.pat, explicitPrId);
-    } catch (err) {
-      if (err instanceof Error && err.message.startsWith('NOT_FOUND')) {
-        writeError(`Pull request #${explicitPrId} not found in ${resolved.context.org}/${resolved.context.project}/${resolved.repo}.`, EXIT_NOT_FOUND);
-        return null;
-      }
-      throw err;
-    }
-  } else {
-    const pullRequests = await listPullRequests(resolved.context, resolved.repo, resolved.pat, resolved.branch!, {
-      status: 'active',
-    });
-    if (pullRequests.length === 0) {
-      writeContractError(autoDetectZeroMatch(resolved.branch!));
-      return null;
-    }
-    if (pullRequests.length > 1) {
-      writeContractError(autoDetectMultiMatch(resolved.branch!, pullRequests.map((pr) => pr.id)));
-      return null;
-    }
-    pullRequest = pullRequests[0];
+  const pullRequest = byBranch
+    ? await findBranchPullRequest(resolved, resolved.branch!, branchStatus)
+    : await fetchTargetById(resolved, explicitPrId);
+  if (pullRequest === null) {
+    return null;
   }
 
   return { context: resolved.context, repo: resolved.repo, pat: resolved.pat, pullRequest };
@@ -858,6 +1415,7 @@ async function resolvePullRequestTarget(
 async function resolveThreadTarget(
   threadIdRaw: string,
   options: PrCommandOptions,
+  { onContextResolved }: { onContextResolved?: (context: AzdoContext) => void } = {},
 ): Promise<ResolvedThreadTarget | null> {
   // The thread id is validated before any network call, so a typo never costs
   // a round trip.
@@ -868,7 +1426,7 @@ async function resolveThreadTarget(
     return null;
   }
 
-  const target = await resolvePullRequestTarget(options);
+  const target = await resolvePullRequestTarget(options, { onContextResolved });
   if (target === null) {
     return null;
   }
@@ -895,11 +1453,14 @@ async function runThreadStateChange(
   let context: AzdoContext | undefined;
 
   try {
-    const target = await resolveThreadTarget(threadIdRaw, options);
+    const target = await resolveThreadTarget(threadIdRaw, options, {
+      onContextResolved: (resolved) => {
+        context = resolved;
+      },
+    });
     if (target === null) {
       return;
     }
-    context = target.context;
 
     const threads = await getPullRequestThreads(target.context, target.repo, target.pat, target.pullRequest.id);
     const thread = threads.find((t) => t.id === target.threadId);
@@ -1006,11 +1567,14 @@ async function runCommentReply(
       return;
     }
 
-    const target = await resolveThreadTarget(threadIdRaw, options);
+    const target = await resolveThreadTarget(threadIdRaw, options, {
+      onContextResolved: (resolved) => {
+        context = resolved;
+      },
+    });
     if (target === null) {
       return;
     }
-    context = target.context;
 
     const threads = await getPullRequestThreads(target.context, target.repo, target.pat, target.pullRequest.id);
     const thread = threads.find((t) => t.id === target.threadId);
@@ -1121,11 +1685,14 @@ async function runCommentAdd(
       status = match;
     }
 
-    const target = await resolvePullRequestTarget(options);
+    const target = await resolvePullRequestTarget(options, {
+      onContextResolved: (resolved) => {
+        context = resolved;
+      },
+    });
     if (target === null) {
       return;
     }
-    context = target.context;
 
     if (options.dryRun === true) {
       const dryResult: PrCommentAddResult = {
@@ -1311,11 +1878,14 @@ async function runCommentEdit(
       }
     }
 
-    const target = await resolveThreadTarget(threadIdRaw, options);
+    const target = await resolveThreadTarget(threadIdRaw, options, {
+      onContextResolved: (resolved) => {
+        context = resolved;
+      },
+    });
     if (target === null) {
       return;
     }
-    context = target.context;
 
     const thread = await fetchThreadForEdit(target);
     if (thread === null) {
@@ -1508,11 +2078,14 @@ async function runWorkItemLinkChange(
       return;
     }
 
-    const target = await resolvePullRequestTarget(options);
+    const target = await resolvePullRequestTarget(options, {
+      onContextResolved: (resolved) => {
+        context = resolved;
+      },
+    });
     if (target === null) {
       return;
     }
-    context = target.context;
 
     let outcome;
     try {
@@ -1591,11 +2164,14 @@ async function runReviewerAdd(
   let context: AzdoContext | undefined;
 
   try {
-    const target = await resolvePullRequestTarget(options);
+    const target = await resolvePullRequestTarget(options, {
+      onContextResolved: (resolved) => {
+        context = resolved;
+      },
+    });
     if (target === null) {
       return;
     }
-    context = target.context;
 
     let identity;
     try {
@@ -1654,11 +2230,14 @@ async function runReviewerRemove(reviewer: string, options: PrCommandOptions): P
   let context: AzdoContext | undefined;
 
   try {
-    const target = await resolvePullRequestTarget(options);
+    const target = await resolvePullRequestTarget(options, {
+      onContextResolved: (resolved) => {
+        context = resolved;
+      },
+    });
     if (target === null) {
       return;
     }
-    context = target.context;
 
     let identity;
     try {
@@ -1734,6 +2313,9 @@ export function createPrCommand(): Command {
   command.addCommand(createPrListCommand());
   command.addCommand(createPrStatusCommand());
   command.addCommand(createPrOpenCommand());
+  command.addCommand(createPrUpdateCommand());
+  command.addCommand(createPrAbandonCommand());
+  command.addCommand(createPrReactivateCommand());
   command.addCommand(createPrCommentsCommand());
   command.addCommand(createPrCommentResolveCommand());
   command.addCommand(createPrCommentReopenCommand());

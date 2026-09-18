@@ -29,6 +29,37 @@ export function redactUrl(url: string): string {
   }
 }
 
+// Secret-shaped substrings in free text. `redactBody` only rewrites *JSON*
+// fields it recognises, so anything that will not parse as JSON — a `text/plain`
+// error page, a stack trace, a form-encoded payload — reached the console with
+// whatever it carried. These rules are the last line of defence for that path:
+// an `Authorization`-style scheme + token, a `token`/`pat`/`secret` key=value
+// pair in any syntax, a JWT, and any long mixed letter-and-digit run (an Azure
+// DevOps PAT is 52 base32 characters). The last rule requires both a letter and
+// a digit so an ordinary long word is left alone.
+
+const SECRET_ASSIGNMENT = String.raw`["']?\s*[:=]\s*["']?)[^"'\s,;&}]+`;
+const SECRET_IN_TEXT: readonly (readonly [RegExp, string])[] = [
+  [/\b(Bearer|Basic)\s+[\w.~+/=-]{8,}/gi, `$1 ${REDACTED}`],
+  [new RegExp(String.raw`(\b(?:access|refresh|api)[_-]?(?:token|key)\b${SECRET_ASSIGNMENT}`, 'gi'), `$1${REDACTED}`],
+  [new RegExp(String.raw`(\b(?:token|pat|password|secret)\b${SECRET_ASSIGNMENT}`, 'gi'), `$1${REDACTED}`],
+  [/\beyJ[A-Za-z0-9._~+/=-]{20,}/g, REDACTED],
+  [/\b(?=[A-Za-z0-9]*\d)(?=[A-Za-z0-9]*[A-Za-z])[A-Za-z0-9]{40,}\b/g, REDACTED],
+];
+
+/**
+ * Redacts secret-shaped substrings from free text that is about to be shown to
+ * a user. Complements `redactBody`, which only understands JSON objects and so
+ * leaves a `text/plain` body exactly as the server sent it.
+ */
+export function redactText(text: string): string {
+  let out = text;
+  for (const [pattern, replacement] of SECRET_IN_TEXT) {
+    out = out.replace(pattern, replacement);
+  }
+  return out;
+}
+
 export function redactBody(body: string | null): string | null {
   if (body === null) return null;
   try {

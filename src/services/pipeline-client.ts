@@ -1,5 +1,5 @@
 import type { AuthCredential, AzdoContext } from '../types/work-item.js';
-import { authHeaders, fetchWithErrors } from './azdo-client.js';
+import { authHeaders, fetchWithErrors, httpError } from './azdo-client.js';
 import type {
   AzdoBuild,
   AzdoBuildListResponse,
@@ -41,7 +41,7 @@ async function readJsonResponse<T>(response: Response): Promise<T> {
   // status (e.g. 400/500) must not be JSON-parsed as a success payload —
   // mirror pr-client and fail fast with an HTTP_<status> error.
   if (!response.ok) {
-    throw new Error(`HTTP_${response.status}`);
+    throw httpError(response);
   }
   return (await response.json()) as T;
 }
@@ -445,7 +445,7 @@ export async function getRunLog(
   // Same non-OK guard as readJsonResponse: never print an error payload to
   // stdout as if it were log content.
   if (!response.ok) {
-    throw new Error(`HTTP_${response.status}`);
+    throw httpError(response);
   }
   return response.text();
 }

@@ -12,12 +12,20 @@ export function makeFetchResponse(jsonBody: unknown, status = 200): Response {
   } as unknown as Response;
 }
 
-export function makeErrorResponse(status: number): Response {
-  return {
+// A failing response shaped like the real thing: `fetchWithErrors` reads the
+// body of every non-ok response from a `clone()` to render the server's own
+// explanation, so a fixture without `clone()`/`text()` silently exercises the
+// "body could not be captured" fallback instead of the path users hit.
+export function makeErrorResponse(status: number, body = ''): Response {
+  const response = {
     ok: false,
     status,
     headers: new Headers({ 'content-type': 'application/json' }),
-  } as unknown as Response;
+    text: async () => body,
+    json: async () => JSON.parse(body) as unknown,
+    clone: () => response,
+  };
+  return response as unknown as Response;
 }
 
 export function makeHtmlResponse(htmlBody = '<!DOCTYPE html><html><body>Sign in</body></html>', status = 200): Response {
