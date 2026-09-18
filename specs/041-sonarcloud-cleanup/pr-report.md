@@ -98,7 +98,10 @@ None.
   Rather than drop it, the diff ships as
   `specs/041-sonarcloud-cleanup/ci-workflow.patch`. Apply with
   `git apply specs/041-sonarcloud-cleanup/ci-workflow.patch` from anyone with
-  `workflow` scope. Until then the gate on `develop` goes 35 → 7, not 35 → 0.
+  `workflow` scope. Until then the gate on `develop` goes 35 → 7, not 35 → 0,
+  so this PR does **not** auto-close issue #104: the remaining work is tracked
+  in issue #106, which carries the rule list, the apply steps and the
+  revert-if-red note below.
 - **Watch CI once that patch is applied.** `npm ci --ignore-scripts` is the one
   change that can plausibly break a green pipeline: `@napi-rs/keyring` is
   native. Its prebuilds ship as optional platform packages rather than via a
