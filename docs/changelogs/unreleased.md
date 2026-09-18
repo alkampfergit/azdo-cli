@@ -74,5 +74,5 @@
   takes spec-kit from its PyPI release rather than `main`. The remaining 7 are
   the CI workflow fix (`npm ci --ignore-scripts`, pinned `vitest` instead of
   `npx`), which ships as `specs/041-sonarcloud-cleanup/ci-workflow.patch`
-  because the pushing token lacks GitHub's `workflow` scope. No dependency,
-  command or output changed. (#104)
+  because the pushing token lacks GitHub's `workflow` scope and are tracked
+  separately. No dependency, command or output changed. (#104, #106)

@@ -30,8 +30,9 @@ npm install
 `.devcontainer/postcreate.sh` bootstraps the agent tooling used in this repo.
 Two constraints it follows, both enforced by the SonarCloud shell rules:
 
-- Every `curl` installer pins the protocol (`--proto '=https' --tlsv1.2`), so a
-  redirect cannot downgrade a script that is piped straight into a shell.
+- Every `curl` installer pins the protocol (`--proto '=https' --tlsv1.2`, held
+  once in the `CURL_TLS_ARGS` array at the top of the script), so a redirect
+  cannot downgrade a script that is piped straight into a shell.
 - Package installs avoid running third-party lifecycle / build scripts:
   `npm install -g ... --ignore-scripts`, and `uv tool install ... --no-build`.
 
