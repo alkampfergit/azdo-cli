@@ -9,7 +9,7 @@ import {
   listOrgsWithStoredPat,
   probeBackend,
 } from './credential-store.js';
-import { maskedDisplay, normalizePat } from './auth-masking.js';
+import { maskedDisplay } from './auth-masking.js';
 import { refreshIfNeeded } from './oauth-token-refresh.js';
 import { runAuthCodeFlow } from './oauth-flow.js';
 import { runDeviceCodeFlow } from './oauth-device-code.js';
@@ -23,7 +23,7 @@ import {
 } from '../types/credential.js';
 import type { OAuthFlow } from '../types/audit.js';
 
-export { maskedDisplay, normalizePat };
+export { maskedDisplay, normalizePat } from './auth-masking.js';
 
 const PAT_PROMPT = 'Enter your Azure DevOps PAT: ';
 
@@ -79,25 +79,35 @@ export async function promptForPat(): Promise<string | null> {
   });
 }
 
-export function findDotEnvPat(startDir: string = process.cwd()): string | null {
-  let current = startDir;
-  while (true) {
-    const envFile = join(current, '.env');
-    if (existsSync(envFile)) {
-      const contents = readFileSync(envFile, 'utf8');
-      for (const line of contents.split('\n')) {
-        const match = line.match(/^AZDO_PAT\s*=([^\n\r]+)$/);
-        if (match) {
-          const value = match[1].trim().replace(/^["']|["']$/g, '');
-          if (value.length > 0) return value;
-        }
-      }
-    }
-    const parent = dirname(current);
-    if (parent === current) break;
-    current = parent;
+/**
+ * The first non-empty AZDO_PAT assignment in one .env file, or null when the
+ * file is absent or carries no usable value. Split out of `findDotEnvPat` so
+ * the directory walk-up below stays flat: reading a file and walking a tree
+ * are two jobs, and nesting them was the whole of the complexity.
+ */
+function patFromEnvFile(envFile: string): string | null {
+  if (!existsSync(envFile)) return null;
+
+  const contents = readFileSync(envFile, 'utf8');
+  for (const line of contents.split('\n')) {
+    const match = line.match(/^AZDO_PAT\s*=([^\n\r]+)$/);
+    if (match === null) continue;
+    const value = match[1].trim().replace(/^["']|["']$/g, '');
+    if (value.length > 0) return value;
   }
   return null;
+}
+
+export function findDotEnvPat(startDir: string = process.cwd()): string | null {
+  let current = startDir;
+  for (;;) {
+    const found = patFromEnvFile(join(current, '.env'));
+    if (found !== null) return found;
+
+    const parent = dirname(current);
+    if (parent === current) return null;
+    current = parent;
+  }
 }
 
 /**

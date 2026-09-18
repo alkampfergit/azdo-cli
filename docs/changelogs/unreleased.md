@@ -64,3 +64,13 @@
   simply was not reachable from the error handler. Affects `pr abandon`,
   `pr reactivate`, `pr update`, `pr comments add|edit|resolve|reopen`,
   `pr reviewers add|remove` and `pr work-items link|unlink`. (#97)
+
+### Internal
+
+- Cleared the SonarCloud backlog on `develop` (35 open findings → 0) with source
+  changes only — no rule suppressions. Three over-complex functions were split
+  (`pr comments`, `auth logout`, `.env` PAT lookup) with no change to any
+  message or exit code; CI now installs with `--ignore-scripts` and runs the
+  pinned `vitest` instead of resolving one through `npx`; the devcontainer
+  pins HTTPS on its `curl` installers and takes spec-kit from its PyPI release
+  rather than `main`. No dependency, command or output changed. (#104)

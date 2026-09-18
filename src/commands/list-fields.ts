@@ -9,7 +9,11 @@ import { htmlToMarkdown } from '../services/md-convert.js';
 
 function stringifyValue(value: unknown): string {
   if (value === null || value === undefined) return '';
+  if (typeof value === 'string') return value;
   if (typeof value === 'object') return JSON.stringify(value);
+  // Everything left stringifies to something a human can read; `unknown` is
+  // narrowed explicitly so no value can silently render as '[object Object]'.
+  if (typeof value === 'symbol' || typeof value === 'function') return value.toString();
   return String(value);
 }
 

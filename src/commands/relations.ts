@@ -67,7 +67,7 @@ function handleRelationError(err: unknown, id1?: number): never {
       `Error: unknown relation type "${name}". Run 'azdo relations types' to see valid names.\n`,
     );
   } else if (msg.startsWith('NOT_FOUND')) {
-    const target = id1 !== undefined ? id1 : 'unknown';
+    const target = id1 ?? 'unknown';
     process.stderr.write(`Error: work item #${target} not found.\n`);
   } else if (isSentinel(msg, 'AUTH_FAILED')) {
     process.stderr.write(

@@ -25,6 +25,25 @@ npm install
 | `npm run typecheck` | Type-check with tsc (no emit) |
 | `npm run format` | Check formatting with Prettier |
 
+## Dev container tooling
+
+`.devcontainer/postcreate.sh` bootstraps the agent tooling used in this repo.
+Two constraints it follows, both enforced by the SonarCloud shell rules:
+
+- Every `curl` installer pins the protocol (`--proto '=https' --tlsv1.2`), so a
+  redirect cannot downgrade a script that is piped straight into a shell.
+- Package installs avoid running third-party lifecycle / build scripts:
+  `npm install -g ... --ignore-scripts`, and `uv tool install ... --no-build`.
+
+The `--no-build` rule is why **spec-kit is installed from its PyPI release**
+(`uv tool install specify-cli --no-build`) rather than from
+`git+https://github.com/github/spec-kit.git`: a git source has no wheel, so uv
+refuses to install it with building disabled. The PyPI package is the same
+project — installing from `main` lands on the pre-release of the same version.
+If you need an unreleased spec-kit change, install it yourself with the git
+source; do not put the git source back in the bootstrap script without also
+dropping `--no-build`.
+
 ## Integration test environment
 
 Integration tests hit a real Azure DevOps instance. Create a `.env` file **one directory above the repo root** (e.g. `/workspaces/.env` when the repo lives at `/workspaces/azdo-cli`) with the following variables:

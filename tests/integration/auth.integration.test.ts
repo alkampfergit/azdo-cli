@@ -1,5 +1,5 @@
-import { afterAll, describe, expect } from 'vitest';
-import { itIntegration } from './helpers/skip-unless-integration.js';
+import { afterAll, describe, expect, it } from 'vitest';
+import { INTEGRATION_ENABLED } from './helpers/skip-unless-integration.js';
 import {
   getPat,
   storePat,
@@ -19,8 +19,8 @@ afterAll(async () => {
   }
 });
 
-describe('credential-store integration (real OS keyring)', () => {
-  itIntegration('round-trips a PAT through the real keyring', async () => {
+describe.skipIf(!INTEGRATION_ENABLED)('credential-store integration (real OS keyring)', () => {
+  it('round-trips a PAT through the real keyring', async () => {
     const backend = probeBackend();
     expect(['windows-credential-manager', 'macos-keychain', 'linux-libsecret']).toContain(backend);
 

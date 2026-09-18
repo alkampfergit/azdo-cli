@@ -5,76 +5,86 @@ import { __resetForTests } from '../../src/services/remote-warning.js';
 import { FROZEN_BASELINE } from './fixtures/git-remote.cases.js';
 
 describe('parseAzdoRemote', () => {
-  it('parses HTTPS current format', () => {
-    const result = parseAzdoRemote('https://dev.azure.com/myorg/myproject/_git/myrepo');
-    expect(result).toEqual({ org: 'myorg', project: 'myproject' });
+  afterEach(() => {
+    vi.restoreAllMocks();
   });
 
-  it('parses HTTPS current format with http scheme', () => {
-    const result = parseAzdoRemote('http://dev.azure.com/myorg/myproject/_git/myrepo'); // NOSONAR: intentional http test
-    expect(result).toEqual({ org: 'myorg', project: 'myproject' });
-  });
+  // Every remote form that must resolve to a context. Parameterised so a new
+  // form is one row rather than one more copy of the same three lines; the
+  // stderr spy is unconditional because the userinfo forms emit a credential
+  // warning that would otherwise pollute test output.
+  const parsedForms: Array<{ label: string; url: string; expected: { org: string; project: string } }> = [
+    {
+      label: 'HTTPS current format',
+      url: 'https://dev.azure.com/myorg/myproject/_git/myrepo',
+      expected: { org: 'myorg', project: 'myproject' },
+    },
+    {
+      label: 'HTTPS current format with http scheme',
+      url: 'http://dev.azure.com/myorg/myproject/_git/myrepo', // NOSONAR: intentional http test
+      expected: { org: 'myorg', project: 'myproject' },
+    },
+    {
+      label: 'HTTPS legacy format',
+      url: 'https://myorg.visualstudio.com/myproject/_git/myrepo',
+      expected: { org: 'myorg', project: 'myproject' },
+    },
+    {
+      label: 'HTTPS legacy format with DefaultCollection',
+      url: 'https://myorg.visualstudio.com/DefaultCollection/myproject/_git/myrepo',
+      expected: { org: 'myorg', project: 'myproject' },
+    },
+    {
+      label: 'SSH current format',
+      url: 'git@ssh.dev.azure.com:v3/myorg/myproject/myrepo',
+      expected: { org: 'myorg', project: 'myproject' },
+    },
+    {
+      label: 'SSH legacy format',
+      url: 'myorg@vs-ssh.visualstudio.com:v3/myorg/myproject/myrepo',
+      expected: { org: 'myorg', project: 'myproject' },
+    },
+    {
+      label: 'org and project with special characters',
+      url: 'https://dev.azure.com/my-org/my%20project/_git/repo',
+      expected: { org: 'my-org', project: 'my project' },
+    },
+    {
+      label: 'percent-encoded project name (issue #71 — Course Examples Builds)',
+      url: 'https://dev.azure.com/gianmariaricci/Course%20Examples%20Builds/_git/JavaCalendar',
+      expected: { org: 'gianmariaricci', project: 'Course Examples Builds' },
+    },
+    {
+      label: 'multi-space percent-encoded project name',
+      url: 'https://dev.azure.com/myorg/My%20Awesome%20Project/_git/repo',
+      expected: { org: 'myorg', project: 'My Awesome Project' },
+    },
+    {
+      label: 'percent-encoded project name when userinfo prefix is present',
+      url: 'https://user:token@dev.azure.com/org/My%20Project/_git/repo',
+      expected: { org: 'org', project: 'My Project' },
+    },
+    {
+      label: 'raw segment unchanged for malformed percent-encoding',
+      url: 'https://dev.azure.com/org/My%GGProject/_git/repo',
+      expected: { org: 'org', project: 'My%GGProject' },
+    },
+  ];
 
-  it('parses HTTPS legacy format', () => {
-    const result = parseAzdoRemote('https://myorg.visualstudio.com/myproject/_git/myrepo');
-    expect(result).toEqual({ org: 'myorg', project: 'myproject' });
-  });
-
-  it('parses HTTPS legacy format with DefaultCollection', () => {
-    const result = parseAzdoRemote('https://myorg.visualstudio.com/DefaultCollection/myproject/_git/myrepo');
-    expect(result).toEqual({ org: 'myorg', project: 'myproject' });
-  });
-
-  it('parses SSH current format', () => {
-    const result = parseAzdoRemote('git@ssh.dev.azure.com:v3/myorg/myproject/myrepo');
-    expect(result).toEqual({ org: 'myorg', project: 'myproject' });
-  });
-
-  it('parses SSH legacy format', () => {
-    const result = parseAzdoRemote('myorg@vs-ssh.visualstudio.com:v3/myorg/myproject/myrepo');
-    expect(result).toEqual({ org: 'myorg', project: 'myproject' });
-  });
-
-  it('handles org and project with special characters', () => {
-    const result = parseAzdoRemote('https://dev.azure.com/my-org/my%20project/_git/repo');
-    expect(result).toEqual({ org: 'my-org', project: 'my project' });
-  });
-
-  it('decodes percent-encoded project name (issue #71 — Course Examples Builds)', () => {
-    const result = parseAzdoRemote('https://dev.azure.com/gianmariaricci/Course%20Examples%20Builds/_git/JavaCalendar');
-    expect(result).toEqual({ org: 'gianmariaricci', project: 'Course Examples Builds' });
-  });
-
-  it('decodes multi-space percent-encoded project name', () => {
-    const result = parseAzdoRemote('https://dev.azure.com/myorg/My%20Awesome%20Project/_git/repo');
-    expect(result).toEqual({ org: 'myorg', project: 'My Awesome Project' });
-  });
-
-  it('decodes percent-encoded project name when userinfo prefix is present', () => {
+  it.each(parsedForms)('parses $label', ({ url, expected }) => {
     vi.spyOn(process.stderr, 'write').mockReturnValue(true);
-    const result = parseAzdoRemote('https://user:token@dev.azure.com/org/My%20Project/_git/repo');
-    expect(result).toEqual({ org: 'org', project: 'My Project' });
+    expect(parseAzdoRemote(url)).toEqual(expected);
   });
 
-  it('returns raw segment unchanged for malformed percent-encoding', () => {
-    const result = parseAzdoRemote('https://dev.azure.com/org/My%GGProject/_git/repo');
-    expect(result).toEqual({ org: 'org', project: 'My%GGProject' });
-  });
+  const unrecognised: Array<{ label: string; url: string }> = [
+    { label: 'GitHub URL', url: 'https://github.com/user/repo.git' },
+    { label: 'GitLab URL', url: 'https://gitlab.com/user/repo.git' },
+    { label: 'empty string', url: '' },
+    { label: 'random string', url: 'not-a-url-at-all' },
+  ];
 
-  it('returns null for GitHub URL', () => {
-    expect(parseAzdoRemote('https://github.com/user/repo.git')).toBeNull();
-  });
-
-  it('returns null for GitLab URL', () => {
-    expect(parseAzdoRemote('https://gitlab.com/user/repo.git')).toBeNull();
-  });
-
-  it('returns null for empty string', () => {
-    expect(parseAzdoRemote('')).toBeNull();
-  });
-
-  it('returns null for random string', () => {
-    expect(parseAzdoRemote('not-a-url-at-all')).toBeNull();
+  it.each(unrecognised)('returns null for $label', ({ url }) => {
+    expect(parseAzdoRemote(url)).toBeNull();
   });
 });
 
