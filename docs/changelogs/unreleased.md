@@ -22,6 +22,21 @@
   keeps its threads and work-item links, and neither command prompts. Both are
   idempotent (`noop: true`, no write), a completed PR is refused before any
   write, and `reactivate`'s branch lookup searches **abandoned** PRs. (#97)
+- `azdo auth token` prints the credential `azdo` itself would use for an
+  organisation on **stdout and nothing else** (one trailing newline), so an
+  Azure DevOps capability the CLI does not yet wrap no longer forces you to mint
+  a second PAT for the same identity. It resolves the token through the same
+  ladder as every other command (`AZDO_PAT` → stored credential → `.env`) and
+  refreshes an expired OAuth access token first, so a capture never yields a
+  dead token. stdout is empty on every non-zero exit. (#98)
+- When stderr is a terminal, `azdo auth token` also names the credential there —
+  kind, source, account and expiry, plus whether Azure DevOps takes it as
+  `Basic` or `Bearer`, since tokens are documented as opaque and must not be
+  decoded to find out. Piped or redirected, stderr stays silent (including the
+  credential store's legacy-PAT migration notice), so a script sees only the
+  token. There is deliberately no `--json`; `azdo auth status --json` remains
+  the machine-readable credential view and never includes token material. Every
+  export appends an `auth.token` audit entry. (#98)
 
 ### Changed
 
