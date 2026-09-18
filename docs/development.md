@@ -42,10 +42,9 @@ AZDO_PR_ID=64
 # Required for pull-request + build tests
 AZDO_PR_ID_WITH_BUILDS=65
 
-# Required for work-item relation tests
+# Required for work-item relation tests (read-only; the add/remove round-trip
+# creates and links its own scratch work items)
 AZDO_WI_WITH_RELATIONS=44920
-AZDO_WI_RELATION_SOURCE=44920
-AZDO_WI_RELATION_TARGET=44922
 
 # Required for attachment tests
 AZDO_ATTACHMENT_ITEM_ID=39835
