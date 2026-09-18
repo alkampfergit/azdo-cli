@@ -1126,6 +1126,169 @@ export function createPrReactivateCommand(): Command {
   return command;
 }
 
+// ── `pr comments` helpers ──────────────────────────────────────────────────
+// The listing action used to parse three options, resolve the pull request,
+// select threads and phrase the empty-result sentence inline, which put it far
+// over the cognitive-complexity limit. Each concern is now its own function;
+// every message and exit code is carried over verbatim.
+
+interface ParsedCommentsOptions {
+  explicitPrId: number | null;
+  maxChars: number;
+  threadFilter: number | null;
+}
+
+// The three numeric options, validated before any network call. `null` means
+// one of them was malformed and the error is already on stderr.
+function parseCommentsOptions(options: PrCommandOptions): ParsedCommentsOptions | null {
+  let explicitPrId: number | null = null;
+  if (options.prNumber !== undefined) {
+    explicitPrId = parsePositivePrNumber(options.prNumber);
+    if (explicitPrId === null) {
+      writeError(`Invalid --pr-number "${options.prNumber}"; expected a positive integer.`);
+      return null;
+    }
+  }
+
+  let maxChars = 0;
+  if (options.maxChars !== undefined) {
+    const parsed = parseNonNegativeInt(options.maxChars);
+    if (parsed === null) {
+      writeError(`Invalid --max-chars "${options.maxChars}"; expected a non-negative integer.`);
+      return null;
+    }
+    maxChars = parsed;
+  }
+
+  let threadFilter: number | null = null;
+  if (options.thread !== undefined) {
+    threadFilter = parsePositivePrNumber(options.thread);
+    if (threadFilter === null) {
+      writeError(`Invalid --thread "${options.thread}"; expected a positive integer.`);
+      return null;
+    }
+  }
+
+  return { explicitPrId, maxChars, threadFilter };
+}
+
+// The pull request the listing is about: the explicit --pr-number, or the one
+// active PR for the current branch. `null` means the failure is already
+// reported (not found / zero match / multi match).
+async function resolveCommentsPullRequest(
+  resolved: ResolvedPrCommandContext,
+  explicitPrId: number | null,
+): Promise<{ pullRequest: BranchPullRequestMatch; branchLabel: string } | null> {
+  if (explicitPrId !== null) {
+    let pullRequest: BranchPullRequestMatch;
+    try {
+      pullRequest = await getPullRequestById(resolved.context, resolved.repo, resolved.pat, explicitPrId);
+    } catch (err) {
+      if (err instanceof Error && err.message.startsWith('NOT_FOUND')) {
+        writeError(`Pull request #${explicitPrId} not found in ${resolved.context.org}/${resolved.context.project}/${resolved.repo}.`, EXIT_NOT_FOUND);
+        return null;
+      }
+      throw err;
+    }
+    return { pullRequest, branchLabel: resolved.branch ?? pullRequest.sourceRefName };
+  }
+
+  const pullRequests = await listPullRequests(resolved.context, resolved.repo, resolved.pat, resolved.branch!, {
+    status: 'active',
+  });
+
+  if (pullRequests.length === 0) {
+    writeContractError(autoDetectZeroMatch(resolved.branch!));
+    return null;
+  }
+
+  if (pullRequests.length > 1) {
+    writeContractError(autoDetectMultiMatch(resolved.branch!, pullRequests.map((pr) => pr.id)));
+    return null;
+  }
+
+  return { pullRequest: pullRequests[0], branchLabel: resolved.branch! };
+}
+
+// --thread is a selector, not a filter: asking for a thread that isn't on this
+// pull request is an error, not an empty listing, so a caller re-reading a
+// thread after editing it notices immediately. `null` means that error was
+// reported.
+function selectCommentThreads(
+  fetchedThreads: ActiveCommentThread[],
+  threadFilter: number | null,
+  pullRequestId: number,
+): ActiveCommentThread[] | null {
+  if (threadFilter === null) {
+    return fetchedThreads;
+  }
+
+  if (!fetchedThreads.some((thread) => thread.id === threadFilter)) {
+    writeError(`Thread #${threadFilter} not found on pull request #${pullRequestId}.`, EXIT_NOT_FOUND);
+    return null;
+  }
+
+  return fetchedThreads.filter((thread) => thread.id === threadFilter);
+}
+
+// Drop the threads the flags exclude, then rewrite each survivor for output.
+// A thread whose comments were all system-generated has nothing left to show,
+// so it drops out of the listing entirely.
+function shapeCommentThreads(
+  allThreads: ActiveCommentThread[],
+  opts: {
+    hideResolved: boolean;
+    codeRelatedOnly: boolean;
+    excludeSystem: boolean;
+    maxChars: number;
+    contains?: string;
+  },
+): ActiveCommentThread[] {
+  return allThreads
+    .filter(
+      (thread) =>
+        (!opts.hideResolved || !isThreadResolved(thread.status)) &&
+        (!opts.codeRelatedOnly || thread.threadContext !== null),
+    )
+    .map((thread) =>
+      shapeThreadForOutput(thread, {
+        excludeSystem: opts.excludeSystem,
+        maxChars: opts.maxChars,
+        contains: opts.contains,
+      }),
+    )
+    .filter((thread): thread is ActiveCommentThread => thread !== null);
+}
+
+// The human-readable "nothing to show" line. When a filter is responsible for
+// the empty listing the sentence names it, so an operator can tell "this PR has
+// no comments" from "your filters hid them all".
+function describeEmptyThreads(
+  pullRequestId: number,
+  allThreadCount: number,
+  active: { hideResolved: boolean; codeRelatedOnly: boolean; excludeSystem: boolean; contains?: string },
+): string {
+  const filters: string[] = [];
+  if (active.contains !== undefined) {
+    filters.push('matching');
+  }
+  if (active.codeRelatedOnly) {
+    filters.push('code-related');
+  }
+  if (active.hideResolved) {
+    filters.push('unresolved');
+  }
+  if (active.excludeSystem) {
+    filters.push('non-system');
+  }
+
+  if (allThreadCount > 0 && filters.length > 0) {
+    return `Pull request #${pullRequestId} has no ${filters.join(' ')} comment threads (filtered from ${allThreadCount} thread${allThreadCount === 1 ? '' : 's'}).\n`;
+  }
+
+  return `Pull request #${pullRequestId} has no comment threads.\n`;
+}
+
 export function createPrCommentsCommand(): Command {
   const command = new Command('comments');
 
@@ -1143,71 +1306,22 @@ export function createPrCommentsCommand(): Command {
     .action(async (options: PrCommandOptions) => {
       validateOrgProjectPair(options);
 
+      const parsed = parseCommentsOptions(options);
+      if (parsed === null) {
+        return;
+      }
+      const { explicitPrId, maxChars, threadFilter } = parsed;
+
       let context: AzdoContext | undefined;
-      let explicitPrId: number | null = null;
-      if (options.prNumber !== undefined) {
-        explicitPrId = parsePositivePrNumber(options.prNumber);
-        if (explicitPrId === null) {
-          writeError(`Invalid --pr-number "${options.prNumber}"; expected a positive integer.`);
-          return;
-        }
-      }
-
-      let maxChars = 0;
-      if (options.maxChars !== undefined) {
-        const parsed = parseNonNegativeInt(options.maxChars);
-        if (parsed === null) {
-          writeError(`Invalid --max-chars "${options.maxChars}"; expected a non-negative integer.`);
-          return;
-        }
-        maxChars = parsed;
-      }
-
-      let threadFilter: number | null = null;
-      if (options.thread !== undefined) {
-        threadFilter = parsePositivePrNumber(options.thread);
-        if (threadFilter === null) {
-          writeError(`Invalid --thread "${options.thread}"; expected a positive integer.`);
-          return;
-        }
-      }
-
       try {
         const resolved = await resolvePrCommandContext(options, { requireBranch: explicitPrId === null });
         context = resolved.context;
 
-        let pullRequest: BranchPullRequestMatch;
-        let branchLabel: string;
-
-        if (explicitPrId !== null) {
-          try {
-            pullRequest = await getPullRequestById(resolved.context, resolved.repo, resolved.pat, explicitPrId);
-          } catch (err) {
-            if (err instanceof Error && err.message.startsWith('NOT_FOUND')) {
-              writeError(`Pull request #${explicitPrId} not found in ${resolved.context.org}/${resolved.context.project}/${resolved.repo}.`, EXIT_NOT_FOUND);
-              return;
-            }
-            throw err;
-          }
-          branchLabel = resolved.branch ?? pullRequest.sourceRefName;
-        } else {
-          const pullRequests = await listPullRequests(resolved.context, resolved.repo, resolved.pat, resolved.branch!, {
-            status: 'active',
-          });
-
-          if (pullRequests.length === 0) {
-            writeContractError(autoDetectZeroMatch(resolved.branch!));
-            return;
-          }
-
-          if (pullRequests.length > 1) {
-            writeContractError(autoDetectMultiMatch(resolved.branch!, pullRequests.map((pr) => pr.id)));
-            return;
-          }
-
-          pullRequest = pullRequests[0];
-          branchLabel = resolved.branch!;
+        const target = await resolveCommentsPullRequest(resolved, explicitPrId);
+        if (target === null) {
+          return;
         }
+        const { pullRequest, branchLabel } = target;
 
         // --exclude-resolved is an alias of --hide-resolved (owner decision on
         // #50): either flag drops resolved threads, no behaviour change when
@@ -1218,28 +1332,18 @@ export function createPrCommentsCommand(): Command {
 
         const fetchedThreads = await getPullRequestThreads(resolved.context, resolved.repo, resolved.pat, pullRequest.id);
 
-        // --thread is a selector, not a filter: asking for a thread that isn't
-        // on this pull request is an error, not an empty listing, so a caller
-        // re-reading a thread after editing it notices immediately.
-        if (threadFilter !== null && !fetchedThreads.some((thread) => thread.id === threadFilter)) {
-          writeError(`Thread #${threadFilter} not found on pull request #${pullRequest.id}.`, EXIT_NOT_FOUND);
+        const allThreads = selectCommentThreads(fetchedThreads, threadFilter, pullRequest.id);
+        if (allThreads === null) {
           return;
         }
 
-        const allThreads = threadFilter === null
-          ? fetchedThreads
-          : fetchedThreads.filter((thread) => thread.id === threadFilter);
-
-        const threads = allThreads
-          .filter(
-            (thread) =>
-              (!hideResolved || !isThreadResolved(thread.status)) &&
-              (!codeRelatedOnly || thread.threadContext !== null),
-          )
-          .map((thread) => shapeThreadForOutput(thread, { excludeSystem, maxChars, contains: options.contains }))
-          // A thread whose comments were all system-generated has nothing left
-          // to show, so it drops out of the listing entirely.
-          .filter((thread): thread is ActiveCommentThread => thread !== null);
+        const threads = shapeCommentThreads(allThreads, {
+          hideResolved,
+          codeRelatedOnly,
+          excludeSystem,
+          maxChars,
+          contains: options.contains,
+        });
         const result: PullRequestCommentsResult = { branch: branchLabel, pullRequest, threads };
 
         if (options.json) {
@@ -1248,26 +1352,12 @@ export function createPrCommentsCommand(): Command {
         }
 
         if (threads.length === 0) {
-          if (allThreads.length > 0 && (hideResolved || codeRelatedOnly || excludeSystem || options.contains !== undefined)) {
-            const filters: string[] = [];
-            if (options.contains !== undefined) {
-              filters.push('matching');
-            }
-            if (codeRelatedOnly) {
-              filters.push('code-related');
-            }
-            if (hideResolved) {
-              filters.push('unresolved');
-            }
-            if (excludeSystem) {
-              filters.push('non-system');
-            }
-            process.stdout.write(
-              `Pull request #${pullRequest.id} has no ${filters.join(' ')} comment threads (filtered from ${allThreads.length} thread${allThreads.length === 1 ? '' : 's'}).\n`,
-            );
-          } else {
-            process.stdout.write(`Pull request #${pullRequest.id} has no comment threads.\n`);
-          }
+          process.stdout.write(describeEmptyThreads(pullRequest.id, allThreads.length, {
+            hideResolved,
+            codeRelatedOnly,
+            excludeSystem,
+            contains: options.contains,
+          }));
           return;
         }
 
@@ -1577,8 +1667,9 @@ async function runCommentReply(
     }
 
     const threads = await getPullRequestThreads(target.context, target.repo, target.pat, target.pullRequest.id);
-    const thread = threads.find((t) => t.id === target.threadId);
-    if (!thread) {
+    // Existence is all this path needs — the reply is posted to the thread id,
+    // not to the fetched object.
+    if (!threads.some((t) => t.id === target.threadId)) {
       writeError(`Thread #${target.threadId} not found on pull request #${target.pullRequest.id}.`, EXIT_NOT_FOUND);
       return;
     }

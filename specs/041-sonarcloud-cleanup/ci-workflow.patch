@@ -1,0 +1,49 @@
+diff --git a/.github/workflows/ci.yml b/.github/workflows/ci.yml
+index ba3e876..bbc1ac4 100644
+--- a/.github/workflows/ci.yml
++++ b/.github/workflows/ci.yml
+@@ -24,7 +24,7 @@ jobs:
+           node-version: lts/*
+           cache: npm
+ 
+-      - run: npm ci
++      - run: npm ci --ignore-scripts
+ 
+       - run: npm run lint
+ 
+@@ -33,7 +33,7 @@ jobs:
+       - run: npm run build
+ 
+       - name: Unit tests
+-        run: npx vitest run tests/unit --reporter=default --reporter=junit --outputFile.junit=test-results/unit.xml
++        run: npm exec --no -- vitest run tests/unit --reporter=default --reporter=junit --outputFile.junit=test-results/unit.xml
+ 
+       - name: Upload unit test report
+         if: always()
+@@ -60,7 +60,7 @@ jobs:
+           node-version: lts/*
+           cache: npm
+ 
+-      - run: npm ci
++      - run: npm ci --ignore-scripts
+ 
+       - name: Integration tests
+         if: env.AZDO_PAT != ''
+@@ -75,7 +75,7 @@ jobs:
+           # the pull-requests.test.ts suite will also run end-to-end; when
+           # it isn't, those tests skip cleanly via SKIP_PR.
+           AZDO_PR_ID: ${{ vars.AZDO_PR_ID || '64' }}
+-        run: npm run build && npx vitest run tests/integration --reporter=default --reporter=junit --outputFile.junit=test-results/integration.xml
++        run: npm run build && npm exec --no -- vitest run tests/integration --reporter=default --reporter=junit --outputFile.junit=test-results/integration.xml
+ 
+       - name: Upload integration test report
+         if: always()
+@@ -104,7 +104,7 @@ jobs:
+           cache: npm
+           registry-url: https://registry.npmjs.org
+ 
+-      - run: npm ci
++      - run: npm ci --ignore-scripts
+ 
+       - run: npm run build
+ 

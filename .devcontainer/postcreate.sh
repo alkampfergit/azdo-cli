@@ -22,12 +22,12 @@ bash .devcontainer/setup-git-aliases.sh
 # Install Claude Code CLI via official native installer (auto-updates)
 # See: https://docs.anthropic.com/en/docs/claude-code/overview
 echo "Installing Claude Code CLI..."
-curl -fsSL https://claude.ai/install.sh | bash || true
+curl -fsSL --proto '=https' --tlsv1.2 https://claude.ai/install.sh | bash || true
 
 # Install CLI tools that are distributed via npm
 if command -v npm >/dev/null 2>&1; then
     echo "Installing OpenAI Codex..."
-    npm install -g @openai/codex || true
+    npm install -g @openai/codex --ignore-scripts || true
     echo "Installing automata-cli..."
     npm install -g automata-cli --ignore-scripts || true
 else
@@ -36,13 +36,13 @@ fi
 
 # Install beads
 echo "Installing beads..."
-curl -fsSL https://raw.githubusercontent.com/steveyegge/beads/v0.49.6/scripts/install.sh | bash
+curl -fsSL --proto '=https' --tlsv1.2 https://raw.githubusercontent.com/steveyegge/beads/v0.49.6/scripts/install.sh | bash
 
 # Install uv (Astral) and GitHub spec-kit via uv tool
 # uv provides a universal version manager; we install via official script
 if ! command -v uv >/dev/null 2>&1; then
     echo "Installing uv..."
-    curl -LsSf https://astral.sh/uv/install.sh | sh
+    curl -LsSf --proto '=https' --tlsv1.2 https://astral.sh/uv/install.sh | sh
 else
     echo "uv already installed, skipping."
 fi
@@ -50,7 +50,7 @@ fi
 # use uv to install github spec-kit command-line tool
 if command -v uv >/dev/null 2>&1; then
     echo "Installing github spec-kit via uv..."
-    uv tool install specify-cli --from git+https://github.com/github/spec-kit.git || true
+    uv tool install specify-cli --no-build || true
 else
     echo "uv not available, cannot install spec-kit."
 fi
@@ -74,7 +74,7 @@ else
 fi
 TOKENSAVE_URL="https://github.com/aovestdipaperino/tokensave/releases/download/${TOKENSAVE_TAG}/tokensave-${TOKENSAVE_TAG}-${TOKENSAVE_ARCH}.tar.gz"
 echo "  Downloading tokensave ${TOKENSAVE_VERSION} (${TOKENSAVE_ARCH})..."
-curl -sL "$TOKENSAVE_URL" -o /tmp/tokensave.tar.gz
+curl -sL --proto '=https' --tlsv1.2 "$TOKENSAVE_URL" -o /tmp/tokensave.tar.gz
 tar xzf /tmp/tokensave.tar.gz -C /tmp
 sudo mv /tmp/tokensave /usr/local/bin/tokensave
 rm -f /tmp/tokensave.tar.gz
@@ -103,7 +103,7 @@ append_if_missing() {
 
 if ! command -v brew >/dev/null 2>&1; then
     echo "Installing Homebrew..."
-    NONINTERACTIVE=1 bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+    NONINTERACTIVE=1 bash -c "$(curl -fsSL --proto '=https' --tlsv1.2 https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
 else
     echo "Homebrew already installed, skipping."
 fi
