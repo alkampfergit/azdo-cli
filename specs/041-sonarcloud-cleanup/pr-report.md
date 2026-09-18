@@ -6,9 +6,11 @@
 
 ## Summary
 
-Clears all 35 OPEN/CONFIRMED SonarCloud findings on `develop` (0 bugs, 14 CI /
-devcontainer hardening findings, 21 code smells) with source changes only — no
-rule suppressions, no *Won't fix* markings, no `// NOSONAR`. Three of them are
+Clears 28 of the 35 OPEN/CONFIRMED SonarCloud findings on `develop` (0 bugs, 7
+devcontainer/shell hardening findings, 21 code smells) with source changes only
+— no rule suppressions, no *Won't fix* markings, no `// NOSONAR`. The other 7
+live in `.github/workflows/ci.yml`; that fix is written and verified but could
+not be pushed from here — see **Notes**. Three of them are
 real refactors of shipped command code whose cognitive complexity was over the
 limit (46 / 18 / 17); the other 32 are small, local edits. No CLI surface, no
 dependency and no command output changes.
@@ -28,10 +30,12 @@ dependency and no command output changes.
   moved into `patFromEnvFile`, so the walk-up loop is just a walk-up. The
   nesting (`while` → `if exists` → `for line` → `if match` → `if non-empty`)
   was the entire score.
-- **`.github/workflows/ci.yml`**: `npm ci --ignore-scripts` on all three
-  install steps; `npx vitest` → `npm exec --no -- vitest`, which uses the
-  version already pinned in `package-lock.json` instead of letting `npx`
-  resolve (and possibly fetch) one.
+- **`.github/workflows/ci.yml` (as a patch file, not applied)**:
+  `npm ci --ignore-scripts` on all three install steps; `npx vitest` →
+  `npm exec --no -- vitest`, which uses the version already pinned in
+  `package-lock.json` instead of letting `npx` resolve (and possibly fetch)
+  one. Shipped as `specs/041-sonarcloud-cleanup/ci-workflow.patch` — see
+  **Notes**.
 - **`.devcontainer/postcreate.sh`**: `--proto '=https' --tlsv1.2` on the five
   `curl` installs, `--ignore-scripts` on the global `@openai/codex` install
   (matching the `automata-cli` line next to it), and `--no-build` on the
@@ -86,12 +90,22 @@ None.
 
 ## Notes
 
-- **Watch CI on this branch.** `npm ci --ignore-scripts` is the one change that
-  can plausibly break a green pipeline: `@napi-rs/keyring` is native. Its
-  prebuilds ship as optional platform packages rather than via a `postinstall`
-  build, so it should be unaffected — but the credential-store integration
-  suite is the proof. If that job goes red, revert the `--ignore-scripts` hunk;
-  a green pipeline outranks three hygiene findings.
+- **7 findings are not fixed by this PR, and it is a permissions problem, not a
+  technical one.** The workflow change is written and reviewed, but the token
+  this branch was pushed with holds `gist, read:org, repo` and not `workflow`,
+  so GitHub rejected the push outright:
+  `refusing to allow an OAuth App to create or update workflow .github/workflows/ci.yml without workflow scope`.
+  Rather than drop it, the diff ships as
+  `specs/041-sonarcloud-cleanup/ci-workflow.patch`. Apply with
+  `git apply specs/041-sonarcloud-cleanup/ci-workflow.patch` from anyone with
+  `workflow` scope. Until then the gate on `develop` goes 35 → 7, not 35 → 0.
+- **Watch CI once that patch is applied.** `npm ci --ignore-scripts` is the one
+  change that can plausibly break a green pipeline: `@napi-rs/keyring` is
+  native. Its prebuilds ship as optional platform packages rather than via a
+  `postinstall` build, so it should be unaffected — but the credential-store
+  integration suite is the proof, and it has not run against this change yet.
+  If that job goes red, revert the three `npm ci` hunks; a green pipeline
+  outranks three hygiene findings.
 - **`.specify/` is vendored.** Its two findings are fixed in place and will
   come back on the next spec-kit upgrade. The durable alternative — excluding
   the tree in SonarCloud's project settings — is a settings change, not a
