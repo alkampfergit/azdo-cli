@@ -64,14 +64,18 @@ export function probeBackend(): CredentialBackend {
   }
 }
 
-function wrapUnavailable<T>(fn: () => T): T {
+function wrapUnavailableAs<T>(backend: CredentialBackend, fn: () => T): T {
   try {
     return fn();
   } catch (err) {
     // The DPAPI store already raises its own, more specific message.
     if (err instanceof CredentialStoreUnavailableError) throw err;
-    throw new CredentialStoreUnavailableError(probeBackend(), err);
+    throw new CredentialStoreUnavailableError(backend, err);
   }
+}
+
+function wrapUnavailable<T>(fn: () => T): T {
+  return wrapUnavailableAs(probeBackend(), fn);
 }
 
 // Construction itself can throw on platforms where the keyring backend is
@@ -351,4 +355,89 @@ export async function listOrgsWithStoredPat(): Promise<string[]> {
   }
   present.sort((a, b) => a.localeCompare(b));
   return present;
+}
+
+/** What copying the OS keyring's credentials into the DPAPI store did, per org. */
+export interface KeyringToDpapiCopy {
+  copied: string[];
+  /** Already present in the DPAPI store — never overwritten. */
+  skipped: string[];
+  failed: { org: string; message: string }[];
+}
+
+function keyringEntry(account: string): SecretEntry {
+  return new Entry(SERVICE, account);
+}
+
+/**
+ * Every org the CLI has ever stored a credential for (audit log) or has
+ * config for, sorted. Deletions are not replayed: a logout from the DPAPI
+ * store leaves the keyring entry alone, so only probing the keyring decides.
+ */
+function knownOrgs(): string[] {
+  const orgs = new Set<string>();
+  for (const ev of readAuditEvents()) {
+    if (ev.event === 'auth.store' || ev.event === 'oauth-login-success') orgs.add(ev.org);
+  }
+  try {
+    const config = loadConfig();
+    if (config.org) orgs.add(config.org);
+    for (const name of Object.keys(config.organizations ?? {})) orgs.add(name);
+  } catch {
+    // an unreadable config only narrows the candidates
+  }
+  return [...orgs].sort((a, b) => a.localeCompare(b));
+}
+
+/**
+ * Orgs that have a credential in the OS keyring (Credential Manager on
+ * Windows), whatever store is currently selected. Throws
+ * CredentialStoreUnavailableError when the keyring cannot be reached at all —
+ * the usual case over OpenSSH, and the reason to switch in the first place.
+ */
+export function listKeyringCredentials(): string[] {
+  const present: string[] = [];
+  for (const org of knownOrgs()) {
+    const value = wrapUnavailableAs('windows-credential-manager', () =>
+      keyringEntry(accountFor(org)).getPassword(),
+    );
+    if (value !== null) present.push(org);
+  }
+  return present;
+}
+
+/**
+ * Copy each org's keyring credential into the DPAPI store, value for value
+ * (PAT or OAuth envelope alike). The keyring entry is left in place, so
+ * switching back to `keyring` still finds it, and an org already present in
+ * the DPAPI store is skipped rather than overwritten. One org failing — e.g.
+ * a session that cannot use the DPAPI master key — does not stop the others.
+ */
+export function copyKeyringCredentialsToDpapi(orgs: readonly string[]): KeyringToDpapiCopy {
+  const result: KeyringToDpapiCopy = { copied: [], skipped: [], failed: [] };
+  for (const org of orgs) {
+    try {
+      const raw = wrapUnavailableAs('windows-credential-manager', () =>
+        keyringEntry(accountFor(org)).getPassword(),
+      );
+      if (raw === null) continue;
+      const target = new DpapiEntry(accountFor(org));
+      if (target.getPassword() !== null) {
+        result.skipped.push(org);
+        continue;
+      }
+      const cred = parseStoredValue(raw);
+      target.setPassword(raw);
+      appendAuthAuditEvent({
+        event: 'auth.store',
+        org,
+        backend: 'windows-dpapi',
+        ...(cred.kind === 'pat' ? { masked_pat: maskedDisplay(cred.token) } : { accountId: cred.accountId }),
+      });
+      result.copied.push(org);
+    } catch (err) {
+      result.failed.push({ org, message: (err as Error).message });
+    }
+  }
+  return result;
 }

@@ -23,6 +23,9 @@
 - [X] **T012** `docs/authentication.md`, `docs/commands.md`, `docs/changelogs/unreleased.md`.
 - [X] **T013** `CLAUDE.md` + `AGENTS.md` Recent Changes.
 
+## Phase 4b — copy on switch (PR #110 follow-up)
+- [X] **T016** `listKeyringCredentials` / `copyKeyringCredentialsToDpapi` in `credential-store.ts`, `offerKeyringToDpapiCopy` in `dpapi-copy.ts`, `--copy-credentials` / `--no-copy-credentials` on `config set` — tests in `dpapi-copy.test.ts`, `config-set-dpapi-copy.test.ts`.
+
 ## Phase 5 — gate
 - [X] **T014** `npm test && npm run lint` green.
 - [ ] **T015** Manual matrix research.md R-3 on a real Windows host (owner).

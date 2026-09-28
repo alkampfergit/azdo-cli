@@ -23,7 +23,13 @@ in the user profile, protected by Windows DPAPI.
   win-x64/arm64) instead of spawning `powershell.exe` per read — see research.md.
 - **D-3 No automatic fallback, no automatic migration.** An unreachable
   Credential Manager never silently writes to disk; the exit-4 message suggests
-  the setting. Switching stores moves nothing.
+  the setting. Switching stores moves nothing by itself — but see D-5.
+- **D-5 Copy on switch, consented (owner request on PR #110).** `config set
+  credentialStore dpapi` offers to copy the Credential Manager credentials into
+  the DPAPI store: a `[Y/n]` prompt on a terminal, `--copy-credentials` /
+  `--no-copy-credentials` to decide up front, and only a stderr hint otherwise.
+  Copy, not move: keyring entries are kept and existing DPAPI files are never
+  overwritten.
 - **D-4 Round-trip on write.** Protect, then unprotect and compare, before the
   file is written — the owner uses both password and public-key SSH logons, and
   the latter may lack the DPAPI master key.
@@ -70,11 +76,17 @@ with exit 4, stores nothing, and names the likely cause and the workarounds.
 - **FR-008** The Credential Manager unavailable message on Windows suggests
   `azdo config set credentialStore dpapi`.
 - **FR-009** The addon is loaded lazily, only when `dpapi` is in effect.
+- **FR-010** After `config set credentialStore dpapi`, orgs known from the
+  audit log or config whose keyring slot holds a value are offered for copying
+  (D-5). Each copied org gets an `auth.store` audit event with backend
+  `windows-dpapi`; a per-org failure is reported and does not stop the rest; an
+  unreachable Credential Manager keeps the setting and says to copy from a
+  console session. `--json` never prompts and adds `credentialsCopied`.
 
 ## Out of scope
 
 Explicit ACL tightening (the files inherit the profile folder ACL; DPAPI
-provides confidentiality), `LocalMachine` scope, a migration command, per-org
+provides confidentiality), `LocalMachine` scope, a standalone migration command, per-org
 stores.
 
 ## Success Criteria
