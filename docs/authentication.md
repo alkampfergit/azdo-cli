@@ -174,8 +174,8 @@ encrypted with Windows' Data Protection API — the same idea as git's
 `credential.credentialStore dpapi`:
 
 ```powershell
-azdo config set credentialStore dpapi   # global; there is no per-org form
-azdo auth login --org myorg             # store again — switching moves nothing
+azdo config set credentialStore dpapi   # global; offers to copy Credential Manager credentials
+azdo auth login --org myorg             # only for orgs you did not copy
 
 # One-off, without changing the config (e.g. only in SSH sessions):
 $env:AZDO_CREDENTIAL_STORE = 'dpapi'
@@ -194,9 +194,21 @@ OAuth silent refresh and the audit events. What to know:
 
 - **Opt-in only.** If Credential Manager is unavailable the CLI never writes to
   disk on its own; the exit-4 message suggests this setting instead.
-- **No migration.** Credentials are not copied between stores. After switching,
-  run `azdo auth login` again; switching back finds the keyring entries where
-  you left them.
+- **Copy on switch, when you say so.** If Credential Manager already holds
+  credentials, `azdo config set credentialStore dpapi` lists the orgs and asks
+  *"Copy the credentials for orgA, orgB from Credential Manager to the DPAPI
+  store? [Y/n]"*. PATs and OAuth sign-ins are copied as they are, an org already
+  in the DPAPI store is never overwritten, and the Credential Manager entries
+  stay where they were, so switching back to `keyring` finds them. Without a
+  terminal (or with `--json`) nothing is copied and the orgs are listed on
+  stderr; pass `--copy-credentials` to copy without asking, or
+  `--no-copy-credentials` to skip the offer. Nothing is ever moved
+  automatically when the store is unreachable.
+- **Copy from a console, then use SSH.** Credential Manager cannot be read over
+  SSH either, so the copy has to run in a session that can reach it. Run
+  `azdo config set credentialStore dpapi --copy-credentials` once at the console
+  (or over RDP); an SSH session then reads the DPAPI files. Run from SSH, the
+  command still saves the setting and tells you to do the copy from a console.
 - **Windows only.** `azdo config set credentialStore dpapi` is refused on other
   platforms, and `AZDO_CREDENTIAL_STORE=dpapi` there fails with exit `4`
   rather than falling back to the keyring.

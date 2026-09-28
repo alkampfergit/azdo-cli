@@ -496,7 +496,8 @@ azdo config list
 azdo config wizard
 azdo config set markdown true
 azdo config set fields "System.Tags,Custom.Priority"
-azdo config set credentialStore dpapi  # Windows: DPAPI files instead of Credential Manager (SSH)
+azdo config set credentialStore dpapi  # Windows: DPAPI files instead of Credential Manager (SSH);
+                                       # asks to copy existing credentials (--copy-credentials / --no-copy-credentials)
 azdo config get fields
 azdo config unset fields
 azdo config list --json          # structured array with scope/key/value fields

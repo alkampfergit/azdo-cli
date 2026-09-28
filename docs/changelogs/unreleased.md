@@ -44,8 +44,15 @@
   keeps one `CurrentUser`-encrypted file per org under `~/.azdo/credentials`;
   every write is decrypted once more before it is saved, so a logon that
   cannot decrypt fails instead of storing a file it can never read. Opt-in, no
-  automatic fallback or migration; new dependency `@primno/dpapi`, loaded only
-  when the store is selected. (#107)
+  automatic fallback; new dependency `@primno/dpapi`, loaded only when the store
+  is selected. (#107)
+- Switching with `azdo config set credentialStore dpapi` offers to copy the
+  credentials already in Credential Manager (every org, PAT or OAuth) into the
+  DPAPI store, so moving a machine to SSH use does not mean logging in again.
+  It asks on a terminal; `--copy-credentials` / `--no-copy-credentials` decide
+  up front. Existing DPAPI files are never overwritten and the Credential
+  Manager entries are kept. Run it from a console session: SSH cannot read
+  Credential Manager. (#107)
 
 ### Changed
 
