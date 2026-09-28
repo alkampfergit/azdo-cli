@@ -1,5 +1,6 @@
 export type CredentialBackend =
   | 'windows-credential-manager'
+  | 'windows-dpapi'
   | 'macos-keychain'
   | 'linux-libsecret'
   | 'unknown';
@@ -31,11 +32,22 @@ export type UsableCredential =
   | { kind: 'pat'; token: string }
   | { kind: 'oauth'; bearerToken: string; accountId: string };
 
+function defaultUnavailableMessage(backend: string): string {
+  const base = `OS secret backend unavailable (${backend}). Install the platform's credential service and try again.`;
+  if (backend !== 'windows-credential-manager') return base;
+  // The usual cause on Windows is an OpenSSH session, which has no credential vault.
+  return (
+    `${base}\n` +
+    'Over SSH, Windows Credential Manager is not reachable. Store credentials with DPAPI in ~/.azdo instead: ' +
+    '`azdo config set credentialStore dpapi` (or AZDO_CREDENTIAL_STORE=dpapi), then `azdo auth login` again.'
+  );
+}
+
 export class CredentialStoreUnavailableError extends Error {
   readonly backend: string;
 
-  constructor(backend: string, cause?: unknown) {
-    super(`OS secret backend unavailable (${backend}). Install the platform's credential service and try again.`);
+  constructor(backend: string, cause?: unknown, message?: string) {
+    super(message ?? defaultUnavailableMessage(backend));
     this.name = 'CredentialStoreUnavailableError';
     this.backend = backend;
     if (cause instanceof Error) {

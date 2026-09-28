@@ -43,8 +43,11 @@ export interface ScopedSettings {
   markdown?: boolean;
 }
 
+export type CredentialStoreKind = 'keyring' | 'dpapi';
+
 export interface CliConfig extends ScopedSettings {
   org?: string;
+  credentialStore?: CredentialStoreKind;
   organizations?: Record<string, ScopedSettings>;
 }
 

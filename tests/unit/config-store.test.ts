@@ -355,3 +355,36 @@ describe('copyOrgScope / moveOrgScope / deleteOrgScope', () => {
     expect(() => deleteOrgScope('nonexistent')).not.toThrow();
   });
 });
+
+describe('credentialStore setting (043)', () => {
+  it('accepts keyring on any platform and stores it normalised', () => {
+    setConfigValue('credentialStore', 'Keyring');
+    expect(getConfigValue('credentialStore')).toBe('keyring');
+  });
+
+  it('refuses dpapi off Windows and leaves the config untouched', () => {
+    vi.spyOn(process, 'platform', 'get').mockReturnValue('linux');
+    expect(() => setConfigValue('credentialStore', 'dpapi')).toThrow(/only available on Windows/);
+    expect(fs.existsSync(configPath)).toBe(false);
+  });
+
+  it('accepts dpapi on Windows', () => {
+    vi.spyOn(process, 'platform', 'get').mockReturnValue('win32');
+    setConfigValue('credentialStore', 'dpapi');
+    expect(loadConfig().credentialStore).toBe('dpapi');
+  });
+
+  it('rejects an unknown store name', () => {
+    expect(() => setConfigValue('credentialStore', 'plaintext')).toThrow(/Must be one of: keyring, dpapi/);
+  });
+
+  it('is global only — never an org-scoped key', () => {
+    expect(() => setOrgScopedValue('myorg', 'credentialStore', 'keyring')).toThrow(/Invalid scoped key/);
+  });
+
+  it('is not copied into an org scope by org-copy from default', () => {
+    saveConfig({ project: 'P', credentialStore: 'keyring' });
+    copyOrgScope('default', 'myorg');
+    expect(loadConfig().organizations?.myorg).toEqual({ project: 'P' });
+  });
+});

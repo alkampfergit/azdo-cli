@@ -3,7 +3,10 @@ import type { CredentialBackend, StoredCredential, StoredOAuthCredential, Stored
 import { CredentialStoreUnavailableError } from '../types/credential.js';
 import { appendAuthAuditEvent, readAuditEvents } from './audit-log.js';
 import { loadConfig } from './config-store.js';
+import { parseCredentialStore } from './credential-store-kind.js';
 import { maskedDisplay } from './auth-masking.js';
+import { DpapiEntry, type SecretEntry } from './dpapi-store.js';
+import type { CredentialStoreKind } from '../types/work-item.js';
 
 const SERVICE = 'azdo-cli';
 const LEGACY_ACCOUNT = 'pat';
@@ -12,7 +15,43 @@ function accountFor(org: string): string {
   return `pat:${org}`;
 }
 
+/**
+ * The value asked for — `AZDO_CREDENTIAL_STORE` over the global
+ * `credentialStore` config key — without validating it. Defaults to `keyring`.
+ */
+function requestedStore(): string {
+  const fromEnv = process.env.AZDO_CREDENTIAL_STORE?.trim();
+  if (fromEnv) return fromEnv.toLowerCase();
+  let fromConfig: string | undefined;
+  try {
+    fromConfig = loadConfig()?.credentialStore;
+  } catch {
+    fromConfig = undefined;
+  }
+  return fromConfig?.trim().toLowerCase() || 'keyring';
+}
+
+/**
+ * The credential store in effect. An invalid value, or `dpapi` off Windows, is
+ * a CredentialStoreUnavailableError (exit 4) — never a silent fall-back to the
+ * keyring, which would put the credential somewhere the user did not choose.
+ */
+export function activeCredentialStore(): CredentialStoreKind {
+  const requested = requestedStore();
+  try {
+    return parseCredentialStore(requested);
+  } catch (err) {
+    const backend = requested === 'dpapi' ? 'windows-dpapi' : 'unknown';
+    throw new CredentialStoreUnavailableError(
+      backend,
+      err,
+      `${(err as Error).message} Set it with \`azdo config set credentialStore <keyring|dpapi>\` or AZDO_CREDENTIAL_STORE.`,
+    );
+  }
+}
+
 export function probeBackend(): CredentialBackend {
+  if (requestedStore() === 'dpapi') return 'windows-dpapi';
   switch (process.platform) {
     case 'win32':
       return 'windows-credential-manager';
@@ -29,6 +68,8 @@ function wrapUnavailable<T>(fn: () => T): T {
   try {
     return fn();
   } catch (err) {
+    // The DPAPI store already raises its own, more specific message.
+    if (err instanceof CredentialStoreUnavailableError) throw err;
     throw new CredentialStoreUnavailableError(probeBackend(), err);
   }
 }
@@ -37,7 +78,8 @@ function wrapUnavailable<T>(fn: () => T): T {
 // missing (e.g. headless Linux without a Secret Service). Wrap so the
 // resulting error is the friendly CredentialStoreUnavailableError instead
 // of a raw napi-rs stack.
-function entryFor(account: string): Entry {
+function entryFor(account: string): SecretEntry {
+  if (activeCredentialStore() === 'dpapi') return new DpapiEntry(account);
   return wrapUnavailable(() => new Entry(SERVICE, account));
 }
 
@@ -147,6 +189,9 @@ function serializeCredential(cred: StoredCredential): string {
 }
 
 async function maybeMigrateLegacy(targetOrg: string): Promise<string | null> {
+  // The pre-multi-org `pat` slot only ever existed in the OS keyring, and
+  // switching stores deliberately moves nothing.
+  if (activeCredentialStore() === 'dpapi') return null;
   const config = loadConfig();
   if (!config.org || config.org !== targetOrg) {
     if (!config.org) {
