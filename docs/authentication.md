@@ -220,6 +220,12 @@ OAuth silent refresh and the audit events. What to know:
 - **Readable only by the same Windows user on the same machine.** A file that
   cannot be decrypted (another user, another machine, a copied file, a logon
   without the master key) fails with exit `4` and asks you to log in again.
+- **Exit `4` for every command, not just `azdo auth`.** An unusable store —
+  invalid `credentialStore`, `dpapi` off Windows, missing addon, undecryptable
+  file, or a config file that exists but cannot be read — makes `get-item`,
+  `pr …`, `pipeline …` and the rest exit `4` with the store's own message. An
+  unreadable config never defaults to the keyring; `AZDO_CREDENTIAL_STORE`
+  still overrides it for the session.
 - Confidentiality comes from DPAPI; the files inherit the ACL of your profile
   folder.
 

@@ -1,4 +1,21 @@
 import type { AzdoContext } from '../types/work-item.js';
+import { CredentialStoreUnavailableError } from '../types/credential.js';
+
+/** Exit code for an unreachable/misconfigured credential store — the `auth` group's contract. */
+export const EXIT_CREDENTIAL_STORE_UNAVAILABLE = 4;
+
+/**
+ * Reports a CredentialStoreUnavailableError (invalid `credentialStore`, `dpapi`
+ * off Windows, missing addon, undecryptable file, unreachable vault) with its
+ * own message and exit code 4, so every command honours the same contract as
+ * `azdo auth`. Returns false — and writes nothing — for any other error.
+ */
+export function reportCredentialStoreUnavailable(err: unknown): boolean {
+  if (!(err instanceof CredentialStoreUnavailableError)) return false;
+  process.stderr.write(`Error: ${err.message}\n`);
+  process.exitCode = EXIT_CREDENTIAL_STORE_UNAVAILABLE;
+  return true;
+}
 
 /**
  * True when `message` is the given sentinel, with or without the
@@ -139,6 +156,10 @@ export function handleCommandError(
   scope: 'read' | 'write' = 'write',
   exit = true,
 ): void {
+  if (reportCredentialStoreUnavailable(err)) {
+    if (exit) process.exit(EXIT_CREDENTIAL_STORE_UNAVAILABLE);
+    return;
+  }
   const error = err instanceof Error ? err : new Error(String(err));
   const msg = error.message;
 

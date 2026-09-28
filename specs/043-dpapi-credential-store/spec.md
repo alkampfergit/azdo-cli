@@ -71,7 +71,10 @@ with exit 4, stores nothing, and names the likely cause and the workarounds.
   audit events behave identically; the backend is reported as `windows-dpapi`.
 - **FR-006** An invalid store value, `dpapi` off Windows, a missing addon, and an
   unreadable / undecryptable file are `CredentialStoreUnavailableError` (exit 4)
-  with a specific message. There is never a fallback to another store.
+  with a specific message — for every command, not only `azdo auth` (the shared
+  `reportCredentialStoreUnavailable()` in `command-helpers.ts`). A config file
+  that exists but cannot be read is the same error, never "keyring". There is
+  never a fallback to another store.
 - **FR-007** The legacy `pat` keyring slot migration does not run under `dpapi`.
 - **FR-008** The Credential Manager unavailable message on Windows suggests
   `azdo config set credentialStore dpapi`.

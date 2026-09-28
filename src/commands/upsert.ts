@@ -11,10 +11,12 @@ import { applyWorkItemPatch, createWorkItem } from '../services/azdo-client.js';
 import { requireAuthCredential } from '../services/auth.js';
 import { resolveContext } from '../services/context.js';
 import {
+  EXIT_CREDENTIAL_STORE_UNAVAILABLE,
   formatCreateError,
   handleCommandError,
   isSentinel,
   parseWorkItemId,
+  reportCredentialStoreUnavailable,
   validateOrgProjectPair,
   validateSource,
 } from '../services/command-helpers.js';
@@ -177,6 +179,7 @@ function isCreateWriteError(err: Error): boolean {
 }
 
 function handleUpsertError(err: unknown, id: number | undefined, context: AzdoContext | undefined): never | void {
+  if (reportCredentialStoreUnavailable(err)) process.exit(EXIT_CREDENTIAL_STORE_UNAVAILABLE);
   if (!(err instanceof Error)) {
     process.stderr.write(`Error: ${String(err)}\n`);
     process.exit(1);

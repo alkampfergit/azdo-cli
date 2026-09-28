@@ -43,7 +43,13 @@ import {
 } from '../services/pr-client.js';
 import { describeResolvedCredential, requireAuthCredential } from '../services/auth.js';
 import { resolveContext } from '../services/context.js';
-import { isSentinel, splitSentinel, validateOrgProjectPair, writeErrorDetail } from '../services/command-helpers.js';
+import {
+  isSentinel,
+  reportCredentialStoreUnavailable,
+  splitSentinel,
+  validateOrgProjectPair,
+  writeErrorDetail,
+} from '../services/command-helpers.js';
 import { detectRepoName, getCurrentBranch } from '../services/git-remote.js';
 
 interface PrCommandOptions {
@@ -359,6 +365,7 @@ function writeError(message: string, exitCode = 1): void {
 }
 
 function handlePrCommandError(err: unknown, context?: AzdoContext, mode: 'read' | 'write' = 'read'): void {
+  if (reportCredentialStoreUnavailable(err)) return;
   const error = err instanceof Error ? err : new Error(String(err));
 
   if (isSentinel(error.message, 'AUTH_FAILED')) {
