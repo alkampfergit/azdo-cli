@@ -51,5 +51,7 @@ gains `credentialStore`
 
 `docs/authentication.md` (new *Windows: DPAPI credential store* section, ladder
 step 2, exit-4 row), `docs/commands.md` (config example),
-`docs/changelogs/unreleased.md`. README unchanged: install, quick start, the
-command-group table and dev setup are not affected.
+`docs/changelogs/unreleased.md`, and `README.md` (Constitution VII: the
+features bullet names the `credentialStore` setting and the
+`--copy-credentials` / `--no-copy-credentials` flags; the quick start shows the
+one-time console switch).

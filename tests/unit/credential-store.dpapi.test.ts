@@ -148,6 +148,26 @@ describe('credential store selection (043)', () => {
     expect(keyring.entries.size).toBe(0);
   });
 
+  it('refuses to default to the keyring when the config file cannot be read', async () => {
+    loadConfigMock.mockImplementation(() => {
+      throw Object.assign(new Error('EACCES: permission denied'), { code: 'EACCES' });
+    });
+
+    expect(() => activeCredentialStore()).toThrow(CredentialStoreUnavailableError);
+    expect(() => activeCredentialStore()).toThrow(/Could not read the azdo config file.*EACCES/);
+    await expect(storePat('orgA', 'tokenA')).rejects.toThrow(CredentialStoreUnavailableError);
+    expect(keyring.touched).toBe(0);
+    expect(probeBackend()).toBe('unknown');
+  });
+
+  it('lets AZDO_CREDENTIAL_STORE bypass an unreadable config file', () => {
+    loadConfigMock.mockImplementation(() => {
+      throw new Error('EACCES: permission denied');
+    });
+    process.env.AZDO_CREDENTIAL_STORE = 'dpapi';
+    expect(activeCredentialStore()).toBe('dpapi');
+  });
+
   it('rejects an unknown store name as unavailable (exit 4)', () => {
     process.env.AZDO_CREDENTIAL_STORE = 'plaintext';
     expect(() => activeCredentialStore()).toThrow(CredentialStoreUnavailableError);

@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Command } from 'commander';
 import { createPrCommand } from '../../src/commands/pr.js';
-import { getExitCode, getStdout, setupProcessSpies } from './helpers/command-test-utils.js';
+import { getExitCode, getStderr, getStdout, setupProcessSpies } from './helpers/command-test-utils.js';
 
 vi.mock('../../src/services/pr-client.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../src/services/pr-client.js')>();
@@ -398,5 +398,20 @@ describe('pr abandon|close|reactivate — option plumbing through the real tree'
     expect(vi.mocked(updatePullRequest)).toHaveBeenCalledWith(
       expect.any(Object), 'repo-name', expect.any(Object), 12, { status: 'active' },
     );
+  });
+});
+
+describe('credential store unavailable (043 FR-006)', () => {
+  it('exits 4 with the store message instead of the generic exit 1', async () => {
+    const { CredentialStoreUnavailableError } = await import('../../src/types/credential.js');
+    vi.mocked(requireAuthCredential).mockRejectedValue(
+      new CredentialStoreUnavailableError('windows-dpapi', undefined, 'The DPAPI store is only available on Windows.'),
+    );
+
+    await runTree(['pr', 'list']);
+
+    expect(getExitCode()).toBe(4);
+    expect(getStderr()).toContain('The DPAPI store is only available on Windows.');
+    expect(vi.mocked(listPullRequests)).not.toHaveBeenCalled();
   });
 });

@@ -22,11 +22,19 @@ function accountFor(org: string): string {
 function requestedStore(): string {
   const fromEnv = process.env.AZDO_CREDENTIAL_STORE?.trim();
   if (fromEnv) return fromEnv.toLowerCase();
+  // A missing config file is already `{}` inside loadConfig(). Any other read
+  // failure must not default to the keyring: the unreadable file may well say
+  // `dpapi`, and writing to Credential Manager instead would be a fall-back.
   let fromConfig: string | undefined;
   try {
     fromConfig = loadConfig()?.credentialStore;
-  } catch {
-    fromConfig = undefined;
+  } catch (err) {
+    throw new CredentialStoreUnavailableError(
+      'unknown',
+      err,
+      `Could not read the azdo config file to determine the credential store: ${(err as Error).message}. ` +
+        'Fix the file, or set AZDO_CREDENTIAL_STORE=<keyring|dpapi> for this session.',
+    );
   }
   return fromConfig?.trim().toLowerCase() || 'keyring';
 }
@@ -50,8 +58,19 @@ export function activeCredentialStore(): CredentialStoreKind {
   }
 }
 
+/**
+ * The backend label for messages and audit entries. Never throws: an
+ * unreadable config is reported by activeCredentialStore() when the store is
+ * actually opened, not by the label.
+ */
 export function probeBackend(): CredentialBackend {
-  if (requestedStore() === 'dpapi') return 'windows-dpapi';
+  let requested: string;
+  try {
+    requested = requestedStore();
+  } catch {
+    return 'unknown';
+  }
+  if (requested === 'dpapi') return 'windows-dpapi';
   switch (process.platform) {
     case 'win32':
       return 'windows-credential-manager';

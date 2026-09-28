@@ -51,7 +51,9 @@ function buildConfigListEntries(cfg: CliConfig): ConfigListEntry[] {
 }
 
 function writeConfigList(cfg: CliConfig): void {
-  const keyWidth = 10;
+  // Wide enough for the longest key (global or org-scoped) plus a separating space.
+  const orgKeys = Object.values(cfg.organizations ?? {}).flatMap((scope) => Object.keys(scope ?? {}));
+  const keyWidth = Math.max(10, ...SETTINGS.map((s) => s.key.length + 1), ...orgKeys.map((k) => k.length + 1));
   const valueWidth = 30;
   const scopeWidth = 12;
 

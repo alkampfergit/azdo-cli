@@ -53,6 +53,11 @@
   up front. Existing DPAPI files are never overwritten and the Credential
   Manager entries are kept. Run it from a console session: SSH cannot read
   Credential Manager. (#107)
+- An unusable credential store (an invalid `credentialStore`, `dpapi` off
+  Windows, an undecryptable file, a config file that cannot be read) is now
+  exit `4` for every command, not only `azdo auth`; an unreadable config no
+  longer silently means "keyring". `azdo config list` widens its key column so
+  `credentialStore` no longer runs into its value. (#107)
 
 ### Changed
 
