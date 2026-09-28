@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import type { CliConfig, ConfigValue, ScopedSettings } from '../types/work-item.js';
+import { parseCredentialStore } from './credential-store-kind.js';
 
 export interface SettingDefinition {
   key: keyof CliConfig;
@@ -38,6 +39,13 @@ export const SETTINGS: readonly SettingDefinition[] = [
     description: 'Convert rich text fields to markdown on display',
     type: 'boolean',
     example: 'true',
+    required: false,
+  },
+  {
+    key: 'credentialStore',
+    description: 'Where credentials are stored: "keyring" (OS vault, default) or "dpapi" (Windows only, ~/.azdo/credentials)',
+    type: 'string',
+    example: 'dpapi',
     required: false,
   },
 ] as const;
@@ -118,6 +126,8 @@ export function setConfigValue(key: string, value: string): void {
       throw new Error(`Invalid value "${value}" for markdown. Must be "true" or "false".`);
     }
     config.markdown = value === 'true';
+  } else if (key === 'credentialStore') {
+    config.credentialStore = parseCredentialStore(value);
   } else if (key === 'fields') {
     config.fields = value.split(',').map((s) => s.trim());
   } else {
@@ -221,8 +231,9 @@ export function getOrgScopedValue(
 
 function readScope(config: CliConfig, name: string): ScopedSettings {
   if (name === 'default') {
+    // credentialStore is global-only, like org: it never moves into an org scope.
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    const { org: _o, organizations: _orgs, ...defaults } = config;
+    const { org: _o, organizations: _orgs, credentialStore: _cs, ...defaults } = config;
     return defaults;
   }
   return config.organizations?.[name.toLowerCase()] ?? {};

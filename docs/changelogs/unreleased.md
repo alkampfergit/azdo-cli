@@ -38,6 +38,15 @@
   the machine-readable credential view and never includes token material. Every
   export appends an `auth.token` audit entry. (#98)
 
+- Windows: credentials can be stored with DPAPI instead of Credential Manager,
+  for OpenSSH sessions where the vault is unreachable.
+  `azdo config set credentialStore dpapi` (or `AZDO_CREDENTIAL_STORE=dpapi`)
+  keeps one `CurrentUser`-encrypted file per org under `~/.azdo/credentials`;
+  every write is decrypted once more before it is saved, so a logon that
+  cannot decrypt fails instead of storing a file it can never read. Opt-in, no
+  automatic fallback or migration; new dependency `@primno/dpapi`, loaded only
+  when the store is selected. (#107)
+
 ### Changed
 
 - Every failed Azure DevOps request now prints the server's own explanation

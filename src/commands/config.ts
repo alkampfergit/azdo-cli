@@ -136,7 +136,8 @@ export function createConfigCommand(): Command {
       '',
       'Credentials are NOT stored in the configuration file. They are resolved in this order:',
       '  1. the AZDO_PAT environment variable (wins over everything below)',
-      '  2. the OS credential store, per organization (see `azdo auth login`)',
+      '  2. the OS credential store, per organization (see `azdo auth login`) — or, with',
+      '     `credentialStore` set to dpapi (Windows), DPAPI-encrypted files in ~/.azdo/credentials',
       '  3. a .env file with AZDO_PAT, searched upwards from the working directory',
       '',
       'Only AZDO_PAT is read — AZURE_DEVOPS_PAT, AZURE_DEVOPS_EXT_PAT and AZDO_TOKEN are ignored.',
@@ -149,7 +150,7 @@ export function createConfigCommand(): Command {
   const set = new Command('set');
   set
     .description('Set a configuration value')
-    .argument('<key>', 'setting key (org, project, fields, markdown)')
+    .argument('<key>', 'setting key (org, project, fields, markdown, credentialStore)')
     .argument('<value>', 'setting value')
     .option('--org <org>', 'set value in an org-scoped configuration')
     .option('--json', 'output in JSON format')
@@ -181,7 +182,7 @@ export function createConfigCommand(): Command {
   const get = new Command('get');
   get
     .description('Get a configuration value')
-    .argument('<key>', 'setting key (org, project, fields, markdown)')
+    .argument('<key>', 'setting key (org, project, fields, markdown, credentialStore)')
     .option('--org <org>', 'read from an org-scoped configuration')
     .option('--json', 'output in JSON format')
     .action((key: string, options: { org?: string; json?: boolean }) => {
@@ -225,7 +226,7 @@ export function createConfigCommand(): Command {
   const unset = new Command('unset');
   unset
     .description('Remove a configuration value')
-    .argument('<key>', 'setting key (org, project, fields, markdown)')
+    .argument('<key>', 'setting key (org, project, fields, markdown, credentialStore)')
     .option('--org <org>', 'remove from an org-scoped configuration')
     .option('--json', 'output in JSON format')
     .action((key: string, options: { org?: string; json?: boolean }) => {
@@ -272,6 +273,8 @@ export function createConfigCommand(): Command {
       process.stderr.write('=======================================\n\n');
 
       for (const setting of SETTINGS) {
+        // An SSH-session opt-in, not first-run setup — set it explicitly with `config set`.
+        if (setting.key === 'credentialStore') continue;
         await promptForSetting(cfg, setting, ask);
       }
 
