@@ -92,6 +92,11 @@
 
 ### Internal
 
+- Closed the three open Dependabot alerts (all moderate, all dev-only — the
+  published package was never affected): `vitest` / `@vitest/mocker` 4.1.11 and
+  `@humanfs/node` 0.16.8. Every other dependency moved to the latest release in
+  its current major (`eslint` 10.11, `typescript-eslint` 8.70, `prettier` 3.9,
+  `@types/node` 25.9, `@napi-rs/keyring` 1.3). No code change. (#112)
 - Cleared the SonarCloud backlog on `develop` (35 open findings → 7) with source
   changes only — no rule suppressions. Three over-complex functions were split
   (`pr comments`, `auth logout`, `.env` PAT lookup) with no change to any
