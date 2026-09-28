@@ -48,6 +48,10 @@
   a `text/plain` error body cannot leak a PAT the way `redactBody` — which only
   understands JSON fields — allowed. The curated `Request rejected:` messages
   carry the same `typeKey` / `errorCode` suffix as every other failure. (#95)
+- The update notice now recommends `npm install -g azdo-cli@latest` instead of
+  `npm i -g azdo-cli` — the same long form the README uses, with the `latest`
+  tag made explicit. The old command still worked; only the wording changed.
+  (#108)
 
 ### Fixed
 
