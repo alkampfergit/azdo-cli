@@ -190,7 +190,7 @@ export async function getUpdateNotice(
     writeCache(JSON.stringify({ lastCheck: now(), latestVersion: latest }));
 
     if (isNewer(latest, currentVersion)) {
-      return `A new version of azdo-cli is available: ${currentVersion} → ${latest}. Run \`npm i -g azdo-cli\` to update.`;
+      return `A new version of azdo-cli is available: ${currentVersion} → ${latest}. Run \`npm install -g azdo-cli@latest\` to update.`;
     }
     return null;
   } catch {
