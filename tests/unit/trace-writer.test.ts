@@ -154,9 +154,11 @@ describe('initTraceWriter / getActiveTraceWriter', () => {
 
   it('warns to stderr on bad path (does not throw)', () => {
     const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
-    initTraceWriter('/no/such/directory/trace.log');
+    expect(() => initTraceWriter('/no/such/directory/trace.log')).not.toThrow();
+    expect(stderrSpy).toHaveBeenCalledWith(
+      expect.stringContaining('could not open trace file "/no/such/directory/trace.log"'),
+    );
     stderrSpy.mockRestore();
-    // no exception thrown is the pass condition
   });
 });
 

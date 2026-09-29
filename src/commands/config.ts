@@ -14,6 +14,7 @@ import {
   SETTINGS,
   type SettingDefinition,
 } from '../services/config-store.js';
+import { offerKeyringToDpapiCopy, type CopyChoice, type DpapiCopyOutcome } from '../services/dpapi-copy.js';
 import type { CliConfig, ConfigValue } from '../types/work-item.js';
 
 function formatConfigValue(
@@ -50,7 +51,9 @@ function buildConfigListEntries(cfg: CliConfig): ConfigListEntry[] {
 }
 
 function writeConfigList(cfg: CliConfig): void {
-  const keyWidth = 10;
+  // Wide enough for the longest key (global or org-scoped) plus a separating space.
+  const orgKeys = Object.values(cfg.organizations ?? {}).flatMap((scope) => Object.keys(scope ?? {}));
+  const keyWidth = Math.max(10, ...SETTINGS.map((s) => s.key.length + 1), ...orgKeys.map((k) => k.length + 1));
   const valueWidth = 30;
   const scopeWidth = 12;
 
@@ -83,6 +86,34 @@ function writeConfigList(cfg: CliConfig): void {
     process.stdout.write(
       '\n* = required but not configured. Run "azdo config wizard" to set up.\n',
     );
+  }
+}
+
+interface SetOptions {
+  org?: string;
+  json?: boolean;
+  copyCredentials?: boolean;
+}
+
+// Switching to DPAPI would otherwise strand every credential already in
+// Credential Manager; the service does the work, this only supplies the I/O.
+async function offerCopy(options: SetOptions): Promise<DpapiCopyOutcome> {
+  let choice: CopyChoice = 'ask';
+  if (options.copyCredentials === true) choice = 'yes';
+  else if (options.copyCredentials === false) choice = 'no';
+  const interactive = !options.json && Boolean(process.stdin.isTTY) && Boolean(process.stderr.isTTY);
+  let rl: ReturnType<typeof createInterface> | undefined;
+  try {
+    return await offerKeyringToDpapiCopy(choice, {
+      interactive,
+      ask: (prompt) => {
+        rl ??= createInterface({ input: process.stdin, output: process.stderr });
+        return createAsk(rl)(prompt);
+      },
+      notice: (message) => process.stderr.write(message),
+    });
+  } finally {
+    rl?.close();
   }
 }
 
@@ -136,7 +167,8 @@ export function createConfigCommand(): Command {
       '',
       'Credentials are NOT stored in the configuration file. They are resolved in this order:',
       '  1. the AZDO_PAT environment variable (wins over everything below)',
-      '  2. the OS credential store, per organization (see `azdo auth login`)',
+      '  2. the OS credential store, per organization (see `azdo auth login`) — or, with',
+      '     `credentialStore` set to dpapi (Windows), DPAPI-encrypted files in ~/.azdo/credentials',
       '  3. a .env file with AZDO_PAT, searched upwards from the working directory',
       '',
       'Only AZDO_PAT is read — AZURE_DEVOPS_PAT, AZURE_DEVOPS_EXT_PAT and AZDO_TOKEN are ignored.',
@@ -149,39 +181,52 @@ export function createConfigCommand(): Command {
   const set = new Command('set');
   set
     .description('Set a configuration value')
-    .argument('<key>', 'setting key (org, project, fields, markdown)')
+    .argument('<key>', 'setting key (org, project, fields, markdown, credentialStore)')
     .argument('<value>', 'setting value')
     .option('--org <org>', 'set value in an org-scoped configuration')
     .option('--json', 'output in JSON format')
-    .action((key: string, value: string, options: { org?: string; json?: boolean }) => {
+    .option('--copy-credentials', 'with credentialStore dpapi: copy Credential Manager credentials without asking')
+    .option('--no-copy-credentials', 'with credentialStore dpapi: do not offer to copy Credential Manager credentials')
+    // Deliberately not `async`: only the DPAPI copy offer awaits, so every
+    // other `config set` still completes (and fails) synchronously.
+    .action((key: string, value: string, options: SetOptions): Promise<void> | void => {
       try {
         if (options.org) {
           setOrgScopedValue(options.org, key, value);
         } else {
           setConfigValue(key, value);
         }
-
-        if (options.json) {
-          const output: Record<string, unknown> = { key, value, scope: options.org ?? 'default' };
-          if (key === 'fields') {
-            output.value = value.split(',').map((s) => s.trim());
-          }
-          process.stdout.write(JSON.stringify(output) + '\n');
-        } else {
-          const scopeTag = options.org ? ` (org: ${options.org})` : '';
-          process.stdout.write(`Set "${key}" to "${value}"${scopeTag}\n`);
-        }
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : String(err);
         process.stderr.write(`Error: ${message}\n`);
         process.exit(1);
       }
+
+      const output: Record<string, unknown> = { key, value, scope: options.org ?? 'default' };
+      if (key === 'fields') {
+        output.value = value.split(',').map((s) => s.trim());
+      }
+      if (!options.json) {
+        const scopeTag = options.org ? ` (org: ${options.org})` : '';
+        process.stdout.write(`Set "${key}" to "${value}"${scopeTag}\n`);
+      }
+
+      const writeJson = (): void => {
+        if (options.json) process.stdout.write(JSON.stringify(output) + '\n');
+      };
+      if (!options.org && key === 'credentialStore' && loadConfig().credentialStore === 'dpapi') {
+        return offerCopy(options).then((outcome) => {
+          output.credentialsCopied = outcome.copied;
+          writeJson();
+        });
+      }
+      writeJson();
     });
 
   const get = new Command('get');
   get
     .description('Get a configuration value')
-    .argument('<key>', 'setting key (org, project, fields, markdown)')
+    .argument('<key>', 'setting key (org, project, fields, markdown, credentialStore)')
     .option('--org <org>', 'read from an org-scoped configuration')
     .option('--json', 'output in JSON format')
     .action((key: string, options: { org?: string; json?: boolean }) => {
@@ -225,7 +270,7 @@ export function createConfigCommand(): Command {
   const unset = new Command('unset');
   unset
     .description('Remove a configuration value')
-    .argument('<key>', 'setting key (org, project, fields, markdown)')
+    .argument('<key>', 'setting key (org, project, fields, markdown, credentialStore)')
     .option('--org <org>', 'remove from an org-scoped configuration')
     .option('--json', 'output in JSON format')
     .action((key: string, options: { org?: string; json?: boolean }) => {
@@ -272,6 +317,8 @@ export function createConfigCommand(): Command {
       process.stderr.write('=======================================\n\n');
 
       for (const setting of SETTINGS) {
+        // An SSH-session opt-in, not first-run setup — set it explicitly with `config set`.
+        if (setting.key === 'credentialStore') continue;
         await promptForSetting(cfg, setting, ask);
       }
 

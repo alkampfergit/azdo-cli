@@ -78,40 +78,41 @@ describe.skipIf(SKIP_AZDO)('md-fields — generic type argument fidelity (issue 
 
   // ── Tests ────────────────────────────────────────────────────────────────
 
-  it('preserves a single generic type argument in a code span', async () => {
-    const md = 'Signature: `Task<HealthCheckResult>`';
+  // Each row is markdown in, the substring that must survive the round trip
+  // out. The regression this pins: before the fix, `Task<HealthCheckResult>`
+  // came back as `Task`, with the generic argument eaten as an HTML tag.
+  const genericCases: Array<{ label: string; md: string; expected: string }> = [
+    {
+      label: 'a single generic type argument in a code span',
+      md: 'Signature: `Task<HealthCheckResult>`',
+      expected: 'Task<HealthCheckResult>',
+    },
+    {
+      label: 'nested generic type arguments in a code span',
+      md: 'Return type: `Func<Task<HealthCheckResult>>`',
+      expected: 'Func<Task<HealthCheckResult>>',
+    },
+    {
+      label: 'multiple type parameters in a code span',
+      md: 'Collection: `IReadOnlyList<IDocumentStore2Job>`',
+      expected: 'IReadOnlyList<IDocumentStore2Job>',
+    },
+    {
+      label: 'multiple type params (two-param generic)',
+      md: 'Map: `Dictionary<TKey, TValue>`',
+      expected: 'Dictionary<TKey, TValue>',
+    },
+    {
+      label: 'a code-only generic (no surrounding text)',
+      md: '`Action<T>`',
+      expected: 'Action<T>',
+    },
+  ];
+
+  it.each(genericCases)('preserves $label', async ({ md, expected }) => {
     const result = await roundTrip(md);
 
-    // This is the regression: before the fix, result contains `Task` without <HealthCheckResult>
-    expect(result).toContain('Task<HealthCheckResult>');
-  }, 20_000);
-
-  it('preserves nested generic type arguments in a code span', async () => {
-    const md = 'Return type: `Func<Task<HealthCheckResult>>`';
-    const result = await roundTrip(md);
-
-    expect(result).toContain('Func<Task<HealthCheckResult>>');
-  }, 20_000);
-
-  it('preserves multiple type parameters in a code span', async () => {
-    const md = 'Collection: `IReadOnlyList<IDocumentStore2Job>`';
-    const result = await roundTrip(md);
-
-    expect(result).toContain('IReadOnlyList<IDocumentStore2Job>');
-  }, 20_000);
-
-  it('preserves multiple type params (two-param generic)', async () => {
-    const md = 'Map: `Dictionary<TKey, TValue>`';
-    const result = await roundTrip(md);
-
-    expect(result).toContain('Dictionary<TKey, TValue>');
-  }, 20_000);
-
-  it('preserves a code-only generic (no surrounding text)', async () => {
-    const md = '`Action<T>`';
-    const result = await roundTrip(md);
-
-    expect(result).toContain('Action<T>');
+    expect(result).toContain(expected);
   }, 20_000);
 
   it('preserves content outside code spans unchanged (no regression)', async () => {

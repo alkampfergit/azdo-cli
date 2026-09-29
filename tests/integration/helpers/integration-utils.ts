@@ -67,12 +67,6 @@ export const AZDO_PR_ID = Number((process.env.AZDO_PR_ID ?? '64').trim());
 export const AZDO_WI_WITH_RELATIONS = Number(
   (process.env.AZDO_WI_WITH_RELATIONS ?? '44920').trim(),
 );
-export const AZDO_WI_RELATION_SOURCE = Number(
-  (process.env.AZDO_WI_RELATION_SOURCE ?? '44920').trim(),
-);
-export const AZDO_WI_RELATION_TARGET = Number(
-  (process.env.AZDO_WI_RELATION_TARGET ?? '44922').trim(),
-);
 export const AZDO_PR_ID_WITH_BUILDS = Number(
   (process.env.AZDO_PR_ID_WITH_BUILDS ?? '65').trim(),
 );

@@ -1,5 +1,5 @@
-import { afterAll, describe, expect } from 'vitest';
-import { itIntegration } from './helpers/skip-unless-integration.js';
+import { afterAll, describe, expect, it } from 'vitest';
+import { INTEGRATION_ENABLED } from './helpers/skip-unless-integration.js';
 import {
   getPat,
   storePat,
@@ -11,16 +11,19 @@ import {
 const TEST_ORG = `azdo-cli-integration-${process.pid}`;
 const TEST_PAT = 'integration-fake-token-do-not-use';
 
-afterAll(async () => {
-  try {
-    await deletePat(TEST_ORG);
-  } catch {
-    // best-effort cleanup
-  }
-});
+describe.skipIf(!INTEGRATION_ENABLED)('credential-store integration (real OS keyring)', () => {
+  // Cleanup lives inside the gated suite: an `afterAll` at file scope would run
+  // — and touch the real OS keyring — on every ordinary test run, which is
+  // exactly what the `AZDO_INTEGRATION` opt-in exists to prevent.
+  afterAll(async () => {
+    try {
+      await deletePat(TEST_ORG);
+    } catch {
+      // best-effort cleanup
+    }
+  });
 
-describe('credential-store integration (real OS keyring)', () => {
-  itIntegration('round-trips a PAT through the real keyring', async () => {
+  it('round-trips a PAT through the real keyring', async () => {
     const backend = probeBackend();
     expect(['windows-credential-manager', 'macos-keychain', 'linux-libsecret']).toContain(backend);
 

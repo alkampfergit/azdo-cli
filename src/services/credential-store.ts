@@ -3,7 +3,10 @@ import type { CredentialBackend, StoredCredential, StoredOAuthCredential, Stored
 import { CredentialStoreUnavailableError } from '../types/credential.js';
 import { appendAuthAuditEvent, readAuditEvents } from './audit-log.js';
 import { loadConfig } from './config-store.js';
+import { parseCredentialStore } from './credential-store-kind.js';
 import { maskedDisplay } from './auth-masking.js';
+import { DpapiEntry, type SecretEntry } from './dpapi-store.js';
+import type { CredentialStoreKind } from '../types/work-item.js';
 
 const SERVICE = 'azdo-cli';
 const LEGACY_ACCOUNT = 'pat';
@@ -12,7 +15,62 @@ function accountFor(org: string): string {
   return `pat:${org}`;
 }
 
+/**
+ * The value asked for — `AZDO_CREDENTIAL_STORE` over the global
+ * `credentialStore` config key — without validating it. Defaults to `keyring`.
+ */
+function requestedStore(): string {
+  const fromEnv = process.env.AZDO_CREDENTIAL_STORE?.trim();
+  if (fromEnv) return fromEnv.toLowerCase();
+  // A missing config file is already `{}` inside loadConfig(). Any other read
+  // failure must not default to the keyring: the unreadable file may well say
+  // `dpapi`, and writing to Credential Manager instead would be a fall-back.
+  let fromConfig: string | undefined;
+  try {
+    fromConfig = loadConfig()?.credentialStore;
+  } catch (err) {
+    throw new CredentialStoreUnavailableError(
+      'unknown',
+      err,
+      `Could not read the azdo config file to determine the credential store: ${(err as Error).message}. ` +
+        'Fix the file, or set AZDO_CREDENTIAL_STORE=<keyring|dpapi> for this session.',
+    );
+  }
+  return fromConfig?.trim().toLowerCase() || 'keyring';
+}
+
+/**
+ * The credential store in effect. An invalid value, or `dpapi` off Windows, is
+ * a CredentialStoreUnavailableError (exit 4) — never a silent fall-back to the
+ * keyring, which would put the credential somewhere the user did not choose.
+ */
+export function activeCredentialStore(): CredentialStoreKind {
+  const requested = requestedStore();
+  try {
+    return parseCredentialStore(requested);
+  } catch (err) {
+    const backend = requested === 'dpapi' ? 'windows-dpapi' : 'unknown';
+    throw new CredentialStoreUnavailableError(
+      backend,
+      err,
+      `${(err as Error).message} Set it with \`azdo config set credentialStore <keyring|dpapi>\` or AZDO_CREDENTIAL_STORE.`,
+    );
+  }
+}
+
+/**
+ * The backend label for messages and audit entries. Never throws: an
+ * unreadable config is reported by activeCredentialStore() when the store is
+ * actually opened, not by the label.
+ */
 export function probeBackend(): CredentialBackend {
+  let requested: string;
+  try {
+    requested = requestedStore();
+  } catch {
+    return 'unknown';
+  }
+  if (requested === 'dpapi') return 'windows-dpapi';
   switch (process.platform) {
     case 'win32':
       return 'windows-credential-manager';
@@ -25,19 +83,26 @@ export function probeBackend(): CredentialBackend {
   }
 }
 
-function wrapUnavailable<T>(fn: () => T): T {
+function wrapUnavailableAs<T>(backend: CredentialBackend, fn: () => T): T {
   try {
     return fn();
   } catch (err) {
-    throw new CredentialStoreUnavailableError(probeBackend(), err);
+    // The DPAPI store already raises its own, more specific message.
+    if (err instanceof CredentialStoreUnavailableError) throw err;
+    throw new CredentialStoreUnavailableError(backend, err);
   }
+}
+
+function wrapUnavailable<T>(fn: () => T): T {
+  return wrapUnavailableAs(probeBackend(), fn);
 }
 
 // Construction itself can throw on platforms where the keyring backend is
 // missing (e.g. headless Linux without a Secret Service). Wrap so the
 // resulting error is the friendly CredentialStoreUnavailableError instead
 // of a raw napi-rs stack.
-function entryFor(account: string): Entry {
+function entryFor(account: string): SecretEntry {
+  if (activeCredentialStore() === 'dpapi') return new DpapiEntry(account);
   return wrapUnavailable(() => new Entry(SERVICE, account));
 }
 
@@ -147,6 +212,9 @@ function serializeCredential(cred: StoredCredential): string {
 }
 
 async function maybeMigrateLegacy(targetOrg: string): Promise<string | null> {
+  // The pre-multi-org `pat` slot only ever existed in the OS keyring, and
+  // switching stores deliberately moves nothing.
+  if (activeCredentialStore() === 'dpapi') return null;
   const config = loadConfig();
   if (!config.org || config.org !== targetOrg) {
     if (!config.org) {
@@ -306,4 +374,89 @@ export async function listOrgsWithStoredPat(): Promise<string[]> {
   }
   present.sort((a, b) => a.localeCompare(b));
   return present;
+}
+
+/** What copying the OS keyring's credentials into the DPAPI store did, per org. */
+export interface KeyringToDpapiCopy {
+  copied: string[];
+  /** Already present in the DPAPI store — never overwritten. */
+  skipped: string[];
+  failed: { org: string; message: string }[];
+}
+
+function keyringEntry(account: string): SecretEntry {
+  return new Entry(SERVICE, account);
+}
+
+/**
+ * Every org the CLI has ever stored a credential for (audit log) or has
+ * config for, sorted. Deletions are not replayed: a logout from the DPAPI
+ * store leaves the keyring entry alone, so only probing the keyring decides.
+ */
+function knownOrgs(): string[] {
+  const orgs = new Set<string>();
+  for (const ev of readAuditEvents()) {
+    if (ev.event === 'auth.store' || ev.event === 'oauth-login-success') orgs.add(ev.org);
+  }
+  try {
+    const config = loadConfig();
+    if (config.org) orgs.add(config.org);
+    for (const name of Object.keys(config.organizations ?? {})) orgs.add(name);
+  } catch {
+    // an unreadable config only narrows the candidates
+  }
+  return [...orgs].sort((a, b) => a.localeCompare(b));
+}
+
+/**
+ * Orgs that have a credential in the OS keyring (Credential Manager on
+ * Windows), whatever store is currently selected. Throws
+ * CredentialStoreUnavailableError when the keyring cannot be reached at all —
+ * the usual case over OpenSSH, and the reason to switch in the first place.
+ */
+export function listKeyringCredentials(): string[] {
+  const present: string[] = [];
+  for (const org of knownOrgs()) {
+    const value = wrapUnavailableAs('windows-credential-manager', () =>
+      keyringEntry(accountFor(org)).getPassword(),
+    );
+    if (value !== null) present.push(org);
+  }
+  return present;
+}
+
+/**
+ * Copy each org's keyring credential into the DPAPI store, value for value
+ * (PAT or OAuth envelope alike). The keyring entry is left in place, so
+ * switching back to `keyring` still finds it, and an org already present in
+ * the DPAPI store is skipped rather than overwritten. One org failing — e.g.
+ * a session that cannot use the DPAPI master key — does not stop the others.
+ */
+export function copyKeyringCredentialsToDpapi(orgs: readonly string[]): KeyringToDpapiCopy {
+  const result: KeyringToDpapiCopy = { copied: [], skipped: [], failed: [] };
+  for (const org of orgs) {
+    try {
+      const raw = wrapUnavailableAs('windows-credential-manager', () =>
+        keyringEntry(accountFor(org)).getPassword(),
+      );
+      if (raw === null) continue;
+      const target = new DpapiEntry(accountFor(org));
+      if (target.getPassword() !== null) {
+        result.skipped.push(org);
+        continue;
+      }
+      const cred = parseStoredValue(raw);
+      target.setPassword(raw);
+      appendAuthAuditEvent({
+        event: 'auth.store',
+        org,
+        backend: 'windows-dpapi',
+        ...(cred.kind === 'pat' ? { masked_pat: maskedDisplay(cred.token) } : { accountId: cred.accountId }),
+      });
+      result.copied.push(org);
+    } catch (err) {
+      result.failed.push({ org, message: (err as Error).message });
+    }
+  }
+  return result;
 }

@@ -37,7 +37,10 @@ export interface AzdoWorkItemRelation {
 export interface WorkItemRelationType {
   referenceName: string;
   name: string;
-  usage: 'workItemLink' | 'resourceLink' | string;
+  // Azure DevOps documents 'workItemLink' and 'resourceLink', but the field is
+  // open-ended, so it is typed as the string it is rather than as a union that
+  // collapses to string anyway.
+  usage: string;
   enabled: boolean;
   directional: boolean | null;
 }

@@ -21,7 +21,13 @@ import {
 } from '../services/pipeline-client.js';
 import { requireAuthCredential } from '../services/auth.js';
 import { resolveContext } from '../services/context.js';
-import { isSentinel, splitSentinel, validateOrgProjectPair, writeErrorDetail } from '../services/command-helpers.js';
+import {
+  isSentinel,
+  reportCredentialStoreUnavailable,
+  splitSentinel,
+  validateOrgProjectPair,
+  writeErrorDetail,
+} from '../services/command-helpers.js';
 
 interface PipelineCommonOptions {
   org?: string;
@@ -40,6 +46,7 @@ function writeError(message: string): void {
 }
 
 function handlePipelineError(err: unknown, context?: AzdoContext): void {
+  if (reportCredentialStoreUnavailable(err)) return;
   const error = err instanceof Error ? err : new Error(String(err));
   if (isSentinel(error.message, 'AUTH_FAILED')) {
     writeError('Authentication failed. Check that your credential is valid and has the "Build (Read)" scope.');

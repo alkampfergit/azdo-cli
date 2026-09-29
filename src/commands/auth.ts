@@ -319,35 +319,33 @@ async function handleStatus(options: { json?: boolean }, org: string): Promise<v
   );
 }
 
-async function handleLogout(options: { all?: boolean }, orgFromGlobal: string | undefined): Promise<void> {
-  if (options.all && orgFromGlobal) {
-    process.stderr.write('--org and --all are mutually exclusive.\n');
-    process.exitCode = 1;
-    return;
-  }
-
-  if (options.all) {
-    try {
-      const result = await logoutService({ all: true });
-      if (result.removed.length === 0) {
-        process.stdout.write('No stored credentials to remove.\n');
-        return;
-      }
-      for (const r of result.removed) {
-        process.stdout.write(`Removed ${r.kind} credential for org ${r.org}.\n`);
-      }
-    } catch (err) {
-      if (err instanceof CredentialStoreUnavailableError) {
-        process.stderr.write(`${err.message}\n`);
-        process.exitCode = 4;
-        return;
-      }
-      process.stderr.write(`Failed to remove credentials: ${(err as Error).message}\n`);
-      process.exitCode = 1;
+// `azdo auth logout --all`: every stored credential, in one sweep. A vault the
+// process cannot reach is exit 4; any other failure is exit 1 and names itself.
+async function logoutAllOrgs(): Promise<void> {
+  try {
+    const result = await logoutService({ all: true });
+    if (result.removed.length === 0) {
+      process.stdout.write('No stored credentials to remove.\n');
+      return;
     }
-    return;
+    for (const r of result.removed) {
+      process.stdout.write(`Removed ${r.kind} credential for org ${r.org}.\n`);
+    }
+  } catch (err) {
+    if (err instanceof CredentialStoreUnavailableError) {
+      process.stderr.write(`${err.message}\n`);
+      process.exitCode = 4;
+      return;
+    }
+    process.stderr.write(`Failed to remove credentials: ${(err as Error).message}\n`);
+    process.exitCode = 1;
   }
+}
 
+// `azdo auth logout [--org X]`: one org, resolved through the usual ladder.
+// An unresolvable org is exit 3; an unreachable vault is exit 4; anything else
+// keeps travelling so the caller sees the real failure.
+async function logoutSingleOrg(orgFromGlobal: string | undefined): Promise<void> {
   const resolved = resolveOrg({ org: orgFromGlobal });
   if (!resolved) {
     process.stderr.write(`${formatResolutionError()}\n`);
@@ -370,6 +368,21 @@ async function handleLogout(options: { all?: boolean }, orgFromGlobal: string | 
     }
     throw err;
   }
+}
+
+async function handleLogout(options: { all?: boolean }, orgFromGlobal: string | undefined): Promise<void> {
+  if (options.all && orgFromGlobal) {
+    process.stderr.write('--org and --all are mutually exclusive.\n');
+    process.exitCode = 1;
+    return;
+  }
+
+  if (options.all) {
+    await logoutAllOrgs();
+    return;
+  }
+
+  await logoutSingleOrg(orgFromGlobal);
 }
 
 function describeCredentialSource(cred: ExportedCredential): string {

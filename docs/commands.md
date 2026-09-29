@@ -496,6 +496,8 @@ azdo config list
 azdo config wizard
 azdo config set markdown true
 azdo config set fields "System.Tags,Custom.Priority"
+azdo config set credentialStore dpapi  # Windows: DPAPI files instead of Credential Manager (SSH);
+                                       # asks to copy existing credentials (--copy-credentials / --no-copy-credentials)
 azdo config get fields
 azdo config unset fields
 azdo config list --json          # structured array with scope/key/value fields
@@ -526,7 +528,7 @@ release and, if one is found, prints a single line to **stderr** after the
 command's own output:
 
 ```
-A new version of azdo-cli is available: 0.5.0 → 0.6.0. Run `npm i -g azdo-cli` to update.
+A new version of azdo-cli is available: 0.5.0 → 0.6.0. Run `npm install -g azdo-cli@latest` to update.
 ```
 
 The check is best-effort and never blocks or fails your command:

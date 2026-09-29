@@ -166,7 +166,7 @@ describe('maskedDisplay', () => {
   it('re-exports from auth-masking', async () => {
     const auth = await import('../../src/services/auth.js');
     expect(auth.maskedDisplay('short')).toBe('short');
-    expect(auth.maskedDisplay('abcdefghijklmno').length).toBe(15);
+    expect(auth.maskedDisplay('abcdefghijklmno')).toHaveLength(15);
   });
 });
 

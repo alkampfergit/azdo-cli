@@ -2,7 +2,12 @@ import { Command } from 'commander';
 import type { AzdoContext, AuthCredential } from '../types/work-item.js';
 import { requireAuthCredential } from '../services/auth.js';
 import { resolveContext } from '../services/context.js';
-import { isSentinel, writeErrorDetail } from '../services/command-helpers.js';
+import {
+  EXIT_CREDENTIAL_STORE_UNAVAILABLE,
+  isSentinel,
+  reportCredentialStoreUnavailable,
+  writeErrorDetail,
+} from '../services/command-helpers.js';
 import {
   getWorkItemRelationTypes,
   addWorkItemRelation,
@@ -58,6 +63,7 @@ function formatRelationsList(workItemId: number, relations: WorkItemRelation[]):
 }
 
 function handleRelationError(err: unknown, id1?: number): never {
+  if (reportCredentialStoreUnavailable(err)) process.exit(EXIT_CREDENTIAL_STORE_UNAVAILABLE);
   const msg = err instanceof Error ? err.message : String(err);
   if (msg === 'SELF_RELATION') {
     process.stderr.write(`Error: cannot relate a work item to itself (#${id1}).\n`);
@@ -67,7 +73,7 @@ function handleRelationError(err: unknown, id1?: number): never {
       `Error: unknown relation type "${name}". Run 'azdo relations types' to see valid names.\n`,
     );
   } else if (msg.startsWith('NOT_FOUND')) {
-    const target = id1 !== undefined ? id1 : 'unknown';
+    const target = id1 ?? 'unknown';
     process.stderr.write(`Error: work item #${target} not found.\n`);
   } else if (isSentinel(msg, 'AUTH_FAILED')) {
     process.stderr.write(

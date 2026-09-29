@@ -44,9 +44,9 @@ next_minor_base() {
   echo "${major}.$((minor + 1)).0"
 }
 
-if [ "$BRANCH" = "master" ]; then
+if [[ "$BRANCH" == "master" ]]; then
   HEAD_TAG=$(git tag --points-at HEAD | grep -E '^v?[0-9]+\.[0-9]+\.[0-9]+([.-].*)?$' | head -n 1)
-  if [ -z "$HEAD_TAG" ]; then
+  if [[ -z "$HEAD_TAG" ]]; then
     echo "ERROR: no semver tag found at HEAD on master branch." >&2
     exit 1
   fi
@@ -55,11 +55,11 @@ if [ "$BRANCH" = "master" ]; then
   # Only promote to `latest` when this version is >= the current npm latest,
   # so a hotfix on an older minor (e.g. 0.8.1 after 0.9.0) doesn't regress it.
   CURRENT_LATEST=$(npm view azdo-cli dist-tags.latest 2>/dev/null || true)
-  if [ -z "$CURRENT_LATEST" ]; then
+  if [[ -z "$CURRENT_LATEST" ]]; then
     TAG="latest"
   else
     HIGHEST=$(printf '%s\n%s\n' "$VERSION" "$CURRENT_LATEST" | sort -V | tail -n 1)
-    if [ "$HIGHEST" = "$VERSION" ]; then
+    if [[ "$HIGHEST" == "$VERSION" ]]; then
       TAG="latest"
     else
       MAJOR_MINOR=$(echo "$VERSION" | cut -d. -f1,2)
@@ -67,7 +67,7 @@ if [ "$BRANCH" = "master" ]; then
     fi
   fi
 
-elif [ "$BRANCH" = "develop" ]; then
+elif [[ "$BRANCH" == "develop" ]]; then
   TAG="dev"
   VERSION="$(next_minor_base)-develop.${RUN}"
 

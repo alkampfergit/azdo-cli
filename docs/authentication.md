@@ -28,7 +28,7 @@ azdo auth --org myorg
 Every authenticated command resolves a credential at runtime in this order (FR-007a):
 
 1. **`AZDO_PAT` environment variable** — when set and non-empty, used as a PAT, no vault lookup.
-2. **Stored credential for the resolved org**, read from the OS keyring slot `azdo-cli` / `pat:<org>`. The stored value is a JSON envelope with an explicit `kind`:
+2. **Stored credential for the resolved org**, read from the OS keyring slot `azdo-cli` / `pat:<org>` — or, when the [DPAPI store](#windows-dpapi-credential-store) is selected, from `~/.azdo/credentials/pat_3a<org>.dpapi`. The stored value is a JSON envelope with an explicit `kind`:
    - `{ kind: 'oauth', accessToken, refreshToken, expiresAt, accountId, scope, tenantId, issuedAt }` — for OAuth, the CLI silently refreshes when past expiry (60-second clock-skew margin).
    - `{ kind: 'pat', token }` — used as-is.
    - **Legacy bare-PAT entries** (pre-feature) are still tolerated as `kind: 'pat'`; they are NOT auto-rewritten on read.
@@ -148,7 +148,7 @@ lives. Every export appends an `auth.token` entry to the audit log.
 | `0` | token written to stdout |
 | `1` | no stored credential for the org, or an OAuth refresh the IdP rejected |
 | `3` | organisation could not be resolved |
-| `4` | OS credential store unavailable |
+| `4` | credential store unavailable (OS vault, or the DPAPI store — see below) |
 
 stdout is empty on every non-zero exit, so `TOKEN=$(azdo auth token)` yields an
 empty string rather than an error message.
@@ -164,6 +164,70 @@ azdo auth logout --all
 ```
 
 The legacy `azdo clear-pat` command still works but is deprecated — it prints a one-line deprecation notice and calls the same service.
+
+## Windows: DPAPI credential store
+
+Over an OpenSSH session, Windows Credential Manager is not reachable (the SSH
+logon has no credential vault), so the default store fails with exit code `4`.
+For that case the CLI can keep credentials in files under your profile,
+encrypted with Windows' Data Protection API — the same idea as git's
+`credential.credentialStore dpapi`:
+
+```powershell
+azdo config set credentialStore dpapi   # global; offers to copy Credential Manager credentials
+azdo auth login --org myorg             # only for orgs you did not copy
+
+# One-off, without changing the config (e.g. only in SSH sessions):
+$env:AZDO_CREDENTIAL_STORE = 'dpapi'
+```
+
+| | |
+| --- | --- |
+| Values | `keyring` (default — the OS vault) · `dpapi` (Windows only) |
+| Precedence | `AZDO_CREDENTIAL_STORE` over the `credentialStore` config key |
+| Location | `%USERPROFILE%\.azdo\credentials\pat_3a<org>.dpapi`, one file per org |
+| Encryption | `CryptProtectData`, `CurrentUser` scope, entropy bound to the org slot |
+| Backend name | `windows-dpapi` in `auth status` and the audit log |
+
+What stays the same: every `auth` command, the credential resolution order,
+OAuth silent refresh and the audit events. What to know:
+
+- **Opt-in only.** If Credential Manager is unavailable the CLI never writes to
+  disk on its own; the exit-4 message suggests this setting instead.
+- **Copy on switch, when you say so.** If Credential Manager already holds
+  credentials, `azdo config set credentialStore dpapi` lists the orgs and asks
+  *"Copy the credentials for orgA, orgB from Credential Manager to the DPAPI
+  store? [Y/n]"*. PATs and OAuth sign-ins are copied as they are, an org already
+  in the DPAPI store is never overwritten, and the Credential Manager entries
+  stay where they were, so switching back to `keyring` finds them. Without a
+  terminal (or with `--json`) nothing is copied and the orgs are listed on
+  stderr; pass `--copy-credentials` to copy without asking, or
+  `--no-copy-credentials` to skip the offer. Nothing is ever moved
+  automatically when the store is unreachable.
+- **Copy from a console, then use SSH.** Credential Manager cannot be read over
+  SSH either, so the copy has to run in a session that can reach it. Run
+  `azdo config set credentialStore dpapi --copy-credentials` once at the console
+  (or over RDP); an SSH session then reads the DPAPI files. Run from SSH, the
+  command still saves the setting and tells you to do the copy from a console.
+- **Windows only.** `azdo config set credentialStore dpapi` is refused on other
+  platforms, and `AZDO_CREDENTIAL_STORE=dpapi` there fails with exit `4`
+  rather than falling back to the keyring.
+- **Checked when storing.** Every write is decrypted again before it lands on
+  disk. Some SSH logons — typically **public-key** authentication — can encrypt
+  but not use your DPAPI master key; the store then fails with *"Nothing was
+  stored"* instead of leaving a file no session can read. Log in over SSH with
+  a password, or use `AZDO_PAT` for that session.
+- **Readable only by the same Windows user on the same machine.** A file that
+  cannot be decrypted (another user, another machine, a copied file, a logon
+  without the master key) fails with exit `4` and asks you to log in again.
+- **Exit `4` for every command, not just `azdo auth`.** An unusable store —
+  invalid `credentialStore`, `dpapi` off Windows, missing addon, undecryptable
+  file, or a config file that exists but cannot be read — makes `get-item`,
+  `pr …`, `pipeline …` and the rest exit `4` with the store's own message. An
+  unreadable config never defaults to the keyring; `AZDO_CREDENTIAL_STORE`
+  still overrides it for the session.
+- Confidentiality comes from DPAPI; the files inherit the ACL of your profile
+  folder.
 
 ## Multi-org
 

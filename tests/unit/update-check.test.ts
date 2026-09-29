@@ -85,7 +85,8 @@ describe("getUpdateNotice — User Story 1 (notice when newer stable exists)", (
     const { opts, writeCache } = deps();
     const notice = await getUpdateNotice(opts);
     expect(notice).toContain("0.5.0 → 0.6.0");
-    expect(notice).toContain("npm i -g azdo-cli");
+    expect(notice).toContain("Run `npm install -g azdo-cli@latest` to update.");
+    expect(notice).not.toContain("npm i -g");
     expect(writeCache).toHaveBeenCalledOnce();
   });
 

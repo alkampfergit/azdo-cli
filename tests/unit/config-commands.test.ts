@@ -181,6 +181,16 @@ describe('config list', () => {
     expect(orgEntry?.scope).toBe('default');
   });
 
+  it('keeps a space between the longest key and its value', async () => {
+    const { createConfigCommand } = await import('../../src/commands/config.js');
+    const cmd = createConfigCommand();
+    const { stdout } = captureOutput(() => {
+      cmd.parse(['list'], { from: 'user' });
+    });
+    expect(stdout).not.toContain('credentialStore(not set)');
+    expect(stdout).toMatch(/credentialStore +\(not set\)/);
+  });
+
   it('shows fields as comma-separated in human mode', async () => {
     const { setConfigValue } = await import('../../src/services/config-store.js');
     setConfigValue('fields', 'System.Tags,Custom.Field');

@@ -19,7 +19,7 @@ Azure DevOps CLI focused on work item read/write workflows.
 - Feed long PR titles, descriptions and comment bodies from a file or a pipe instead of the shell (`--title-file`, `--description-file`, `--file`; `-` reads standard input)
 - Persist org/project/default fields in local config (`config`)
 - List all fields of a work item (`list-fields`)
-- Authenticate per Azure DevOps organization with `azdo auth login` — OAuth (Microsoft Entra) by default, or a Personal Access Token via `--use-pat` (or the `AZDO_PAT` env var). Credentials are stored in the OS credential store. Inspect with `azdo auth status`, remove with `azdo auth logout`. Diagnose auth problems with `azdo auth diagnose`. Print the credential the CLI itself would use, for API calls the CLI does not yet wrap, with `azdo auth token`. See [docs/authentication.md](docs/authentication.md).
+- Authenticate per Azure DevOps organization with `azdo auth login` — OAuth (Microsoft Entra) by default, or a Personal Access Token via `--use-pat` (or the `AZDO_PAT` env var). Credentials are stored in the OS credential store — or, on Windows over SSH where Credential Manager is unreachable, in DPAPI-encrypted files under `~/.azdo` (`azdo config set credentialStore dpapi`, which offers to copy existing Credential Manager credentials; `--copy-credentials` / `--no-copy-credentials` skip the prompt). Inspect with `azdo auth status`, remove with `azdo auth logout`. Diagnose auth problems with `azdo auth diagnose`. Print the credential the CLI itself would use, for API calls the CLI does not yet wrap, with `azdo auth token`. See [docs/authentication.md](docs/authentication.md).
 - Trace all HTTP requests to a local file with `--trace <filepath>` (sensitive headers and tokens are automatically redacted).
 
 ## Installation
@@ -37,6 +37,10 @@ azdo auth login --org myorg
 # Configure defaults once
 azdo config set org myorg
 azdo config set project myproject
+
+# Windows over SSH: keep credentials in DPAPI files instead of Credential Manager
+# (run once from a console to copy the existing credentials across)
+azdo config set credentialStore dpapi --copy-credentials
 
 # Read a work item
 azdo get-item 12345
