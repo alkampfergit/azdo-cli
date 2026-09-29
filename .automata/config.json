@@ -15,5 +15,8 @@
     "alkampfergit",
     "copilot"
   ],
-  "agentUser": "alkampferoutlook"
+  "agentUser": "alkampferoutlook",
+  "git": {
+    "trunkBranch": "master"
+  }
 }

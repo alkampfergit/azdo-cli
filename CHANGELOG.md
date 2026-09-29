@@ -12,7 +12,16 @@ the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-_Targeting **0.19.0**. Working detail: [`docs/changelogs/unreleased.md`](docs/changelogs/unreleased.md)._
+_Targeting **0.21.0**. Working detail: [`docs/changelogs/unreleased.md`](docs/changelogs/unreleased.md)._
+
+## [0.20.0] - 2026-09-29
+
+Windows DPAPI credential storage, credential export, and clearer update guidance.
+→ [details](docs/changelogs/0.20.0.md)
+
+- Add opt-in Windows DPAPI credential storage, with optional copying from Credential Manager (#107).
+- Add `azdo auth token` and clarify the CLI update command (#98, #108).
+- Apply dependency and SonarCloud maintenance on `develop` (#104, #112).
 
 ## [0.18.0] - 2026-08-27 — Work item attachments
 
