@@ -9,6 +9,9 @@
     "prompts": {
       "issueDiscuss": "do-work-issue-discuss.md",
       "prWork": "do-work-pr-work.md"
+    },
+    "models": {
+      "claude": "sonnet"
     }
   },
   "allowedUsers": [
