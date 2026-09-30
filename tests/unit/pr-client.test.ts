@@ -16,6 +16,7 @@ import {
   postThreadComment,
   resolveProjectId,
   updateThreadComment,
+  deleteThreadComment,
   resolveRepositoryId,
   getWorkItemRelations,
   linkWorkItemToPullRequest,
@@ -1612,6 +1613,42 @@ describe('pr-client', () => {
       await expect(updateThreadComment(context, 'repo-name', 'pat', 22, 148, 1, 'x')).rejects.toThrow(
         'PERMISSION_DENIED',
       );
+    });
+  });
+
+  describe('deleteThreadComment', () => {
+    it('DELETEs the comment and reads no body', async () => {
+      const json = vi.fn();
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+        ok: true,
+        status: 204,
+        json,
+      } as unknown as Response);
+
+      await expect(deleteThreadComment(context, 'repo-name', 'pat', 22, 148, 2)).resolves.toBeUndefined();
+
+      expect(fetchSpy).toHaveBeenCalledWith(
+        expect.stringContaining('/pullRequests/22/threads/148/comments/2?api-version=7.1'),
+        expect.objectContaining({ method: 'DELETE' }),
+      );
+      const init = fetchSpy.mock.calls[0][1] as RequestInit;
+      expect(init.body).toBeUndefined();
+      expect(json).not.toHaveBeenCalled();
+    });
+
+    it('throws PERMISSION_DENIED when deleting someone else\'s comment', async () => {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue({ ok: false, status: 403 } as unknown as Response);
+      await expect(deleteThreadComment(context, 'repo-name', 'pat', 22, 148, 2)).rejects.toThrow('PERMISSION_DENIED');
+    });
+
+    it('throws NOT_FOUND on a 404 response (comment missing)', async () => {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue({ ok: false, status: 404 } as unknown as Response);
+      await expect(deleteThreadComment(context, 'repo-name', 'pat', 22, 148, 999)).rejects.toThrow(/NOT_FOUND/);
+    });
+
+    it('surfaces any other failure as HTTP_<status>', async () => {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue({ ok: false, status: 400 } as unknown as Response);
+      await expect(deleteThreadComment(context, 'repo-name', 'pat', 22, 148, 2)).rejects.toThrow(/^HTTP_400/);
     });
   });
 });

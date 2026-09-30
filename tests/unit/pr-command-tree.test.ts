@@ -13,6 +13,7 @@ vi.mock('../../src/services/pr-client.js', async (importOriginal) => {
     getPullRequestThreads: vi.fn(),
     createPullRequestThread: vi.fn(),
     updateThreadComment: vi.fn(),
+    deleteThreadComment: vi.fn(),
     postThreadComment: vi.fn(),
     linkWorkItemToPullRequest: vi.fn(),
     unlinkWorkItemFromPullRequest: vi.fn(),
@@ -43,6 +44,7 @@ import {
   listPullRequests,
   postThreadComment,
   updateThreadComment,
+  deleteThreadComment,
   linkWorkItemToPullRequest,
   unlinkWorkItemFromPullRequest,
   resolveReviewerIdentity,
@@ -101,6 +103,7 @@ beforeEach(() => {
   });
   vi.mocked(updateThreadComment).mockResolvedValue({ id: 3, author: 'Alice', content: 'new', publishedAt: null });
   vi.mocked(postThreadComment).mockResolvedValue({ id: 9, author: 'Alice', content: 'reply', publishedAt: null });
+  vi.mocked(deleteThreadComment).mockResolvedValue(undefined);
   vi.mocked(linkWorkItemToPullRequest).mockResolvedValue({ pullRequestId: 4804, workItemId: 1234, url: 'vstfs:///Git/PullRequestId/p/r/4804', noop: false });
   vi.mocked(unlinkWorkItemFromPullRequest).mockResolvedValue({ pullRequestId: 4804, workItemId: 1234, url: 'vstfs:///Git/PullRequestId/p/r/4804', noop: false });
   vi.mocked(resolveReviewerIdentity).mockResolvedValue({ id: 'identity-guid', providerDisplayName: 'Jane Reviewer' });
@@ -162,6 +165,34 @@ describe('pr comments edit — nested vs alias option plumbing', () => {
       content: 'new',
       dryRun: false,
     });
+  });
+});
+
+describe('pr comments delete — nested vs alias option plumbing', () => {
+  it.each([
+    ['nested', ['pr', 'comments', 'delete', '148', '--comment-id', '3', '--pr-number', '4804', '--json']],
+    ['alias', ['pr', 'comment-delete', '148', '--comment-id', '3', '--pr-number', '4804', '--json']],
+  ])('%s form honours --pr-number, --comment-id and --json', async (_form, argv) => {
+    await runTree(argv);
+
+    expect(vi.mocked(getPullRequestById)).toHaveBeenCalledWith(expect.any(Object), 'repo-name', expect.any(Object), 4804);
+    expect(vi.mocked(deleteThreadComment)).toHaveBeenCalledWith(expect.any(Object), 'repo-name', expect.any(Object), 4804, 148, 3);
+    expect(JSON.parse(getStdout())).toEqual({
+      pullRequestId: 4804,
+      threadId: 148,
+      commentId: 3,
+      deleted: true,
+      dryRun: false,
+    });
+    expect(getExitCode()).toBe(0);
+  });
+
+  it('nested form deletes the single comment without --comment-id and honours --repo', async () => {
+    await runTree(['pr', 'comments', 'delete', '148', '--pr-number', '4804', '--repo', 'other-repo']);
+
+    expect(vi.mocked(detectRepoName)).not.toHaveBeenCalled();
+    expect(vi.mocked(deleteThreadComment)).toHaveBeenCalledWith(expect.any(Object), 'other-repo', expect.any(Object), 4804, 148, 3);
+    expect(getStdout()).toContain('Comment #3 deleted from thread #148 on pull request #4804.');
   });
 });
 

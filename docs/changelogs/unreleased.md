@@ -6,6 +6,7 @@
 ### Added
 
 - `azdo pr status --branch <name>` and `--pr-number <id>` report checks for another branch or a specific pull request without checking it out; same text and `--json` output as the current-branch view. The two are mutually exclusive; an unknown PR exits 3 and a branch with no PRs exits 1, each with a clear message. (#123)
+- `azdo pr comments delete <threadId>` (alias `azdo pr comment-delete`) removes a pull request comment through the documented `DELETE .../threads/{threadId}/comments/{commentId}`. `--comment-id <N>` picks the comment and may be omitted only when the thread holds a single one; an ambiguous thread is refused with the candidate ids listed. No confirmation prompt (scripted use); `--dry-run` previews. Exit 3 for an unknown thread or comment, 4 when Azure DevOps refuses because the comment belongs to somebody else. `--json` returns `{ pullRequestId, threadId, commentId, deleted, dryRun }`. (#120)
 
 ### Changed
 
