@@ -144,7 +144,7 @@ azdo relations list 1000 --json             # JSON: { workItemId, relations: [..
 |-------|------|
 | Authentication (OAuth & PAT) | [docs/authentication.md](docs/authentication.md) |
 | Linux credential store setup | [docs/linux-credential-store.md](docs/linux-credential-store.md) |
-| Full command reference | [docs/commands.md](docs/commands.md) |
+| Full command reference — every command, alias and option, credential resolution order, and the `--json` output contracts | [docs/commands.md](docs/commands.md) |
 | Development setup | [docs/development.md](docs/development.md) |
 
 ## License

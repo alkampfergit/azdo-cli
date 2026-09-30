@@ -1,4 +1,3 @@
-# Unreleased — targeting 0.21.0
+# Unreleased
 
-> Working detail for the next release. Finalise into
-> `docs/changelogs/0.21.0.md` when the release is cut.
+_No unreleased changes._

@@ -12,7 +12,15 @@ the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-_Targeting **0.21.0**. Working detail: [`docs/changelogs/unreleased.md`](docs/changelogs/unreleased.md)._
+_No unreleased changes._
+
+## [0.21.0] - 2026-09-30
+
+Command-reference documentation is now complete, and the Context7 index excludes specs and planning files that surface removed commands.
+→ [details](docs/changelogs/0.21.0.md)
+
+- Add a complete command reference, including command aliases, options, authentication guidance, credential resolution, and JSON output contracts (#116).
+- Add a command-tree test that detects documentation drift, and configure Context7 to index user documentation only (#116).
 
 ## [0.20.0] - 2026-09-29
 
