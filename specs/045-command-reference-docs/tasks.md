@@ -6,5 +6,5 @@
 - [X] **T004** `docs/commands.md`: *JSON output contracts* (pull requests, work items, pipelines, auth/config) and the list of commands without `--json`.
 - [X] **T005** `tests/unit/docs-command-reference.test.ts` (new): drift guard over `createProgram()`; verified it fails on the 0.20.0 page.
 - [X] **T006** `context7.json` (new).
-- [X] **T007** `docs/changelogs/unreleased.md`, `CLAUDE.md` / `AGENTS.md` Recent Changes.
+- [X] **T007** `docs/changelogs/unreleased.md`, `AGENTS.md` Recent Changes (repository memory lives in AGENTS.md only).
 - [X] **T008** `npm test && npm run lint` green.

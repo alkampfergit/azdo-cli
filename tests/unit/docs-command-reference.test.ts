@@ -32,9 +32,22 @@ function walk(command: Command, prefix: string[]): CommandEntry[] {
 const entries = walk(createProgram(), ['azdo']);
 const commands = entries.filter((entry, index) => entries.findIndex((e) => e.command === entry.command) === index);
 
+function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+// A command path counts as documented only when it appears as a complete
+// path — not merely as the prefix of one of its own subcommands, so
+// `azdo pr comments add` alone cannot satisfy `azdo pr comments`.
+function mentionsCommand({ path, command }: CommandEntry): boolean {
+  const children = command.commands.flatMap((sub) => [sub.name(), ...sub.aliases()]).map(escapeRegExp);
+  const notAChild = children.length > 0 ? `(?! (?:${children.join('|')})(?![\\w-]))` : '';
+  return new RegExp(`${escapeRegExp(path)}(?![\\w-])${notAChild}`).test(reference);
+}
+
 describe('docs/commands.md', () => {
-  it.each(entries.map((entry) => entry.path))('mentions `%s`', (path) => {
-    expect(reference.includes(path), `docs/commands.md never mentions \`${path}\``).toBe(true);
+  it.each(entries.map((entry) => [entry.path, entry] as const))('mentions `%s`', (path, entry) => {
+    expect(mentionsCommand(entry), `docs/commands.md never mentions \`${path}\` as a complete command`).toBe(true);
   });
 
   const options = [
@@ -44,7 +57,7 @@ describe('docs/commands.md', () => {
   ].sort();
 
   it.each(options)('documents the %s option', (flag) => {
-    const documented = new RegExp(`${flag.replace(/-/g, '\\-')}(?![\\w-])`).test(reference);
+    const documented = new RegExp(`${escapeRegExp(flag)}(?![\\w-])`).test(reference);
     expect(documented, `docs/commands.md never mentions ${flag}`).toBe(true);
   });
 
