@@ -570,6 +570,19 @@ azdo config org-delete acme             # delete org scope
 azdo config org-copy default acme --force   # overwrite on collision
 ```
 
+### Settings
+
+`azdo config --help` prints this table (generated from the CLI's own settings registry, so it
+cannot drift), and `azdo config set|get|unset --help` point at it.
+
+| Key | Meaning | Accepted values | Scope | Environment override |
+| --- | --- | --- | --- | --- |
+| `org` | Azure DevOps organization name (required) | string | global only | — |
+| `project` | Azure DevOps project name (required) | string | global, or per organization with `--org` | — |
+| `fields` | Extra work item fields to include | comma-separated reference names | global, or per organization with `--org` | — |
+| `markdown` | Convert rich text fields to markdown on display | `true` / `false` | global, or per organization with `--org` | — |
+| `credentialStore` | Where credentials are stored | `keyring` (OS vault, default) / `dpapi` (Windows only; DPAPI-encrypted files under `~/.azdo/credentials`) | global only | `AZDO_CREDENTIAL_STORE` |
+
 Resolution order for `get-item`, `set-state`, and other work item commands:
 1. `--org` / `--project` CLI flags
 2. Git remote (any Azure DevOps remote, not just `origin`) — project names containing spaces are decoded automatically from the remote URL
