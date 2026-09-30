@@ -1,0 +1,32 @@
+{
+  "$schema": "https://context7.com/schema/context7.json",
+  "projectTitle": "azdo-cli",
+  "description": "Azure DevOps CLI (azdo) for work items, pull requests, pipelines, relations, attachments and authentication",
+  "excludeFolders": [
+    "specs",
+    ".specify",
+    ".agents",
+    ".automata",
+    ".beads",
+    ".claude",
+    ".devcontainer",
+    ".github",
+    "docs/changelogs",
+    "src",
+    "tests",
+    "scripts"
+  ],
+  "excludeFiles": [
+    "AGENTS.md",
+    "CLAUDE.md",
+    "CHANGELOG.md",
+    "Claude_Skills_Complete_Guide.md"
+  ],
+  "rules": [
+    "docs/commands.md is the command reference; every azdo subcommand, option and --json shape is listed there and checked against the real command tree by tests/unit/docs-command-reference.test.ts.",
+    "Sign in with `azdo auth login`; there is no `azdo login`, `azdo work-item` or `azdo boards` command. Read a work item with `azdo get-item <id>`.",
+    "Credentials resolve AZDO_PAT env var -> stored credential (OS credential store, or DPAPI files when credentialStore=dpapi) -> AZDO_PAT in a .env file; AZURE_DEVOPS_PAT and similar variables are ignored.",
+    "`azdo pr open` always targets the develop branch.",
+    "Machine-readable output: pass --json; the JSON goes to stdout, errors to stderr."
+  ]
+}
