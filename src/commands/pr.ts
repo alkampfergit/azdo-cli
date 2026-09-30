@@ -34,6 +34,7 @@ import {
   patchThreadStatus,
   postThreadComment,
   updateThreadComment,
+  deleteThreadComment,
   linkWorkItemToPullRequest,
   unlinkWorkItemFromPullRequest,
   resolveReviewerIdentity,
@@ -1460,6 +1461,7 @@ export function createPrCommentsCommand(): Command {
   command.addCommand(createPrCommentsReplyCommand());
   command.addCommand(createPrCommentsAddCommand());
   command.addCommand(createPrCommentsEditCommand());
+  command.addCommand(createPrCommentsDeleteCommand());
   return command;
 }
 
@@ -1967,9 +1969,43 @@ interface PrCommentEditResult {
   dryRun: boolean;
 }
 
-// Fetches the thread holding the comment to edit, translating a 404 into the
-// thread-not-found message. Returns null when the error was already reported.
-async function fetchThreadForEdit(target: ResolvedThreadTarget): Promise<ActiveCommentThread | null> {
+// --comment-id, parsed once before any network call: the number itself, null
+// when the option was not supplied (the command's own default applies), or
+// 'invalid' when it was supplied but is not a positive integer — in which case
+// the error is already on stderr.
+function parseExplicitCommentId(options: PrCommandOptions): number | null | 'invalid' {
+  if (options.commentId === undefined) {
+    return null;
+  }
+
+  const parsed = parsePositivePrNumber(options.commentId);
+  if (parsed === null) {
+    writeError(`Invalid --comment-id "${options.commentId}"; expected a positive integer.`);
+    return 'invalid';
+  }
+
+  return parsed;
+}
+
+// The comment named by --comment-id, or null (exit 3, message on stderr) when
+// the thread holds no comment with that id.
+function findCommentInThread(
+  thread: ActiveCommentThread,
+  commentId: number,
+  target: ResolvedThreadTarget,
+): ActivePullRequestComment | null {
+  const match = thread.comments.find((comment) => comment.id === commentId);
+  if (match === undefined) {
+    writeError(`Comment #${commentId} not found in thread #${target.threadId} on pull request #${target.pullRequest.id}.`, EXIT_NOT_FOUND);
+    return null;
+  }
+  return match;
+}
+
+// Fetches the thread holding the comment to edit or delete, translating a 404
+// into the thread-not-found message. Returns null when the error was already
+// reported.
+async function fetchTargetThread(target: ResolvedThreadTarget): Promise<ActiveCommentThread | null> {
   try {
     return await getPullRequestThread(
       target.context,
@@ -1997,12 +2033,7 @@ function selectEditableComment(
   target: ResolvedThreadTarget,
 ): ActivePullRequestComment | null {
   if (explicitCommentId !== null) {
-    const match = thread.comments.find((comment) => comment.id === explicitCommentId);
-    if (match === undefined) {
-      writeError(`Comment #${explicitCommentId} not found in thread #${target.threadId} on pull request #${target.pullRequest.id}.`, EXIT_NOT_FOUND);
-      return null;
-    }
-    return match;
+    return findCommentInThread(thread, explicitCommentId, target);
   }
 
   const first = [...thread.comments].sort((a, b) => a.id - b.id)[0];
@@ -2050,13 +2081,9 @@ async function runCommentEdit(
       return;
     }
 
-    let explicitCommentId: number | null = null;
-    if (options.commentId !== undefined) {
-      explicitCommentId = parsePositivePrNumber(options.commentId);
-      if (explicitCommentId === null) {
-        writeError(`Invalid --comment-id "${options.commentId}"; expected a positive integer.`);
-        return;
-      }
+    const explicitCommentId = parseExplicitCommentId(options);
+    if (explicitCommentId === 'invalid') {
+      return;
     }
 
     const target = await resolveThreadTarget(threadIdRaw, options, {
@@ -2068,7 +2095,7 @@ async function runCommentEdit(
       return;
     }
 
-    const thread = await fetchThreadForEdit(target);
+    const thread = await fetchTargetThread(target);
     if (thread === null) {
       return;
     }
@@ -2144,6 +2171,152 @@ export function createPrCommentEditCommand(): Command {
   return buildCommentEditCommand(
     'comment-edit',
     'Edit an existing pull request comment in place (alias of "azdo pr comments edit")',
+  );
+}
+
+// Flat JSON shape emitted by `azdo pr comments delete --json` and its alias.
+// `deleted` is false only on a dry run, so a script can key on it alone.
+interface PrCommentDeleteResult {
+  pullRequestId: number;
+  threadId: number;
+  commentId: number;
+  deleted: boolean;
+  dryRun: boolean;
+}
+
+// Picks the comment to delete: the one named by --comment-id, or else the
+// thread's only visible comment. Unlike `edit` there is no "first comment"
+// default — a deletion cannot be undone, so an ambiguous thread is refused
+// (exit 1) with the candidate ids listed, never guessed. Returns null after
+// reporting why nothing was selected.
+function selectDeletableComment(
+  thread: ActiveCommentThread,
+  explicitCommentId: number | null,
+  target: ResolvedThreadTarget,
+): ActivePullRequestComment | null {
+  if (explicitCommentId !== null) {
+    return findCommentInThread(thread, explicitCommentId, target);
+  }
+
+  const comments = [...thread.comments].sort((a, b) => a.id - b.id);
+  if (comments.length === 1) {
+    return comments[0];
+  }
+
+  if (comments.length === 0) {
+    writeError(`Thread #${target.threadId} on pull request #${target.pullRequest.id} has no comment to delete.`, EXIT_NOT_FOUND);
+    return null;
+  }
+
+  const candidates = comments.map((comment) => `#${comment.id} (${comment.author ?? 'Unknown'})`).join(', ');
+  writeError(
+    `Thread #${target.threadId} on pull request #${target.pullRequest.id} holds ${comments.length} comments; pass --comment-id to choose one: ${candidates}.`,
+  );
+  return null;
+}
+
+// Emits a delete result as JSON or as the one-line human summary.
+function reportDeleteResult(result: PrCommentDeleteResult, json: boolean, comment: ActivePullRequestComment): void {
+  if (json) {
+    process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+    return;
+  }
+
+  if (result.dryRun) {
+    process.stdout.write(
+      `Dry run: would delete comment #${result.commentId} by ${comment.author ?? 'Unknown'} (${comment.content.length} chars) from thread #${result.threadId} on pull request #${result.pullRequestId}.\n`,
+    );
+    return;
+  }
+
+  process.stdout.write(
+    `Comment #${result.commentId} deleted from thread #${result.threadId} on pull request #${result.pullRequestId}.\n`,
+  );
+}
+
+// No confirmation prompt, under a TTY or not: the command exists for scripted
+// callers (a bot removing its own marker comment), and `--dry-run` is the
+// preview for a human. The thread is fetched first so an unknown thread or
+// comment fails as "not found" (exit 3) instead of reaching the DELETE.
+async function runCommentDelete(threadIdRaw: string, options: PrCommandOptions): Promise<void> {
+  let context: AzdoContext | undefined;
+
+  try {
+    const explicitCommentId = parseExplicitCommentId(options);
+    if (explicitCommentId === 'invalid') {
+      return;
+    }
+
+    const target = await resolveThreadTarget(threadIdRaw, options, {
+      onContextResolved: (resolved) => {
+        context = resolved;
+      },
+    });
+    if (target === null) {
+      return;
+    }
+
+    const thread = await fetchTargetThread(target);
+    if (thread === null) {
+      return;
+    }
+
+    const comment = selectDeletableComment(thread, explicitCommentId, target);
+    if (comment === null) {
+      return;
+    }
+
+    const dryRun = options.dryRun === true;
+    if (!dryRun) {
+      await deleteThreadComment(
+        target.context,
+        target.repo,
+        target.pat,
+        target.pullRequest.id,
+        target.threadId,
+        comment.id,
+      );
+    }
+
+    reportDeleteResult(
+      {
+        pullRequestId: target.pullRequest.id,
+        threadId: target.threadId,
+        commentId: comment.id,
+        deleted: !dryRun,
+        dryRun,
+      },
+      options.json === true,
+      comment,
+    );
+  } catch (err) {
+    handlePrCommandError(err, context, 'write');
+  }
+}
+
+function buildCommentDeleteCommand(name: string, description: string): Command {
+  const command = new Command(name);
+  withCommonPrOptions(configureUnwrappedHelp(command))
+    .description(description)
+    .argument('<threadId>', 'numeric id of the thread holding the comment')
+    .option('--comment-id <N>', 'numeric id of the comment to delete; may be omitted only when the thread holds a single comment')
+    .option('--dry-run', 'resolve the target comment and print what would be deleted, without deleting anything')
+    .option('--pr-number <N>', PR_NUMBER_HELP)
+    .option('--json', 'output JSON')
+    .action(async (threadIdRaw: string, _options: PrCommandOptions, command: Command) => {
+      await runCommentDelete(threadIdRaw, mergedPrOptions(command));
+    });
+  return command;
+}
+
+export function createPrCommentsDeleteCommand(): Command {
+  return buildCommentDeleteCommand('delete', 'Delete a pull request comment (no confirmation prompt; irreversible)');
+}
+
+export function createPrCommentDeleteCommand(): Command {
+  return buildCommentDeleteCommand(
+    'comment-delete',
+    'Delete a pull request comment (alias of "azdo pr comments delete"; no confirmation prompt; irreversible)',
   );
 }
 
@@ -2505,5 +2678,6 @@ export function createPrCommand(): Command {
   command.addCommand(createPrWorkItemsCommand());
   command.addCommand(createPrReviewersCommand());
   command.addCommand(createPrCommentEditCommand());
+  command.addCommand(createPrCommentDeleteCommand());
   return command;
 }

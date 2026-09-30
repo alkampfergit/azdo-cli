@@ -150,6 +150,7 @@ azdo pr comments --thread 148              # just one thread (e.g. re-read after
 azdo pr comments --contains '"kind":"plan"' # threads holding a literal substring
 azdo pr comments add --file plan.md        # NEW thread on the PR overview
 azdo pr comments edit 148 --file plan.md   # rewrite a comment in place
+azdo pr comments delete 148 --comment-id 3 # delete a comment (irreversible; no prompt)
 azdo pr comments reply 148 "Done."         # reply inside an existing thread
 azdo pr comment-resolve  17 --pr-number 64 # mark thread as resolved (idempotent)
 azdo pr comment-reopen   17 --pr-number 64 # reopen a previously resolved thread
@@ -273,6 +274,14 @@ work from outside a checkout of the target repository.
 - Same `--file` and `--dry-run` behaviour as `add`; the dry run prints the replacement body plus a `13191 chars -> 4 chars` delta rather than dumping the current body, and `--json` reports `previousContent` for a real diff
 - Azure DevOps only lets a comment's own author edit it — another identity gets a permission error
 
+**`azdo pr comments delete <threadId>`** (alias: `azdo pr comment-delete`)
+- Deletes one comment from a thread via the documented `DELETE .../threads/{threadId}/comments/{commentId}` — the way to remove a marker comment a bot posted earlier, instead of editing it to an empty body
+- `--comment-id <N>` names the comment. It may be omitted **only** when the thread holds a single visible comment; a thread with several is refused (exit 1) with the candidate ids and authors listed, because a deletion cannot be undone and the "first comment" default `edit` uses would be a guess
+- **No confirmation prompt**, under a TTY or not — the command exists for scripted callers. `--dry-run` is the preview: it resolves the comment, prints who wrote it and how long it is, and exits 0 without deleting
+- Unknown thread or comment → exit 3 before any write; a comment authored by somebody else → exit 4 (Azure DevOps only lets the author delete); any other server rejection prints the server's own message under an `HTTP_<status>` line with exit 1
+- Deleting a thread's last comment leaves an empty thread, which `azdo pr comments` no longer lists
+- `--json` returns `{ pullRequestId, threadId, commentId, deleted, dryRun }` — `deleted` is `true` on a real deletion and `false` on a dry run
+
 **`azdo pr comments reply <threadId> [text]`** (alias: `azdo pr comment-reply`)
 - Appends a reply to an existing thread
 - The body can now come from `--file <path>` instead of the inline argument (`-` reads standard input)
@@ -304,7 +313,7 @@ caller can tell "not permitted" from "not found" without scraping stderr:
 | `0` | Success, including a `--dry-run` and an idempotent no-op (`comment-resolve` on an already-resolved thread) |
 | `1` | Validation failure (bad `--pr-number`, `--thread`, `--status`, empty body, both inline text and `--file`, invalid work item id, an unresolvable reviewer identity), network error, or any other unexpected failure |
 | `3` | An addressed resource does not exist: the pull request behind `--pr-number`, the thread behind `--thread` / `<threadId>`, or the comment behind `--comment-id` |
-| `4` | Not permitted: authentication failure or permission denied (for example editing a comment authored by somebody else, which Azure DevOps rejects) |
+| `4` | Not permitted: authentication failure or permission denied (for example editing or deleting a comment authored by somebody else, which Azure DevOps rejects) |
 
 Branch **auto-detection** failures (no open PR for the current branch, or several) keep exit `1`:
 that is a resolution failure rather than a named resource that could not be found, and the code is
@@ -349,7 +358,7 @@ layer and have their own reporting: `azdo auth diagnose` prints the server's `me
 validation in `azdo auth login` reports the status only.
 
 Note the two scopes: reads (`pr list`, `pr status`, `pr comments`) need **Code (Read)**, while
-`comments add` / `edit` / `reply` / `comment-resolve` / `comment-reopen`, `pr open`, and
+`comments add` / `edit` / `delete` / `reply` / `comment-resolve` / `comment-reopen`, `pr open`, and
 `pr reviewers add` / `remove` need **Code (Read & Write)**. `pr work-items link` / `unlink` also
 need **Work Items (Read & Write)**, since the link is written on the work item, not the pull
 request. A PAT scoped for Work Items only makes every other `pr` command fail while

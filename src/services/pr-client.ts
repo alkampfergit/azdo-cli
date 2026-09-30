@@ -798,6 +798,36 @@ export async function updateThreadComment(
   };
 }
 
+// Deletes one comment from a pull request thread via the documented
+// DELETE .../threads/{threadId}/comments/{commentId} (Pull Request Thread
+// Comments - Delete, api-version 7.1). The endpoint answers with a bare 200/204
+// and no useful body, so nothing is parsed: a non-ok status becomes the usual
+// httpError and the 401/403/404 sentinels come from fetchWithErrors. Azure
+// DevOps only lets a comment's own author delete it, so another identity gets
+// PERMISSION_DENIED here. Deleting a thread's last visible comment leaves an
+// empty thread that the list mapper already drops (mapComment skips isDeleted).
+export async function deleteThreadComment(
+  context: AzdoContext,
+  repo: string,
+  cred: AuthCredential,
+  prId: number,
+  threadId: number,
+  commentId: number,
+): Promise<void> {
+  const url = new URL(
+    `https://dev.azure.com/${encodeURIComponent(context.org)}/${encodeURIComponent(context.project)}/_apis/git/repositories/${encodeURIComponent(repo)}/pullRequests/${prId}/threads/${threadId}/comments/${commentId}`,
+  );
+  url.searchParams.set('api-version', '7.1');
+
+  const response = await fetchWithErrors(url.toString(), {
+    method: 'DELETE',
+    headers: authHeaders(cred),
+  });
+  if (!response.ok) {
+    throw httpError(response);
+  }
+}
+
 export async function postThreadComment(
   context: AzdoContext,
   repo: string,

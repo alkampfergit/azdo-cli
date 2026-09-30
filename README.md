@@ -85,10 +85,11 @@ azdo pr status --pr-number 64           # same view for one PR by number, any st
 azdo pr comment-resolve 17 --pr-number 64   # idempotent: exit 0 even when already resolved
 azdo pr comment-reopen 17  --pr-number 64
 
-# Write to a PR — new thread, in-place edit, reply
+# Write to a PR — new thread, in-place edit, delete, reply
 azdo pr comments add --file plan.md --pr-number 64 --dry-run   # preview, writes nothing
 azdo pr comments add --file plan.md --pr-number 64             # NEW thread on the overview
 azdo pr comments edit 148 --file plan.md --pr-number 64        # rewrite it in place
+azdo pr comments delete 148 --comment-id 3 --pr-number 64     # delete a comment (irreversible; no prompt)
 azdo pr comments reply 148 "Great suggestion, I'll address it."          # human-readable output
 azdo pr comments reply 148 "Done." --pr-number 64 --json                 # JSON: { pullRequestId, threadId, commentId, content }
 azdo pr comment-reply 148 "Done."  --pr-number 64                        # flat alias, identical behaviour
