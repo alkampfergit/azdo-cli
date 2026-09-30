@@ -235,6 +235,7 @@ work from outside a checkout of the target repository.
 - Shares `--pr-number`, `--org`, `--project`, `--repo`, and `--json` with the rest of `pr`; `--json` returns `{ pullRequestId, workItemId, noop }`
 
 **`azdo pr reviewers add <reviewer>`** / **`azdo pr reviewers remove <reviewer>`**
+- `azdo pr reviewers` on its own is only a group: it lists `add` and `remove` and changes nothing
 - `<reviewer>` is an email or Azure DevOps unique name, resolved to an identity via the Identities API
 - `add` defaults to an **optional** reviewer; `--required` marks them required instead. Re-adding an existing reviewer with a different `--required` value updates their required/optional flag in place — no duplicate entry. Re-adding with the *same* flag is a no-op (exit 0, `noop: true` in `--json`, no write issued)
 - `remove` is idempotent: removing someone who isn't currently a reviewer is a no-op (exit 0, `noop: true` in `--json`)
@@ -683,7 +684,7 @@ The pull request object shared by `pr list`, `pr status`, `pr open` and `pr comm
   "id": 1, "state": "succeeded", "name": "CI", "description": null, "targetUrl": null,
   "createdBy": null, "createdAt": null, "updatedAt": null,
   "source": "policy",   // status | policy | build
-  "isBlocking": true    // policy checks only; null otherwise
+  "isBlocking": true    // policy checks: true/false; build checks: null; status checks: property absent
 }
 ```
 
@@ -728,7 +729,12 @@ The pull request object shared by `pr list`, `pr status`, `pr open` and `pr comm
 
 | Command | `--json` shape |
 | --- | --- |
-| `pipeline tests` | `{ present, total, failed, failedTests }` |
+| `pipeline list` | `[{ id, name, folder }]` — `folder` is `null` for root-level definitions |
+| `pipeline get-runs` | `[Run]` where `Run` is `{ id, name, state, result, createdDate, finishedDate, sourceBranch, sourceCommit }` — `state` is `inProgress`, `completed` or `unknown`; `result` is `succeeded`, `failed`, `canceled` or `null` |
+| `pipeline wait` | `{ id, state, result, timedOut }` — the exit code still reflects the result |
+| `pipeline get-run-detail` | `Run & { startedDate, durationSeconds, reason, requestedFor, webUrl, errors: [{ message, source }], errorsAvailable, stages: [Stage], jobs: [Stage], tests: { present, total, failed, failedTests }, testsAvailable }` where `Stage` is `{ name, state, result }` |
+| `pipeline logs` | `[{ id, createdOn, lineCount, step }]` — with `--log-id` / `--step` the log text is printed as-is and `--json` has no effect |
+| `pipeline tests` | `{ present, total, failed, failedTests: [{ name, errorMessage }] }` |
 | `pipeline start` | `{ id, state, webUrl }` — `RID=$(azdo pipeline start 12 --json \| jq .id)` |
 
 ### Authentication and configuration

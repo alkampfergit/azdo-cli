@@ -12,7 +12,7 @@ source file under `src/` changes.
 | Principle | Compliance |
 | --- | --- |
 | I. CLI-First | No command change; the JSON contracts documented are the existing ones. |
-| III. Single Responsibility | Reference in `docs/commands.md`; README untouched (install, quick start, doc table unchanged — per the AGENTS.md documentation convention). |
+| III. Single Responsibility | Reference in `docs/commands.md`. README reviewed per the Development Workflow rule: install and quick start are unchanged, and the documentation-table row for `docs/commands.md` now says it carries the credential resolution order and the `--json` contracts. |
 | V. Simplicity | A string-containment test over the real tree rather than a doc generator. |
 | VI. ADO API Research | N/A — no Azure DevOps surface touched. |
 
