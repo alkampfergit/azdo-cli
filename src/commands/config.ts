@@ -153,9 +153,55 @@ async function promptForSetting(
   process.stderr.write(`  -> Skipped "${setting.key}"\n\n`);
 }
 
+const SETTING_TYPE_LABEL: Record<SettingDefinition['type'], string> = {
+  string: 'string',
+  'string[]': 'comma-separated list',
+  boolean: 'true | false',
+};
+
+function describeSettingValues(setting: SettingDefinition): string {
+  if (!setting.values) return `type: ${SETTING_TYPE_LABEL[setting.type]}`;
+  const list = setting.values.map((v) => (v.note ? `${v.value} (${v.note})` : v.value)).join(', ');
+  return `values: ${list}`;
+}
+
+/**
+ * The "Settings" block of `azdo config --help`, rendered from the registry so
+ * a new key, value or env override shows up here without a second edit — the
+ * issue that motivated it was `credentialStore dpapi` being settable but not
+ * discoverable from the command itself.
+ */
+export function renderSettingsHelp(settings: readonly SettingDefinition[] = SETTINGS): string {
+  const keyWidth = Math.max(...settings.map((s) => s.key.length)) + 3;
+  const indent = ' '.repeat(2 + keyWidth);
+  const lines: string[] = ['Settings (azdo config set <key> <value>):', ''];
+
+  for (const setting of settings) {
+    const facts = [
+      describeSettingValues(setting),
+      `scope: ${setting.scoped ? 'global, or per organization with --org <org>' : 'global only'}`,
+    ];
+    if (setting.required) facts.push('required');
+    if (setting.env) facts.push(`env: ${setting.env} overrides the stored value`);
+
+    lines.push(`  ${setting.key.padEnd(keyWidth)}${setting.description}`);
+    for (const fact of facts) lines.push(`${indent}${fact}`);
+    lines.push(`${indent}example: azdo config set ${setting.key} ${setting.example}`);
+    lines.push('');
+  }
+
+  return lines.join('\n').trimEnd();
+}
+
+const KEY_ARGUMENT_HELP = `setting key (${SETTINGS.map((s) => s.key).join(', ')})`;
+const KEY_HELP_POINTER =
+  '\nRun `azdo config --help` for each setting\'s meaning, accepted values and scope.\n';
+
 export function createConfigCommand(): Command {
   const config = new Command('config');
   config.description('Manage CLI settings');
+
+  config.addHelpText('after', `\n${renderSettingsHelp()}`);
 
   // Credentials deliberately live outside this file (`config list` never shows
   // a token), so `config --help` is where a user looks for "which token is the
@@ -181,12 +227,13 @@ export function createConfigCommand(): Command {
   const set = new Command('set');
   set
     .description('Set a configuration value')
-    .argument('<key>', 'setting key (org, project, fields, markdown, credentialStore)')
+    .argument('<key>', KEY_ARGUMENT_HELP)
     .argument('<value>', 'setting value')
     .option('--org <org>', 'set value in an org-scoped configuration')
     .option('--json', 'output in JSON format')
     .option('--copy-credentials', 'with credentialStore dpapi: copy Credential Manager credentials without asking')
     .option('--no-copy-credentials', 'with credentialStore dpapi: do not offer to copy Credential Manager credentials')
+    .addHelpText('after', KEY_HELP_POINTER)
     // Deliberately not `async`: only the DPAPI copy offer awaits, so every
     // other `config set` still completes (and fails) synchronously.
     .action((key: string, value: string, options: SetOptions): Promise<void> | void => {
@@ -226,9 +273,10 @@ export function createConfigCommand(): Command {
   const get = new Command('get');
   get
     .description('Get a configuration value')
-    .argument('<key>', 'setting key (org, project, fields, markdown, credentialStore)')
+    .argument('<key>', KEY_ARGUMENT_HELP)
     .option('--org <org>', 'read from an org-scoped configuration')
     .option('--json', 'output in JSON format')
+    .addHelpText('after', KEY_HELP_POINTER)
     .action((key: string, options: { org?: string; json?: boolean }) => {
       try {
         const value = options.org ? getOrgScopedValue(options.org, key) : getConfigValue(key);
@@ -270,9 +318,10 @@ export function createConfigCommand(): Command {
   const unset = new Command('unset');
   unset
     .description('Remove a configuration value')
-    .argument('<key>', 'setting key (org, project, fields, markdown, credentialStore)')
+    .argument('<key>', KEY_ARGUMENT_HELP)
     .option('--org <org>', 'remove from an org-scoped configuration')
     .option('--json', 'output in JSON format')
+    .addHelpText('after', KEY_HELP_POINTER)
     .action((key: string, options: { org?: string; json?: boolean }) => {
       try {
         if (options.org) {
