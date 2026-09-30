@@ -180,14 +180,16 @@ export function renderSettingsHelp(settings: readonly SettingDefinition[] = SETT
     const facts = [
       describeSettingValues(setting),
       `scope: ${setting.scoped ? 'global, or per organization with --org <org>' : 'global only'}`,
+      ...(setting.required ? ['required'] : []),
+      ...(setting.env ? [`env: ${setting.env} overrides the stored value`] : []),
+      `example: azdo config set ${setting.key} ${setting.example}`,
     ];
-    if (setting.required) facts.push('required');
-    if (setting.env) facts.push(`env: ${setting.env} overrides the stored value`);
 
-    lines.push(`  ${setting.key.padEnd(keyWidth)}${setting.description}`);
-    for (const fact of facts) lines.push(`${indent}${fact}`);
-    lines.push(`${indent}example: azdo config set ${setting.key} ${setting.example}`);
-    lines.push('');
+    lines.push(
+      `  ${setting.key.padEnd(keyWidth)}${setting.description}`,
+      ...facts.map((fact) => `${indent}${fact}`),
+      '',
+    );
   }
 
   return lines.join('\n').trimEnd();
