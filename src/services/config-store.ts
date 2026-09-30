@@ -1,9 +1,13 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import type { CliConfig, ConfigValue, ScopedSettings } from '../types/work-item.js';
+import type {
+  CliConfig,
+  ConfigValue,
+  CredentialStoreKind,
+  ScopedSettings,
+} from '../types/work-item.js';
 import { CREDENTIAL_STORES, parseCredentialStore } from './credential-store-kind.js';
-import type { CredentialStoreKind } from '../types/work-item.js';
 
 export interface SettingValueDefinition {
   value: string;
