@@ -13,8 +13,12 @@
 | `azdo get-md-field <id> <field>` | Get rich-text field as markdown | `--download-images`, `--resize-images <px>`, `--images-path <dir>`, `--org`, `--project` |
 | `azdo set-md-field <id> <field> [content]` | Set markdown field | `--file`, `--json`, `--org`, `--project` |
 | `azdo list-fields <id>` | List all fields of a work item | `--json`, `--org`, `--project` |
-| `azdo pr <subcommand>` | Manage pull requests (current branch or by `--pr-number`) | `status`, `open`, `update`, `comments`, `comment-resolve`, `comment-reopen`, `--pr-number`, `--hide-resolved`, `--exclude-resolved`, `--code-related-only`, `--json`, `--org`, `--project` |
-| `azdo pipeline <subcommand>` | Inspect and operate Azure DevOps pipelines | `list`, `get-runs`, `wait`, `get-run-detail`, `logs`, `start`, `--filter`, `--limit`, `--branch`, `--timeout`, `--poll-interval`, `--log-id`, `--parameter`, `--json`, `--org`, `--project` |
+| `azdo pr <subcommand>` | Manage pull requests (current branch or by `--pr-number`) — see [Pull request commands](#pull-request-commands) | `list`, `status`, `open`, `update` (`edit`), `abandon` (`close`), `reactivate`, `comments`, `comments add\|edit\|reply` (`comment-add`, `comment-edit`, `comment-reply`), `comment-resolve`, `comment-reopen`, `work-items link\|unlink`, `reviewers add\|remove`, `--pr-number`, `--repo`, `--json`, `--org`, `--project` |
+| `azdo pipeline <subcommand>` | Inspect and operate Azure DevOps pipelines | `list`, `get-runs`, `wait`, `get-run-detail`, `logs`, `tests`, `start`, `--filter`, `--limit`, `--branch`, `--commit`, `--pr`, `--timeout`, `--poll-interval`, `--log-id`, `--parameter`, `--json`, `--org`, `--project` |
+| `azdo download-attachment <id> <filename>` | Download a work item attachment | `--output <dir>`, `--org`, `--project` |
+| `azdo add-attachment <id> <file>` | Attach a local file to a work item | `--comment <text>`, `--org`, `--project` |
+| `azdo delete-attachment <id> <filename>` | Remove a work item attachment (prompts unless `--yes`) | `--id <guid>`, `--yes`, `--org`, `--project` |
+| `azdo relations <subcommand>` | Work item link relations — see [Work item relations](#work-item-relations) | `types`, `add <type> <id1> <id2>`, `remove <type> <id1> <id2>`, `list <id>`, `--json`, `--org`, `--project` |
 | `azdo config <subcommand>` | Manage saved settings | `set [--org]`, `get [--org]`, `unset [--org]`, `list`, `org-copy`, `org-move`, `org-delete`, `wizard`, `--json` |
 | `azdo auth login` | Authenticate against an org — OAuth (Microsoft Entra) by default, or a PAT with `--use-pat` | `--org`, `--use-pat`, `--device-code`, `--client-id`, `--tenant-id`, `--scopes`, `--from-stdin`, `--no-browser` |
 | `azdo auth` | Legacy PAT-prompt entry point (back-compat alias of `azdo auth login --use-pat`) | `--org`, `--from-stdin`, `--no-browser` |
@@ -181,7 +185,7 @@ work from outside a checkout of the target repository.
 
   Exit code `1` — nothing was sent, so no pull request was created. There is no `--truncate`: silently clipping a description is the failure mode this replaces. If Azure DevOps rejects the create anyway, the same arithmetic is appended to the server's own message.
 - `--description-file <path>` reads the description from a UTF-8 file instead of `--description`; the two are mutually exclusive. `-` means **standard input**, so `cat body.md | azdo pr open --title "…" --description-file -` works. The file's content is composed with the repository template exactly as inline text is — `--description-file` changes where the text comes from, nothing else. An empty file is an error (unlike an empty `--description`, which has always meant "use the template")
-- Always targets `develop`
+- **Always targets `develop`** — there is no flag to choose another target branch; running it from `develop` itself fails
 - Reuses an existing active PR if one already matches the branch and target
 - Fails when run from `develop` or when multiple active PRs exist
 
@@ -429,6 +433,56 @@ azdo comments add 12345 "Queued validation run." --json
 
 **`azdo comments add`** — requires non-empty text; fails locally before any API call when blank
 
+## Work item attachments
+
+```bash
+azdo download-attachment 12345 screenshot.png                  # into the current directory
+azdo download-attachment 12345 screenshot.png --output ./files # into an existing directory
+azdo add-attachment 12345 ./screenshot.png --comment "Repro captured on staging"
+azdo delete-attachment 12345 screenshot.png                    # prompts for confirmation
+azdo delete-attachment 12345 screenshot.png --yes              # no prompt (required when stdin is not a TTY)
+azdo delete-attachment 12345 screenshot.png --id <guid>        # pick one when several share the name
+```
+
+**`azdo download-attachment <id> <filename>`**
+- Finds the attachment by its exact file name on the work item and writes it to `--output <dir>` (default `.`; the directory must exist)
+- A name that is not attached to the work item fails with exit 1
+
+**`azdo add-attachment <id> <file>`**
+- Uploads the local file and links it to the work item as an `AttachedFile` relation; `--comment <text>` is stored with the link
+- The file is read, and the work item is checked, **before** anything is uploaded, so a bad path or an inaccessible work item never leaves an orphaned attachment
+- Prints the attachment name, size and GUID (`[id: <guid>]`)
+
+**`azdo delete-attachment <id> <filename>`**
+- Removes the attachment relation from the work item
+- Asks `[y/N]` on a TTY; `-y, --yes` skips the prompt and is **required** in a non-interactive shell (without it the command exits 1 and removes nothing)
+- When several attachments share the name, the command lists them and exits 1; re-run with `--id <guid>` to choose one
+
+None of the three commands has `--json`.
+
+## Work item relations
+
+```bash
+azdo relations types                   # relation types usable between work items (Child, Parent, Related, ...)
+azdo relations types --json
+azdo relations add child 1000 2000     # make #2000 a child of #1000 (idempotent)
+azdo relations remove child 1000 2000  # remove it (idempotent)
+azdo relations list 1000               # work item links on #1000, with target titles
+azdo relations list 1000 --json
+```
+
+**`azdo relations types`**
+- Lists the enabled work-item-to-work-item link types only (`usage: workItemLink`); resource links such as `ArtifactLink`, `Hyperlink` and `AttachedFile` are not listed
+
+**`azdo relations add <type> <id1> <id2>`** / **`azdo relations remove <type> <id1> <id2>`**
+- `<type>` is a relation type **name** as printed by `relations types` (`Child`, `Parent`, `Related`, …), matched case-insensitively — not the reference name (`System.LinkTypes.Hierarchy-Forward`)
+- The relation is written on `<id1>` pointing at `<id2>`: `add child 1000 2000` makes #2000 a child of #1000
+- Idempotent: adding an existing relation reports `already_exists`, removing a missing one reports `not_found`; both exit 0
+
+**`azdo relations list <id>`**
+- Lists only **work item link** relations. `ArtifactLink` (pull requests, commits, builds), `Hyperlink` and `AttachedFile` relations are omitted — use `azdo get-item` for attachments and `azdo pr work-items` to manage pull request links
+- Target titles are fetched in one batch call; if that call fails the titles are `null` and the listing still succeeds
+
 ## azdo upsert
 
 Creates a new work item or updates an existing one from a markdown document.
@@ -521,6 +575,44 @@ Resolution order for `get-item`, `set-state`, and other work item commands:
 3. Org-scoped config (`organizations.<org>.project`)
 4. Default config (`project`)
 
+### Credential resolution order
+
+Credentials are never stored in the configuration file. Every command resolves one in this order
+(also printed by `azdo config --help`):
+
+1. the `AZDO_PAT` environment variable — wins over everything below
+2. the stored credential for the organization — the OS credential store (see `azdo auth login`), or,
+   with `azdo config set credentialStore dpapi` on Windows, DPAPI-encrypted files in `~/.azdo/credentials`
+3. `AZDO_PAT` in a `.env` file, searched upwards from the working directory
+
+Only `AZDO_PAT` is read — `AZURE_DEVOPS_PAT`, `AZURE_DEVOPS_EXT_PAT` and `AZDO_TOKEN` are **ignored**.
+Pull request commands need the **Code (Read)** scope, or **Code (Read & Write)** to create, update or
+comment; Work Items scopes alone are not enough. `azdo auth diagnose` shows which credential is in use.
+Full detail: [authentication.md](authentication.md#credential-resolution-order).
+
+`credentialStore` accepts `keyring` (default) or `dpapi` (Windows only) and is a global setting — it
+cannot be set per organization. `azdo config set credentialStore dpapi` offers to copy the existing
+Credential Manager credentials; `--copy-credentials` / `--no-copy-credentials` answer without a prompt.
+
+## Authentication commands
+
+```bash
+azdo auth login --org myorg              # OAuth (Microsoft Entra), browser flow
+azdo auth login --org myorg --device-code
+azdo auth login --org myorg --use-pat    # PAT, masked prompt
+echo "$PAT" | azdo auth login --org myorg --use-pat --from-stdin
+azdo auth status                         # every stored org — never the token
+azdo auth status --org myorg --json
+azdo auth diagnose --json                # credential in use, connectivity, identity
+azdo auth token --org myorg              # the token itself, on stdout only
+azdo auth logout --org myorg             # or --all
+```
+
+`azdo login` does not exist — use `azdo auth login`. `azdo auth token` prints exactly the token plus a
+newline (no `--json`); a PAT is sent as `Authorization: Basic base64(":<token>")`, an OAuth token as
+`Authorization: Bearer <token>`. See [authentication.md](authentication.md) for the flows, the
+audit log and the exit codes.
+
 ## Update notifications
 
 On each command run `azdo` quietly checks the npm registry for a newer **stable**
@@ -540,8 +632,119 @@ The check is best-effort and never blocks or fails your command:
 - **Opt-out** with the global `--no-update-check` flag, e.g.
   `azdo --no-update-check get-item 1234`.
 
-## JSON output
+## JSON output contracts
 
-All commands that produce structured data support `--json`:
-`list-fields`, `set-state`, `assign`, `set-field`, `set-md-field`, `upsert`,
-`comments list|add`, `pr status|open|comments|comment-resolve|comment-reopen`, `config set|get|list|unset`
+Commands that produce structured data accept `--json` and write **one JSON document to stdout**;
+errors and advisories always go to stderr. The shapes below are what automation should parse;
+a value Azure DevOps may omit is emitted as `null`.
+
+Commands **without** `--json`: `get-item`, `get-md-field`, `download-attachment`, `add-attachment`,
+`delete-attachment`, `auth token`, `auth login`, `auth logout`, `config org-copy|org-move|org-delete|wizard`.
+
+### Pull requests
+
+The pull request object shared by `pr list`, `pr status`, `pr open` and `pr comments`:
+
+```jsonc
+{
+  "id": 64,
+  "title": "Fix the thing",
+  "repository": "azdo-cli",
+  "sourceRefName": "refs/heads/feature/x",
+  "targetRefName": "refs/heads/develop",
+  "status": "active",                    // active | completed | abandoned
+  "createdBy": "Jane Doe",               // display name — not unique, not stable
+  "createdByUniqueName": "jane@contoso.com",
+  "createdById": "<identity GUID>",
+  "url": "https://dev.azure.com/<org>/<project>/_git/<repo>/pullrequest/64",
+  "description": "Because X was broken"  // null when empty
+}
+```
+
+| Command | `--json` shape |
+| --- | --- |
+| `pr list` | `{ repository, branch, status, pullRequests: [PullRequest] }` — `branch` is `null` without `--branch`; `status` echoes the filter |
+| `pr status` | `{ branch, repository, pullRequests: [PullRequest & { checks: [Check], codeCommentCounts: { open, closed }, checksError? }] }` |
+| `pr open` | `{ branch, targetBranch, created, pullRequest: PullRequest }` — `created: false` when an active PR already existed |
+| `pr update` / `pr edit` | `{ pullRequestId, title, description, url, noop, updatedFields }` — `updatedFields` ⊆ `["title","description"]`, `[]` on a no-op |
+| `pr abandon` / `pr close` / `pr reactivate` | `{ pullRequestId, title, status, previousStatus, url, noop }` |
+| `pr comments` | `{ branch, pullRequest: PullRequest, threads: [Thread] }` |
+| `pr comments add` / `pr comment-add` | `{ pullRequestId, threadId, commentId, status, content, dryRun }` — `threadId` / `commentId` are `null` on `--dry-run`; `status` is `null` without `--status` |
+| `pr comments edit` / `pr comment-edit` | `{ pullRequestId, threadId, commentId, previousContent, content, dryRun }` |
+| `pr comments reply` / `pr comment-reply` | `{ pullRequestId, threadId, commentId, content }` |
+| `pr comment-resolve` / `pr comment-reopen` | `{ pullRequestId, threadId, status, noop }` — on a no-op `status` is the thread's actual backend status |
+| `pr work-items link` / `unlink` | `{ pullRequestId, workItemId, noop }` |
+| `pr reviewers add` / `remove` | `{ pullRequestId, reviewer: { id, displayName, uniqueName, isRequired } \| null, noop }` |
+
+`Check` (in `pr status`):
+
+```jsonc
+{
+  "id": 1, "state": "succeeded", "name": "CI", "description": null, "targetUrl": null,
+  "createdBy": null, "createdAt": null, "updatedAt": null,
+  "source": "policy",   // status | policy | build
+  "isBlocking": true    // policy checks only; null otherwise
+}
+```
+
+`Thread` and its comments (in `pr comments`):
+
+```jsonc
+{
+  "id": 148,
+  "status": "active",           // active | pending | fixed | wontFix | closed | byDesign | unknown
+  "threadContext": "src/a.ts",  // file path of a code-anchored thread; null for overview threads
+  "line": 42,                   // null for overview threads
+  "comments": [
+    {
+      "id": 1,
+      "author": "Jane Doe",
+      "content": "Please rename this.",
+      "publishedAt": "2026-09-30T09:00:00Z",
+      "commentType": "text",    // text | system
+      "truncated": false,       // true when --max-chars cut the body
+      "originalLength": 19
+    }
+  ]
+}
+```
+
+### Work items
+
+| Command | `--json` shape |
+| --- | --- |
+| `set-state`, `assign`, `set-field` | `{ id, rev, title, field, value }` (one line) |
+| `set-md-field` | `{ id, rev, field, value }` (one line) |
+| `upsert` | `{ action, id, workItemType, fields }` — see [JSON output shape](#json-output-shape) |
+| `list-fields` | `{ id, fields: { "<reference name>": <value> } }` |
+| `comments list` | `{ workItemId, count, comments: [{ id, workItemId, text, author, createdAt, modifiedAt, isDeleted }] }` |
+| `comments add` | `{ workItemId, commentId, text, author, createdAt, url }` |
+| `relations types` | `[{ referenceName, name, usage, enabled, directional }]` |
+| `relations add` | `{ status, type, referenceName, id1, id2 }` — `status` is `added` or `already_exists` |
+| `relations remove` | `{ status, type, referenceName, id1, id2 }` — `status` is `removed` or `not_found` |
+| `relations list` | `{ workItemId, relations: [{ rel, relName, targetId, targetTitle, targetUrl, comment }] }` |
+
+### Pipelines
+
+| Command | `--json` shape |
+| --- | --- |
+| `pipeline tests` | `{ present, total, failed, failedTests }` |
+| `pipeline start` | `{ id, state, webUrl }` — `RID=$(azdo pipeline start 12 --json \| jq .id)` |
+
+### Authentication and configuration
+
+| Command | `--json` shape |
+| --- | --- |
+| `auth status` (no `--org`) | `{ orgs: [{ org, kind, backend, accountId?, expiresAt?, scope? }] }` — `kind` is `pat` or `oauth`; the OAuth-only fields are absent for a PAT; `expiresAt` is epoch seconds |
+| `auth status --org <o>` | `{ org, backend, stored, masked, updated_at }` — exit 1 with `stored: false` when nothing is stored; `masked` is a masked preview, never the token |
+| `auth diagnose` | `{ authType, credentialSource, org, project, connectivityStatus, connectivityError, identity }` |
+| `config set` | `{ key, value, scope }` — plus `credentialsCopied` after `set credentialStore dpapi` copied credentials |
+| `config list` | `[{ scope, key, value }]` |
+| `config get` | `{ key, value, scope }` |
+| `config unset` | `{ key, unset: true, scope }` |
+
+`auth diagnose` fields: `authType` is `pat`, `oauth` or `none`; `connectivityStatus` is `ok`, `failed`
+or `no-credentials`; `identity` is `{ displayName, uniqueName, id }` — who the credential belongs to,
+from Azure DevOps' `connectionData` — or `null` when there is no credential, connectivity failed, or the
+lookup failed. Compare `identity.uniqueName` with a pull request's `createdByUniqueName`.
+`auth status --json` does **not** carry `identity`; use `auth diagnose --json` for that.
