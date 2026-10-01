@@ -126,6 +126,8 @@ Requires a credential (OAuth or PAT) with **Code (Read)** scope for reads and **
 azdo pr list                               # active PRs in the repository (one API call)
 azdo pr list --branch feature/x --json     # which PR belongs to this branch?
 azdo pr status                             # list PRs for current branch + checks
+azdo pr status --branch feature/x --json   # checks for another branch, no checkout
+azdo pr status --pr-number 96              # checks for one PR by number
 azdo pr open --title "…" --description "…"      # open PR targeting develop
 azdo pr open --title "…"                   # description from a repo-defined PR template, if one exists
 azdo pr open --title "…" --description-file body.md   # description from a file ("-" = stdin)
@@ -165,6 +167,8 @@ work from outside a checkout of the target repository.
 
 **`azdo pr status`**
 - Lists PRs for the current branch, including Azure DevOps checks
+- `--branch <name>` reports another branch's PRs instead (a leading `refs/heads/` is accepted and stripped) and `--pr-number <id>` reports exactly one PR, whatever its status — neither reads the local git branch, so nothing needs to be checked out. The output, text and `--json`, is the same shape as the default view; with `--pr-number` the `branch` field is that PR's source branch
+- The two options are mutually exclusive (exit 1, before any network call). An explicit target that matches nothing is an error, not an empty success: an unknown `--pr-number` exits **3** (`Pull request #N not found in …`), a `--branch` with no PRs exits **1** (`No pull requests found for branch … in …`), both with empty stdout. Without either option an empty result stays exit 0, as before
 - **Checks merge two sources**: the Pull Request Status API *and* branch **policy evaluations** (build validation, required reviewers, etc.). Branch-policy checks are the green checks the Azure DevOps UI shows and are not returned by the status endpoint, so both are combined. Each check carries a `source` of `status` or `policy` in `--json`.
 - `Checks: none reported by Azure DevOps` is shown only when both sources are genuinely empty; a retrieval failure shows `Checks: unable to retrieve (…)` instead (never silently "none")
 - Shows `Detail: …` for failed/errored checks when description is available

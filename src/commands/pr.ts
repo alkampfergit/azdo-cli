@@ -92,8 +92,8 @@ function parsePositivePrNumber(raw: string): number | null {
 // Shared help text for the `--pr-number` option on the single-PR commands
 // (comments / comment-resolve / comment-reopen). Defined once so the wording
 // cannot drift between subcommands (FR-005 / contract C-1). `pr status` is a
-// multi-PR list command and intentionally does NOT carry this option (owner
-// decision A on PR #43).
+// multi-PR list command and does NOT carry this sentence (owner decision A on
+// PR #43); its own --pr-number (#123) uses STATUS_PR_NUMBER_HELP.
 //
 // Parameterised by the status the branch auto-detection actually searches: every
 // command but `pr reactivate` resolves the branch's *active* PR, while
@@ -623,25 +623,106 @@ async function resolvePrCommandContext(
   };
 }
 
+// Help text for `pr status --pr-number` / `--branch`. Deliberately NOT the
+// shared PR_NUMBER_HELP: `pr status` stays a multi-PR overview, so it carries
+// neither the C-1 auto-detection sentence nor the C-2/C-3 zero/multi-match
+// errors of the single-PR commands (owner decision A on PR #43). The options
+// only move WHICH pull requests the overview covers (#123).
+const STATUS_PR_NUMBER_HELP =
+  'show only the pull request with this numeric id, instead of the current branch\'s pull requests; ' +
+  'mutually exclusive with --branch';
+const STATUS_BRANCH_HELP =
+  'show the pull requests whose source branch is this one (with or without the refs/heads/ prefix), ' +
+  'instead of the current branch\'s; no checkout needed. Mutually exclusive with --pr-number';
+
+// Where `pr status` looks: the current git branch (the default), an explicit
+// branch, or one explicit pull request. Parsed before any network call so a
+// typo or a conflicting pair never costs a round trip.
+type StatusTarget =
+  | { kind: 'current' }
+  | { kind: 'branch'; branch: string }
+  | { kind: 'pr'; prId: number };
+
+// Returns null when the options are unusable — the error is already on stderr.
+function parseStatusTarget(options: PrCommandOptions & { branch?: string }): StatusTarget | null {
+  if (options.prNumber !== undefined && options.branch !== undefined) {
+    writeError('Cannot specify both --pr-number and --branch.');
+    return null;
+  }
+
+  if (options.branch !== undefined) {
+    const branch = options.branch.trim().replace(/^refs\/heads\//, '');
+    if (branch === '') {
+      writeError('--branch must not be empty.');
+      return null;
+    }
+    return { kind: 'branch', branch };
+  }
+
+  const prId = parseTargetPrNumber(options);
+  if (prId === 'invalid') {
+    return null;
+  }
+  return prId === 'none' ? { kind: 'current' } : { kind: 'pr', prId };
+}
+
+// Finds the pull requests the overview covers and the branch it reports.
+// Returns null when an EXPLICIT target matched nothing (error on stderr, exit
+// 3 for a PR number, exit 1 for a branch): the operator named something that
+// is not there, which must not read as an empty success. The current-branch
+// default keeps its "No pull requests found" success, unchanged.
+async function findStatusPullRequests(
+  resolved: ResolvedPrCommandContext,
+  target: StatusTarget,
+): Promise<{ branch: string; pullRequests: BranchPullRequestMatch[] } | null> {
+  if (target.kind === 'pr') {
+    const pullRequest = await fetchTargetById(resolved, target.prId);
+    return pullRequest === null
+      ? null
+      : { branch: formatBranchName(pullRequest.sourceRefName), pullRequests: [pullRequest] };
+  }
+
+  const branch = target.kind === 'branch' ? target.branch : resolved.branch!;
+  const pullRequests = await listPullRequests(resolved.context, resolved.repo, resolved.pat, branch);
+  if (target.kind === 'branch' && pullRequests.length === 0) {
+    writeError(
+      `No pull requests found for branch ${branch} in ${resolved.context.org}/${resolved.context.project}/${resolved.repo}.`,
+    );
+    return null;
+  }
+  return { branch, pullRequests };
+}
+
 export function createPrStatusCommand(): Command {
   const command = new Command('status');
 
-  withCommonPrOptions(command)
-    .description('Check pull requests for the current branch')
+  withCommonPrOptions(configureUnwrappedHelp(command))
+    .description('Check pull requests for the current branch, another branch, or a specific pull request')
+    .option('--pr-number <id>', STATUS_PR_NUMBER_HELP)
+    .option('--branch <name>', STATUS_BRANCH_HELP)
     .option('--json', 'output JSON')
-    .action(async (options: PrCommandOptions) => {
+    .action(async (options: PrCommandOptions & { branch?: string }) => {
       validateOrgProjectPair(options);
+
+      const target = parseStatusTarget(options);
+      if (target === null) {
+        return;
+      }
 
       let context: AzdoContext | undefined;
 
       try {
-        const resolved = await resolvePrCommandContext(options);
+        // Only the default target needs the git branch; an explicit one makes
+        // the command usable from any directory (with --repo, or anywhere in
+        // a checkout of the repository) without checking anything out.
+        const resolved = await resolvePrCommandContext(options, { requireBranch: target.kind === 'current' });
         context = resolved.context;
 
-        // pr status uses the default requireBranch=true resolver, so branch
-        // is guaranteed non-null at runtime.
-        const branch = resolved.branch!;
-        const pullRequests = await listPullRequests(resolved.context, resolved.repo, resolved.pat, branch);
+        const found = await findStatusPullRequests(resolved, target);
+        if (found === null) {
+          return;
+        }
+        const { branch, pullRequests } = found;
 
         // The policy-evaluation artifactId needs the project GUID. Resolve it
         // once (best-effort): if it fails, we still show status-API checks and
