@@ -23,6 +23,7 @@ import {
   resolveReviewerIdentity,
   addOrUpdatePullRequestReviewer,
   getPullRequestReviewers,
+  reviewerVoteState,
   removePullRequestReviewer,
   resolvePullRequestTemplate,
 } from '../../src/services/pr-client.js';
@@ -850,7 +851,7 @@ describe('pr-client', () => {
 
       const result = await addOrUpdatePullRequestReviewer(context, 'repo-name', 'pat', 77, 'identity-guid', false);
 
-      expect(result).toEqual({ id: 'identity-guid', displayName: 'Jane', uniqueName: 'jane@example.com', isRequired: false, vote: 0 });
+      expect(result).toEqual({ id: 'identity-guid', displayName: 'Jane', uniqueName: 'jane@example.com', isRequired: false, vote: 0, voteState: 'no-vote', hasDeclined: false });
       expect(fetchSpy).toHaveBeenCalledWith(
         expect.stringContaining('/reviewers/identity-guid'),
         expect.objectContaining({ method: 'PUT', body: JSON.stringify({ vote: 0, isRequired: false }) }),
@@ -881,8 +882,57 @@ describe('pr-client', () => {
       });
 
       await expect(getPullRequestReviewers(context, 'repo-name', 'pat', 77)).resolves.toEqual([
-        { id: 'identity-guid', displayName: 'Jane', uniqueName: 'jane@example.com', isRequired: false, vote: 0 },
+        { id: 'identity-guid', displayName: 'Jane', uniqueName: 'jane@example.com', isRequired: false, vote: 0, voteState: 'no-vote', hasDeclined: false },
       ]);
+    });
+
+    it('maps every reviewer vote to its named state and keeps the raw number (048)', async () => {
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          value: [
+            { id: 'a', displayName: 'Approver', uniqueName: 'a@example.com', isRequired: true, vote: 10 },
+            { id: 'b', displayName: 'Suggester', uniqueName: 'b@example.com', vote: 5 },
+            { id: 'c', displayName: 'Waiter', uniqueName: 'c@example.com', vote: -5, hasDeclined: true },
+            { id: 'd', displayName: 'Rejecter', uniqueName: 'd@example.com', vote: -10 },
+            { id: 'e', displayName: 'Bypassed', uniqueName: 'e@example.com', isRequired: true, vote: 15 },
+            { id: 'f', displayName: 'Silent' },
+            { id: 'g', displayName: 'Future', vote: 42 },
+          ],
+        }),
+      });
+
+      const reviewers = await getPullRequestReviewers(context, 'repo-name', 'pat', 77);
+
+      expect(fetchSpy).toHaveBeenCalledWith(
+        'https://dev.azure.com/test-org/test-project/_apis/git/repositories/repo-name/pullRequests/77/reviewers?api-version=7.1',
+        expect.objectContaining({ headers: expect.any(Object) }),
+      );
+      expect(reviewers.map((r) => [r.id, r.vote, r.voteState, r.isRequired, r.hasDeclined])).toEqual([
+        ['a', 10, 'approved', true, false],
+        ['b', 5, 'approved-with-suggestions', false, false],
+        ['c', -5, 'waiting-for-author', false, true],
+        ['d', -10, 'rejected', false, false],
+        ['e', 15, 'bypassed', true, false],
+        ['f', 0, 'no-vote', false, false],
+        ['g', 42, 'unknown', false, false],
+      ]);
+      expect(reviewers[5]).toEqual({
+        id: 'f', displayName: 'Silent', uniqueName: null, isRequired: false, vote: 0, voteState: 'no-vote', hasDeclined: false,
+      });
+    });
+
+    it.each([
+      [10, 'approved'],
+      [5, 'approved-with-suggestions'],
+      [0, 'no-vote'],
+      [-5, 'waiting-for-author'],
+      [-10, 'rejected'],
+      [15, 'bypassed'],
+      [7, 'unknown'],
+    ])('reviewerVoteState(%i) is %s', (vote, state) => {
+      expect(reviewerVoteState(vote)).toBe(state);
     });
 
     it('removes an existing reviewer (FR-008)', async () => {
@@ -900,7 +950,7 @@ describe('pr-client', () => {
       const result = await removePullRequestReviewer(context, 'repo-name', 'pat', 77, 'identity-guid');
 
       expect(result).toEqual({
-        reviewer: { id: 'identity-guid', displayName: 'Jane', uniqueName: 'jane@example.com', isRequired: false, vote: 0 },
+        reviewer: { id: 'identity-guid', displayName: 'Jane', uniqueName: 'jane@example.com', isRequired: false, vote: 0, voteState: 'no-vote', hasDeclined: false },
         noop: false,
       });
       expect(fetchSpy).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ method: 'DELETE' }));

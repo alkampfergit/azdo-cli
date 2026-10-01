@@ -15,6 +15,7 @@ import type {
   PullRequestUpdatableField,
   PullRequestUpdateRequest,
   PullRequestUpdateResult,
+  Reviewer,
 } from '../types/pull-request.js';
 import type { AuthCredential, AzdoContext } from '../types/work-item.js';
 import {
@@ -2458,9 +2459,69 @@ async function runReviewerRemove(reviewer: string, options: PrCommandOptions): P
   }
 }
 
+// JSON shape emitted by `pr reviewers list --json` (048). Every reviewer
+// carries the stable identity (`id`, `uniqueName`) next to the display name,
+// the raw Azure DevOps `vote` and its named `voteState`, so a consumer never
+// has to key on a display name or re-implement the vote table.
+interface PrReviewerListResult {
+  pullRequestId: number;
+  reviewers: Reviewer[];
+}
+
+function formatReviewerLine(reviewer: Reviewer): string {
+  const name = reviewer.displayName ?? reviewer.uniqueName ?? reviewer.id;
+  const unique = reviewer.uniqueName && reviewer.uniqueName !== name ? ` <${reviewer.uniqueName}>` : '';
+  const kind = reviewer.isRequired ? 'required' : 'optional';
+  const declined = reviewer.hasDeclined ? ', declined' : '';
+  return `${name}${unique} — ${reviewer.voteState} (${kind}${declined})`;
+}
+
+async function runReviewerList(options: PrCommandOptions): Promise<void> {
+  let context: AzdoContext | undefined;
+
+  try {
+    const target = await resolvePullRequestTarget(options, {
+      onContextResolved: (resolved) => {
+        context = resolved;
+      },
+    });
+    if (target === null) {
+      return;
+    }
+
+    const reviewers = await getPullRequestReviewers(target.context, target.repo, target.pat, target.pullRequest.id);
+
+    const result: PrReviewerListResult = { pullRequestId: target.pullRequest.id, reviewers };
+
+    if (options.json) {
+      process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+      return;
+    }
+
+    if (reviewers.length === 0) {
+      process.stdout.write(`No reviewers on pull request #${target.pullRequest.id}.\n`);
+      return;
+    }
+
+    process.stdout.write(`${reviewers.map(formatReviewerLine).join('\n')}\n`);
+  } catch (err) {
+    handlePrCommandError(err, context, 'read');
+  }
+}
+
 export function createPrReviewersCommand(): Command {
   const command = new Command('reviewers');
   command.description('Manage pull request reviewers');
+
+  const list = new Command('list');
+  withCommonPrOptions(configureUnwrappedHelp(list))
+    .description('List the pull request reviewers with their votes (approved, waiting-for-author, …) and required flag')
+    .option('--pr-number <N>', PR_NUMBER_HELP)
+    .option('--json', 'output JSON')
+    .action(async (_options: PrCommandOptions, command: Command) => {
+      await runReviewerList(mergedPrOptions(command));
+    });
+  command.addCommand(list);
 
   const add = new Command('add');
   withCommonPrOptions(configureUnwrappedHelp(add))
