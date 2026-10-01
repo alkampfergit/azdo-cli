@@ -13,7 +13,7 @@
 | `azdo get-md-field <id> <field>` | Get rich-text field as markdown | `--download-images`, `--resize-images <px>`, `--images-path <dir>`, `--org`, `--project` |
 | `azdo set-md-field <id> <field> [content]` | Set markdown field | `--file`, `--json`, `--org`, `--project` |
 | `azdo list-fields <id>` | List all fields of a work item | `--json`, `--org`, `--project` |
-| `azdo pr <subcommand>` | Manage pull requests (current branch or by `--pr-number`) — see [Pull request commands](#pull-request-commands) | `list`, `status`, `open`, `update` (`edit`), `abandon` (`close`), `reactivate`, `comments`, `comments add\|edit\|reply` (`comment-add`, `comment-edit`, `comment-reply`), `comment-resolve`, `comment-reopen`, `work-items link\|unlink`, `reviewers add\|remove`, `--pr-number`, `--repo`, `--json`, `--org`, `--project` |
+| `azdo pr <subcommand>` | Manage pull requests (current branch or by `--pr-number`) — see [Pull request commands](#pull-request-commands) | `list`, `status`, `open`, `update` (`edit`), `abandon` (`close`), `reactivate`, `comments`, `comments add\|edit\|reply` (`comment-add`, `comment-edit`, `comment-reply`), `comment-resolve`, `comment-reopen`, `work-items link\|unlink`, `reviewers list\|add\|remove`, `--pr-number`, `--repo`, `--json`, `--org`, `--project` |
 | `azdo pipeline <subcommand>` | Inspect and operate Azure DevOps pipelines | `list`, `get-runs`, `wait`, `get-run-detail`, `logs`, `tests`, `start`, `--filter`, `--limit`, `--branch`, `--commit`, `--pr`, `--timeout`, `--poll-interval`, `--log-id`, `--parameter`, `--json`, `--org`, `--project` |
 | `azdo download-attachment <id> <filename>` | Download a work item attachment | `--output <dir>`, `--org`, `--project` |
 | `azdo add-attachment <id> <file>` | Attach a local file to a work item | `--comment <text>`, `--org`, `--project` |
@@ -137,6 +137,8 @@ azdo pr abandon --pr-number 97             # abandon a PR (alias: azdo pr close)
 azdo pr reactivate --pr-number 97          # restore an abandoned PR to active
 azdo pr work-items link 1234 --pr-number 64    # link a work item to a PR
 azdo pr work-items unlink 1234 --pr-number 64  # unlink it
+azdo pr reviewers list --pr-number 64                             # reviewers with votes (approved, waiting-for-author, …)
+azdo pr reviewers list --pr-number 64 --json                      # same, with id/uniqueName/vote/voteState/isRequired per reviewer
 azdo pr reviewers add jane@example.com --pr-number 64             # add optional reviewer
 azdo pr reviewers add jane@example.com --pr-number 64 --required # add/promote to required
 azdo pr reviewers remove jane@example.com --pr-number 64          # remove a reviewer
@@ -241,8 +243,16 @@ work from outside a checkout of the target repository.
 - A nonexistent work item id fails (exit `3`) naming the id
 - Shares `--pr-number`, `--org`, `--project`, `--repo`, and `--json` with the rest of `pr`; `--json` returns `{ pullRequestId, workItemId, noop }`
 
+**`azdo pr reviewers list`**
+- Lists every reviewer on the target PR with their current vote — the `azdo` counterpart of `gh pr view --json reviews`. Read-only; needs **Code (Read)** only and never calls the Identities API
+- Each line reads `<displayName> <uniqueName> — <voteState> (required|optional[, declined])`; an empty list prints `No reviewers on pull request #N.` with exit 0
+- `--json` returns `{ pullRequestId, reviewers: [Reviewer] }` where every `Reviewer` carries the stable identity next to the display name: `{ id, displayName, uniqueName, isRequired, vote, voteState, hasDeclined }`. Key on `id` or `uniqueName`, not on `displayName`
+- `vote` is Azure DevOps' raw number and `voteState` its named form: `10` → `approved`, `5` → `approved-with-suggestions`, `0` → `no-vote`, `-5` → `waiting-for-author`, `-10` → `rejected`, `15` → `bypassed` (a required reviewer whose requirement was satisfied without counting as an approval). Any other number maps to `unknown` and is still reported verbatim in `vote`
+- Groups and teams can be reviewers but cannot vote directly; Azure DevOps rolls a member's vote up into the group's entry, which is what this command reports
+- Shares `--pr-number`, `--org`, `--project`, `--repo` and `--json` with the rest of `pr`, including the current-branch auto-detection when `--pr-number` is omitted
+
 **`azdo pr reviewers add <reviewer>`** / **`azdo pr reviewers remove <reviewer>`**
-- `azdo pr reviewers` on its own is only a group: it lists `add` and `remove` and changes nothing
+- `azdo pr reviewers` on its own is only a group: it lists `list`, `add` and `remove` and changes nothing
 - `<reviewer>` is an email or Azure DevOps unique name, resolved to an identity via the Identities API
 - `add` defaults to an **optional** reviewer; `--required` marks them required instead. Re-adding an existing reviewer with a different `--required` value updates their required/optional flag in place — no duplicate entry. Re-adding with the *same* flag is a no-op (exit 0, `noop: true` in `--json`, no write issued)
 - `remove` is idempotent: removing someone who isn't currently a reviewer is a no-op (exit 0, `noop: true` in `--json`)
@@ -359,7 +369,7 @@ layer and have their own reporting: `azdo auth diagnose` prints the server's `me
 `HTTP <status>` when the body names none, with no `typeKey` / `errorCode` suffix), and the PAT
 validation in `azdo auth login` reports the status only.
 
-Note the two scopes: reads (`pr list`, `pr status`, `pr comments`) need **Code (Read)**, while
+Note the two scopes: reads (`pr list`, `pr status`, `pr comments`, `pr reviewers list`) need **Code (Read)**, while
 `comments add` / `edit` / `delete` / `reply` / `comment-resolve` / `comment-reopen`, `pr open`, and
 `pr reviewers add` / `remove` need **Code (Read & Write)**. `pr work-items link` / `unlink` also
 need **Work Items (Read & Write)**, since the link is written on the work item, not the pull
@@ -711,6 +721,7 @@ The pull request object shared by `pr list`, `pr status`, `pr open` and `pr comm
 | `pr comments reply` / `pr comment-reply` | `{ pullRequestId, threadId, commentId, content }` |
 | `pr comment-resolve` / `pr comment-reopen` | `{ pullRequestId, threadId, status, noop }` — on a no-op `status` is the thread's actual backend status |
 | `pr work-items link` / `unlink` | `{ pullRequestId, workItemId, noop }` |
+| `pr reviewers list` | `{ pullRequestId, reviewers: [{ id, displayName, uniqueName, isRequired, vote, voteState, hasDeclined }] }` — `voteState` ∈ `approved` \| `approved-with-suggestions` \| `no-vote` \| `waiting-for-author` \| `rejected` \| `bypassed` \| `unknown` |
 | `pr reviewers add` / `remove` | `{ pullRequestId, reviewer: { id, displayName, uniqueName, isRequired } \| null, noop }` |
 
 `Check` (in `pr status`):
