@@ -161,7 +161,9 @@ work from outside a checkout of the target repository.
 - Lists the repository's pull requests in a **single** API call — no checks, policies, or builds, unlike `pr status`
 - `--branch <name>` filters by source branch (a leading `refs/heads/` is accepted and stripped); without it, every PR in the repository is listed. `pr list` never falls back to the current branch — that is what `pr status` is for
 - `--status active|completed|abandoned|all` (default `active`), `--top <N>` (default 25)
-- Prints id, state, title, source → target, author and URL; `--json` adds the PR `description`
+- Prints id, state (`[active, draft]` for a draft), title, source → target, author and URL; `--json` adds the PR `description`, `isDraft`, `creationDate`, `closedDate`, `reviewers` (with `uniqueName`, `vote`, `isRequired`) and `labels`
+- `--work-items` adds each PR's linked work item ids (`workItemIds` in `--json`, a `Work items:` line in text). The list endpoint never returns them, so this costs **one extra call per PR** (at most 5 in flight) — still one `azdo` invocation instead of one per PR
+- Azure DevOps keeps no "last updated" timestamp on a pull request, so there is none to report; `closedDate` is `null` while the PR is active
 
 **`azdo pr status`**
 - Lists PRs for the current branch, including Azure DevOps checks
@@ -671,13 +673,21 @@ The pull request object shared by `pr list`, `pr status`, `pr open` and `pr comm
   "createdByUniqueName": "jane@contoso.com",
   "createdById": "<identity GUID>",
   "url": "https://dev.azure.com/<org>/<project>/_git/<repo>/pullrequest/64",
-  "description": "Because X was broken"  // null when empty
+  "description": "Because X was broken", // null when empty
+  "isDraft": false,
+  "creationDate": "2026-09-01T10:00:00Z",
+  "closedDate": null,                    // set once completed or abandoned
+  "reviewers": [
+    { "id": "<identity GUID>", "displayName": "Bob", "uniqueName": "bob@contoso.com",
+      "isRequired": true, "vote": 10 }    // 10 approved, 5 with suggestions, 0 none, -5 waiting, -10 rejected
+  ],
+  "labels": ["needs-review"]             // active label names
 }
 ```
 
 | Command | `--json` shape |
 | --- | --- |
-| `pr list` | `{ repository, branch, status, pullRequests: [PullRequest] }` — `branch` is `null` without `--branch`; `status` echoes the filter |
+| `pr list` | `{ repository, branch, status, pullRequests: [PullRequest] }` — `branch` is `null` without `--branch`; `status` echoes the filter; with `--work-items` each PR also carries `workItemIds: [number]` (sorted, `[]` when none) |
 | `pr status` | `{ branch, repository, pullRequests: [PullRequest & { checks: [Check], codeCommentCounts: { open, closed }, checksError? }] }` |
 | `pr open` | `{ branch, targetBranch, created, pullRequest: PullRequest }` — `created: false` when an active PR already existed |
 | `pr update` / `pr edit` | `{ pullRequestId, title, description, url, noop, updatedFields }` — `updatedFields` ⊆ `["title","description"]`, `[]` on a no-op |

@@ -25,6 +25,7 @@ import {
   getPullRequestReviewers,
   removePullRequestReviewer,
   resolvePullRequestTemplate,
+  getPullRequestWorkItemIds,
 } from '../../src/services/pr-client.js';
 
 const context: AzdoContext = { org: 'test-org', project: 'test-project' };
@@ -70,6 +71,11 @@ describe('pr-client', () => {
           description: null,
           createdByUniqueName: null,
           createdById: null,
+          isDraft: false,
+          creationDate: null,
+          closedDate: null,
+          reviewers: [],
+          labels: [],
         },
       ]);
       expect(fetchSpy).toHaveBeenCalledWith(
@@ -183,6 +189,11 @@ describe('pr-client', () => {
         description: null,
         createdByUniqueName: null,
         createdById: null,
+        isDraft: false,
+        creationDate: null,
+        closedDate: null,
+        reviewers: [],
+        labels: [],
       });
       expect(fetchSpy).toHaveBeenCalledWith(
         expect.stringContaining('/pullRequests/64'),
@@ -614,6 +625,11 @@ describe('pr-client', () => {
           description: null,
           createdByUniqueName: null,
           createdById: null,
+          isDraft: false,
+          creationDate: null,
+          closedDate: null,
+          reviewers: [],
+          labels: [],
         },
       });
     });
@@ -1612,6 +1628,84 @@ describe('pr-client', () => {
       await expect(updateThreadComment(context, 'repo-name', 'pat', 22, 148, 1, 'x')).rejects.toThrow(
         'PERMISSION_DENIED',
       );
+    });
+  });
+
+  describe('review-state fields on mapped pull requests (#122)', () => {
+    it('maps isDraft, dates, reviewers with votes, and active label names', async () => {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          count: 1,
+          value: [
+            {
+              pullRequestId: 7,
+              title: 'Draft PR',
+              status: 'completed',
+              sourceRefName: 'refs/heads/feature/x',
+              targetRefName: 'refs/heads/develop',
+              isDraft: true,
+              creationDate: '2026-09-01T10:00:00Z',
+              closedDate: '2026-09-02T11:00:00Z',
+              reviewers: [
+                { id: 'r1', displayName: 'Bob', uniqueName: 'bob@contoso.com', vote: 10, isRequired: true },
+                { id: 'r2', displayName: 'Team' },
+              ],
+              labels: [
+                { name: 'needs-review', active: true },
+                { name: 'stale', active: false },
+                { name: 'bug' },
+              ],
+            },
+          ],
+        }),
+      } as unknown as Response);
+
+      const [pr] = await listRepositoryPullRequests(context, 'repo-name', 'pat');
+
+      expect(pr.isDraft).toBe(true);
+      expect(pr.creationDate).toBe('2026-09-01T10:00:00Z');
+      expect(pr.closedDate).toBe('2026-09-02T11:00:00Z');
+      expect(pr.reviewers).toEqual([
+        { id: 'r1', displayName: 'Bob', uniqueName: 'bob@contoso.com', isRequired: true, vote: 10 },
+        { id: 'r2', displayName: 'Team', uniqueName: null, isRequired: false, vote: 0 },
+      ]);
+      expect(pr.labels).toEqual(['needs-review', 'bug']);
+    });
+  });
+
+  describe('getPullRequestWorkItemIds', () => {
+    it('hits the pull request workitems endpoint and returns sorted numeric ids', async () => {
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          count: 3,
+          value: [
+            { id: '42', url: 'https://example.test/wi/42' },
+            { id: '7', url: 'https://example.test/wi/7' },
+            { id: 'not-a-number' },
+          ],
+        }),
+      } as unknown as Response);
+
+      const ids = await getPullRequestWorkItemIds(context, 'repo name', 'pat', 12);
+
+      expect(ids).toEqual([7, 42]);
+      const url = String(fetchSpy.mock.calls[0][0]);
+      expect(url).toContain('/_apis/git/repositories/repo%20name/pullRequests/12/workitems');
+      expect(url).toContain('api-version=7.1');
+    });
+
+    it('returns an empty list when nothing is linked', async () => {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({ count: 0, value: [] }),
+      } as unknown as Response);
+
+      await expect(getPullRequestWorkItemIds(context, 'repo-name', 'pat', 12)).resolves.toEqual([]);
     });
   });
 });

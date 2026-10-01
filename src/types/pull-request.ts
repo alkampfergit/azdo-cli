@@ -16,6 +16,21 @@ export interface BranchPullRequestMatch {
   // account (usually an email), `id` the Azure DevOps identity GUID.
   createdByUniqueName?: string | null;
   createdById?: string | null;
+  // Review-state fields the pull request payload already carries (#122).
+  // Optional on the type for the same reason as `description`;
+  // mapPullRequest() always sets them. `closedDate` is null while the PR is
+  // active. Azure DevOps has no "last updated" timestamp on a pull request.
+  isDraft?: boolean;
+  creationDate?: string | null;
+  closedDate?: string | null;
+  reviewers?: Reviewer[];
+  // Names of the PR's active labels (Azure DevOps "tags").
+  labels?: string[];
+}
+
+// `pr list --work-items` entry: the PR plus the ids of its linked work items.
+export interface PullRequestWithWorkItems extends BranchPullRequestMatch {
+  workItemIds: number[];
 }
 
 export interface PullRequestCheck {
@@ -180,6 +195,11 @@ export interface AzdoPullRequest {
     uniqueName?: string;
     id?: string;
   };
+  isDraft?: boolean;
+  creationDate?: string;
+  closedDate?: string;
+  reviewers?: AzdoIdentityRefWithVote[];
+  labels?: Array<{ name: string; active?: boolean }>;
   _links?: {
     web?: {
       href?: string;
@@ -373,6 +393,11 @@ export interface AzdoIdentity {
 }
 
 // IdentityRefWithVote — the reviewers endpoint's request/response shape.
+// GET .../pullRequests/{id}/workitems — ResourceRef ids are strings.
+export interface AzdoResourceRefListResponse {
+  value: Array<{ id: string; url?: string }>;
+}
+
 export interface AzdoIdentityRefWithVote {
   id: string;
   displayName?: string;
