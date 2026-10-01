@@ -15,6 +15,7 @@ import type {
   PullRequestUpdatableField,
   PullRequestUpdateRequest,
   PullRequestUpdateResult,
+  PullRequestWithWorkItems,
 } from '../types/pull-request.js';
 import type { AuthCredential, AzdoContext } from '../types/work-item.js';
 import {
@@ -40,6 +41,7 @@ import {
   resolveReviewerIdentity,
   addOrUpdatePullRequestReviewer,
   getPullRequestReviewers,
+  getPullRequestWorkItemIds,
   removePullRequestReviewer,
 } from '../services/pr-client.js';
 import { describeResolvedCredential, requireAuthCredential } from '../services/auth.js';
@@ -2322,21 +2324,87 @@ export function createPrCommentDeleteCommand(): Command {
 
 const LIST_STATUS_VALUES: readonly string[] = ['active', 'completed', 'abandoned', 'all'];
 const DEFAULT_LIST_TOP = 25;
+// `--work-items` costs one request per pull request; keep a bounded number in
+// flight so `--top 200` does not open 200 sockets at once.
+const WORK_ITEM_LOOKUP_CONCURRENCY = 5;
 
 interface PrListResult {
   repository: string;
   branch: string | null;
   status: string;
-  pullRequests: BranchPullRequestMatch[];
+  pullRequests: Array<BranchPullRequestMatch | PullRequestWithWorkItems>;
 }
 
-function formatPullRequestListEntry(pullRequest: BranchPullRequestMatch): string {
-  return [
-    `#${pullRequest.id} [${pullRequest.status}] ${pullRequest.title}`,
+interface PrListOptions extends PrCommandOptions {
+  branch?: string;
+  top?: string;
+  workItems?: boolean;
+}
+
+interface ParsedListOptions {
+  status: string;
+  top: number;
+  branch: string | null;
+}
+
+function formatPullRequestListEntry(pullRequest: BranchPullRequestMatch | PullRequestWithWorkItems): string {
+  const state = pullRequest.isDraft ? `${pullRequest.status}, draft` : pullRequest.status;
+  const lines = [
+    `#${pullRequest.id} [${state}] ${pullRequest.title}`,
     `  ${formatBranchName(pullRequest.sourceRefName)} -> ${formatBranchName(pullRequest.targetRefName)}`,
     `  Author: ${pullRequest.createdBy ?? 'Unknown'}`,
-    `  ${pullRequest.url ?? '—'}`,
-  ].join('\n');
+  ];
+  if ('workItemIds' in pullRequest) {
+    const ids = pullRequest.workItemIds.map((id) => `#${id}`).join(', ');
+    lines.push(`  Work items: ${ids || 'none'}`);
+  }
+  lines.push(`  ${pullRequest.url ?? '—'}`);
+  return lines.join('\n');
+}
+
+// Returns null (after writing the error) when an option is invalid.
+function parseListOptions(options: PrListOptions): ParsedListOptions | null {
+  const status = options.status ?? 'active';
+  if (!LIST_STATUS_VALUES.includes(status)) {
+    writeError(`Invalid --status "${status}"; expected one of ${LIST_STATUS_VALUES.join(', ')}.`);
+    return null;
+  }
+
+  let top = DEFAULT_LIST_TOP;
+  if (options.top !== undefined) {
+    const parsed = parsePositivePrNumber(options.top);
+    if (parsed === null) {
+      writeError(`Invalid --top "${options.top}"; expected a positive integer.`);
+      return null;
+    }
+    top = parsed;
+  }
+
+  // The branch filter is explicit here — `pr list` never falls back to the
+  // current branch, because that is exactly what `pr status` already does.
+  const branch = options.branch?.trim().replace(/^refs\/heads\//, '') || null;
+  return { status, top, branch };
+}
+
+async function attachWorkItemIds(
+  context: AzdoContext,
+  repo: string,
+  cred: AuthCredential,
+  pullRequests: BranchPullRequestMatch[],
+): Promise<PullRequestWithWorkItems[]> {
+  const result: PullRequestWithWorkItems[] = new Array(pullRequests.length);
+  let next = 0;
+  const worker = async (): Promise<void> => {
+    while (next < pullRequests.length) {
+      const index = next;
+      next += 1;
+      const pullRequest = pullRequests[index];
+      const workItemIds = await getPullRequestWorkItemIds(context, repo, cred, pullRequest.id);
+      result[index] = { ...pullRequest, workItemIds };
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(WORK_ITEM_LOOKUP_CONCURRENCY, pullRequests.length) }, worker));
+  return result;
 }
 
 export function createPrListCommand(): Command {
@@ -2347,29 +2415,16 @@ export function createPrListCommand(): Command {
     .option('--branch <name>', 'only pull requests whose source branch is this one (with or without the refs/heads/ prefix)')
     .option('--status <status>', `pull request status filter (${LIST_STATUS_VALUES.join(' | ')})`, 'active')
     .option('--top <N>', `maximum number of pull requests to return (default ${DEFAULT_LIST_TOP})`)
+    .option('--work-items', 'also return the ids of each pull request\'s linked work items (one extra API call per pull request)')
     .option('--json', 'output JSON')
-    .action(async (options: PrCommandOptions & { branch?: string; top?: string }) => {
+    .action(async (options: PrListOptions) => {
       validateOrgProjectPair(options);
 
-      const status = options.status ?? 'active';
-      if (!LIST_STATUS_VALUES.includes(status)) {
-        writeError(`Invalid --status "${status}"; expected one of ${LIST_STATUS_VALUES.join(', ')}.`);
+      const parsed = parseListOptions(options);
+      if (parsed === null) {
         return;
       }
-
-      let top = DEFAULT_LIST_TOP;
-      if (options.top !== undefined) {
-        const parsed = parsePositivePrNumber(options.top);
-        if (parsed === null) {
-          writeError(`Invalid --top "${options.top}"; expected a positive integer.`);
-          return;
-        }
-        top = parsed;
-      }
-
-      // The branch filter is explicit here — `pr list` never falls back to the
-      // current branch, because that is exactly what `pr status` already does.
-      const branch = options.branch?.trim().replace(/^refs\/heads\//, '') || null;
+      const { status, top, branch } = parsed;
 
       let context: AzdoContext | undefined;
 
@@ -2377,11 +2432,14 @@ export function createPrListCommand(): Command {
         const resolved = await resolvePrCommandContext(options, { requireBranch: false });
         context = resolved.context;
 
-        const pullRequests = await listRepositoryPullRequests(resolved.context, resolved.repo, resolved.pat, {
+        const listed = await listRepositoryPullRequests(resolved.context, resolved.repo, resolved.pat, {
           sourceBranch: branch ?? undefined,
           status,
           top,
         });
+        const pullRequests = options.workItems
+          ? await attachWorkItemIds(resolved.context, resolved.repo, resolved.pat, listed)
+          : listed;
 
         const result: PrListResult = {
           repository: resolved.repo,

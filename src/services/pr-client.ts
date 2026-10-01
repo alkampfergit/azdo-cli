@@ -17,6 +17,7 @@ import type {
   AzdoPullRequest,
   AzdoPullRequestStatus,
   AzdoRepository,
+  AzdoResourceRefListResponse,
   AzdoThread,
   AzdoThreadListResponse,
   AzdoWorkItem,
@@ -129,6 +130,11 @@ function mapPullRequest(
     description: pullRequest.description?.trim() || null,
     createdByUniqueName: pullRequest.createdBy?.uniqueName ?? null,
     createdById: pullRequest.createdBy?.id ?? null,
+    isDraft: pullRequest.isDraft ?? false,
+    creationDate: pullRequest.creationDate ?? null,
+    closedDate: pullRequest.closedDate ?? null,
+    reviewers: (pullRequest.reviewers ?? []).map(mapReviewer),
+    labels: (pullRequest.labels ?? []).filter((label) => label.active !== false).map((label) => label.name),
   };
 }
 
@@ -403,6 +409,28 @@ export async function listRepositoryPullRequests(
   const response = await fetchWithErrors(url.toString(), { headers: authHeaders(cred) });
   const data = await readJsonResponse<AzdoPrListResponse>(response);
   return data.value.map((pullRequest) => mapPullRequest(context, repo, pullRequest));
+}
+
+// Ids of the work items linked to a pull request. The list endpoint never
+// carries `workItemRefs`, so `pr list --work-items` makes one of these calls
+// per pull request.
+export async function getPullRequestWorkItemIds(
+  context: AzdoContext,
+  repo: string,
+  cred: AuthCredential,
+  prId: number,
+): Promise<number[]> {
+  const url = new URL(
+    `https://dev.azure.com/${encodeURIComponent(context.org)}/${encodeURIComponent(context.project)}/_apis/git/repositories/${encodeURIComponent(repo)}/pullRequests/${prId}/workitems`,
+  );
+  url.searchParams.set('api-version', '7.1');
+
+  const response = await fetchWithErrors(url.toString(), { headers: authHeaders(cred) });
+  const data = await readJsonResponse<AzdoResourceRefListResponse>(response);
+  return data.value
+    .map((ref) => Number.parseInt(ref.id, 10))
+    .filter((id) => Number.isInteger(id) && id > 0)
+    .sort((a, b) => a - b);
 }
 
 export async function getPullRequestChecks(
