@@ -310,14 +310,29 @@ export interface AzdoPolicyEvaluation {
 }
 
 // A pull request reviewer, resolved and reported by `pr reviewers add|remove`.
-// `vote` mirrors Azure DevOps's read-only vote value (0 = no vote); this
-// feature never sets it to anything but 0 when adding/updating a reviewer.
+// Named form of Azure DevOps's numeric reviewer vote (048-pr-reviewers-list).
+// The raw number is kept alongside it so a value this list does not know
+// (`unknown`) is never lost.
+export type ReviewerVoteState =
+  | 'approved'
+  | 'approved-with-suggestions'
+  | 'no-vote'
+  | 'waiting-for-author'
+  | 'rejected'
+  | 'bypassed'
+  | 'unknown';
+
+// `vote` mirrors Azure DevOps's read-only vote value (0 = no vote); the
+// reviewer write commands never set it to anything but 0 when adding or
+// updating a reviewer. `voteState` is the named projection of `vote`.
 export interface Reviewer {
   id: string;
   displayName: string | null;
   uniqueName: string | null;
   isRequired: boolean;
   vote: number;
+  voteState: ReviewerVoteState;
+  hasDeclined: boolean;
 }
 
 // Result of a work item link/unlink operation. `url` is the artifact URI
@@ -379,6 +394,7 @@ export interface AzdoIdentityRefWithVote {
   uniqueName?: string;
   isRequired?: boolean;
   vote?: number;
+  hasDeclined?: boolean;
 }
 
 // Minimal work item shape needed to read/patch its `relations` array.

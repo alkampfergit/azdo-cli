@@ -6,6 +6,7 @@
 ### Added
 
 - `azdo pr status --branch <name>` and `--pr-number <id>` report checks for another branch or a specific pull request without checking it out; same text and `--json` output as the current-branch view. The two are mutually exclusive; an unknown PR exits 3 and a branch with no PRs exits 1, each with a clear message. (#123)
+- `azdo pr reviewers list` lists a pull request's reviewers with their votes. `--json` returns, per reviewer, the stable identity (`id`, `uniqueName`) next to the display name, `isRequired`, the raw Azure DevOps `vote` and its named `voteState` (`approved`, `approved-with-suggestions`, `no-vote`, `waiting-for-author`, `rejected`, `bypassed`, or `unknown` for a value the CLI does not know) plus `hasDeclined`. Read-only, **Code (Read)** only; `--pr-number`, `--repo` and the current-branch auto-detection work as on every other `pr` subcommand. The `azdo` counterpart of `gh pr view --json reviews`. (#124)
 
 ### Changed
 

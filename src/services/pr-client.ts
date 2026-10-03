@@ -32,6 +32,7 @@ import type {
   PullRequestThreadCreateRequest,
   PullRequestUpdateRequest,
   Reviewer,
+  ReviewerVoteState,
   WorkItemLink,
 } from '../types/pull-request.js';
 
@@ -1019,18 +1020,47 @@ function buildPullRequestReviewerUrl(context: AzdoContext, repo: string, prId: n
   return url;
 }
 
+// Azure DevOps documents the reviewer vote as a small integer: 10 approved,
+// 5 approved with suggestions, 0 no vote, -5 waiting for author, -10
+// rejected; 15 is the "bypassed / not applicable" value the extension API
+// documents for a required reviewer whose requirement was satisfied without
+// counting as an approval. Anything else maps to `unknown` and the raw number
+// stays on the `vote` field, so a future value is surfaced rather than hidden.
+export function reviewerVoteState(vote: number): ReviewerVoteState {
+  switch (vote) {
+    case 10:
+      return 'approved';
+    case 5:
+      return 'approved-with-suggestions';
+    case 0:
+      return 'no-vote';
+    case -5:
+      return 'waiting-for-author';
+    case -10:
+      return 'rejected';
+    case 15:
+      return 'bypassed';
+    default:
+      return 'unknown';
+  }
+}
+
 function mapReviewer(data: AzdoIdentityRefWithVote): Reviewer {
+  const vote = data.vote ?? 0;
   return {
     id: data.id,
     displayName: data.displayName ?? null,
     uniqueName: data.uniqueName ?? null,
     isRequired: data.isRequired ?? false,
-    vote: data.vote ?? 0,
+    vote,
+    voteState: reviewerVoteState(vote),
+    hasDeclined: data.hasDeclined ?? false,
   };
 }
 
-// Lists a pull request's current reviewers — used to detect no-ops for
-// `pr reviewers remove` (FR-010) without relying on a DELETE's error shape.
+// Lists a pull request's current reviewers with their votes — the read behind
+// `pr reviewers list` (048), also used to detect no-ops for `pr reviewers
+// add|remove` without relying on a PUT/DELETE's error shape.
 export async function getPullRequestReviewers(
   context: AzdoContext,
   repo: string,
