@@ -80,13 +80,15 @@ interface PrCommandOptions {
 
 // Parses `--pr-number <N>` into a positive integer. Returns null on any
 // invalid input — leading sign, whitespace, float, zero, negative,
-// non-numeric — letting the caller print a validation error.
+// non-numeric, or a value above Number.MAX_SAFE_INTEGER (parseInt would
+// silently round it to a DIFFERENT id and the request would target the
+// wrong PR) — letting the caller print a validation error.
 function parsePositivePrNumber(raw: string): number | null {
   if (!/^\d+$/.test(raw)) {
     return null;
   }
   const n = Number.parseInt(raw, 10);
-  return Number.isFinite(n) && n > 0 ? n : null;
+  return Number.isSafeInteger(n) && n > 0 ? n : null;
 }
 
 // Shared help text for the `--pr-number` option on the single-PR commands

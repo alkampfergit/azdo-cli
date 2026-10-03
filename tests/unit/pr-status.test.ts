@@ -318,7 +318,7 @@ describe('pr status --pr-number / --branch (#123)', () => {
     expect(getPullRequestChecks).not.toHaveBeenCalled();
   });
 
-  it.each(['0', '-1', 'abc', '1.5'])('--pr-number %s is rejected before any network call', async (raw) => {
+  it.each(['0', '-1', 'abc', '1.5', '9007199254740993'])('--pr-number %s is rejected before any network call', async (raw) => {
     await run(['--pr-number', raw]);
 
     expect(getStderr()).toContain(`Invalid --pr-number "${raw}"; expected a positive integer.`);

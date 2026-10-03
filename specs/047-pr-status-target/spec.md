@@ -52,7 +52,8 @@ targeting options without changing that contract.
 - **FR-003** The options are mutually exclusive.
 - **FR-004** An explicit target matching nothing exits non-zero with a clear message.
 - **FR-005** `pr status` still does not carry the C-1 help sentence / C-2/C-3 errors.
-- **FR-006** Documented in `docs/commands.md`; no README change.
+- **FR-006** Documented in `docs/commands.md` and in the `README.md` quick
+  reference (Constitution: README reviewed and updated after every spec run).
 
 ## Success Criteria
 

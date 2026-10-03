@@ -20,11 +20,13 @@ another PR or branch can be read without a checkout (replaces
 
 ## Testing
 
-- 15 new cases in `tests/unit/pr-status.test.ts`.
-- Full suite 1421 passed / 129 skipped; `npm run lint` and `tsc --noEmit` clean.
+- 15 new cases in `tests/unit/pr-status.test.ts` (10 standalone + a five-row
+  `it.each` over invalid `--pr-number` values, including an unsafe integer).
+- Full suite 1422 passed / 129 skipped; `npm run lint` and `tsc --noEmit` clean.
 
 ## Notes
 
 - `pr status` still does not carry the single-PR C-1 help sentence or the
   C-2/C-3 zero/multi-match errors (decision A on PR #43).
-- README untouched; detail in `docs/commands.md`.
+- `README.md` quick reference gained the two `pr status` targeting lines;
+  detail in `docs/commands.md`.
