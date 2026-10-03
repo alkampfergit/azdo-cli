@@ -83,7 +83,6 @@ Without `--json`, one line per reviewer:
 - Casting or changing a vote (`pr reviewers vote`) — write-side, separate
   request.
 - Expanding group reviewers into their members (`votedFor`).
-- README changes: the command-group table and quick start are unchanged.
 
 ## Success Criteria
 

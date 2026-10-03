@@ -26,7 +26,8 @@ Learn MCP, API 7.1):
 - V Simplicity: reuses `getPullRequestReviewers()` and
   `resolvePullRequestTarget()`; no new module — PASS.
 - VI API research: endpoint and schema fetched from Microsoft Learn — PASS.
-- Docs in `docs/`, README untouched per AGENTS.md convention — PASS.
+- Docs in `docs/`; README quick start gains the `reviewers list` examples
+  (Constitution: README reflects every completed spec) — PASS.
 
 ## Design
 
