@@ -123,6 +123,8 @@ azdo pr work-items unlink 1234 --pr-number 64
 azdo pr reviewers add jane@example.com --pr-number 64             # optional by default
 azdo pr reviewers add jane@example.com --pr-number 64 --required  # required (or promotes in place)
 azdo pr reviewers remove jane@example.com --pr-number 64
+azdo pr reviewers list --pr-number 64                             # who must review, and how each voted
+azdo pr reviewers list --pr-number 64 --json                      # { pullRequestId, reviewers: [{ id, uniqueName, isRequired, vote, voteState, ... }] }
 
 # Any pr subcommand can target another repository
 azdo pr comments --repo other-repo --pr-number 12
