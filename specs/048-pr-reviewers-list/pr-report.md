@@ -56,4 +56,4 @@ auto-detection with every other `pr` subcommand.
   (the pinned `PullRequest` shape stays stable; a follow-up can add it if a
   single call matters), vote casting, and group member expansion
   (`votedFor`).
-- README: the quick start gained `pr reviewers list` human and `--json` examples.
+- README: the quick start gains the `reviewers list` human/JSON examples.
