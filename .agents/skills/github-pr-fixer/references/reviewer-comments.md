@@ -88,7 +88,16 @@ Each round of reviewer-comment fixes follows the same shape as `fix-loop`:
    **Local validation:** lint ✓ | test ✓ | build ✓
    ```
 
-6. **Re-watch checks**. Pushing a new commit re-triggers CI and may cause a
+6. **Resolve the Copilot threads you fixed.** For every Copilot line-level
+   comment the pushed commit addresses, reply in that thread with the commit
+   SHA and a one-line description, then resolve the thread with the GraphQL
+   `resolveReviewThread` mutation (procedure in `SKILL.md` → *After fixing a
+   Copilot comment — resolve its thread yourself*). Copilot does not resolve
+   its own threads, and the owner has asked not to be left doing it by hand.
+   Leave open any thread you did not fully address, and any human
+   reviewer's thread unless they or the owner asked you to resolve it.
+
+7. **Re-watch checks**. Pushing a new commit re-triggers CI and may cause a
    re-review.
 
 ## Stop conditions
@@ -112,8 +121,10 @@ When stopping, report:
 
 ## Guardrails
 
-- Never silently close or dismiss reviewer comments via the API. Always
-  leave an explanatory PR comment.
+- Never *silently* resolve or dismiss reviewer comments via the API. Resolving
+  a Copilot thread you fixed is expected (step 6), but always reply in the
+  thread with the commit that fixed it and list the resolved threads in the
+  round's PR comment.
 - Never merge while reviewer comments are unresolved unless the user
   explicitly authorises it.
 - Comments on files that this PR did not introduce (e.g., typos on a
