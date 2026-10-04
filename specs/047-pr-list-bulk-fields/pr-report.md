@@ -18,4 +18,4 @@ payload the list call already returns. `azdo pr list --work-items` adds
 
 ## Testing
 
-- Full suite: 1416 passed / 129 skipped; `npm run lint` clean.
+- Full suite: 1456 passed / 129 skipped; `npm run lint` clean.

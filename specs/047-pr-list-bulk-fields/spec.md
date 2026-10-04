@@ -59,12 +59,13 @@ A script runs `azdo pr list --json` and gets, for each PR, `isDraft`,
 - **FR-004**: Text output MUST mark drafts (`[active, draft]`) and, with
   `--work-items`, print a `Work items:` line.
 - **FR-005**: `docs/commands.md` MUST document the option and the JSON fields.
+- **FR-006**: `README.md` MUST show the `--work-items` option and the new JSON fields
+  in its `pr list` examples (Constitution VII).
 
 ## Out of Scope
 
 - A last-updated timestamp (not in the Azure DevOps model).
 - A separate `pr work-items list` command (the flag on `pr list` covers the bulk need).
-- README changes.
 
 ## Success Criteria
 
