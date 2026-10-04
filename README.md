@@ -49,6 +49,9 @@ azdo get-item 12345
 # Download images embedded in a work item's rich-text fields (opt-in)
 azdo get-item 12345 --download-images                       # saved to the system temp dir
 azdo get-item 12345 --resize-images 1024 --images-path ./img # cap width at 1024px, save as PNG
+
+# List work items (--state, --tag, --assigned-to [@me], --title-contains, --top, --json)
+azdo list-items --state Active --tag ready --json
 azdo get-md-field 12345 System.Description --download-images # same flags on get-md-field
 
 # Update state

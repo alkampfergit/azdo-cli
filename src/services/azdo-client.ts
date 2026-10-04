@@ -981,8 +981,9 @@ async function readWorkItemsBatch(
 }
 
 /**
- * WIQL query (ids, newest change first) followed by a batch read of the
- * matching items — two requests per 200 items, never one per item.
+ * WIQL query (ids, newest change first) followed by batch reads of the
+ * matching items: one WIQL request plus one batch request per 200 ids (so
+ * 201 items cost three requests), never one request per item.
  */
 export async function queryWorkItems(
   context: AzdoContext,
@@ -991,9 +992,15 @@ export async function queryWorkItems(
 ): Promise<WorkItemSummary[]> {
   const ids = await runWiql(context, cred, buildListWiql(filter), filter.top);
   const byId = new Map<number, WorkItemSummary>();
+  const chunks: number[][] = [];
   for (let i = 0; i < ids.length; i += WORKITEMS_BATCH_LIMIT) {
-    for (const item of await readWorkItemsBatch(context, cred, ids.slice(i, i + WORKITEMS_BATCH_LIMIT))) {
-      const project = String(item.fields['System.TeamProject'] ?? context.project);
+    chunks.push(ids.slice(i, i + WORKITEMS_BATCH_LIMIT));
+  }
+  const batches = await Promise.all(chunks.map((chunk) => readWorkItemsBatch(context, cred, chunk)));
+  for (const batch of batches) {
+    for (const item of batch) {
+      const teamProject = item.fields['System.TeamProject'];
+      const project = typeof teamProject === 'string' ? teamProject : context.project;
       byId.set(item.id, {
         id: item.id,
         title: item.fields['System.Title'],

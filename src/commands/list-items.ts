@@ -53,7 +53,7 @@ export function createListItemsCommand(): Command {
   const command = new Command('list-items');
 
   command
-    .description('List work items filtered by state, tag, assignee and title (WIQL query + one batch read)')
+    .description('List work items filtered by state, tag, assignee and title (one WIQL query, then batched reads of 200 items)')
     .option('--state <state>', 'only items in this state (e.g. "Active")')
     .option('--tag <tag>', 'only items carrying this tag')
     .option('--assigned-to <user>', 'only items assigned to this user (display name, email, or @me)')
@@ -86,7 +86,7 @@ export function createListItemsCommand(): Command {
           process.stdout.write(items.map(formatItemLine).join('\n') + '\n');
         }
       } catch (err: unknown) {
-        handleCommandError(err, 0, context, 'read');
+        handleCommandError(err, undefined, context, 'read');
       }
     });
 
