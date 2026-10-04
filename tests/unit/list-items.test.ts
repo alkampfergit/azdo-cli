@@ -86,6 +86,21 @@ describe('queryWorkItems', () => {
     expect(JSON.parse(String(batchInit?.body)).ids).toEqual([7, 3]);
   });
 
+  it('splits more than 200 ids into batches of at most 200 and keeps WIQL order', async () => {
+    const ids = Array.from({ length: 201 }, (_, i) => 1000 - i);
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(makeFetchResponse({ workItems: ids.map((id) => ({ id })) }))
+      .mockResolvedValueOnce(makeFetchResponse({ value: ids.slice(0, 200).reverse().map((id) => batchItem(id)) }))
+      .mockResolvedValueOnce(makeFetchResponse({ value: [batchItem(ids[200])] }));
+
+    const items = await queryWorkItems(ctx, pat, { top: 201 });
+
+    expect(fetch).toHaveBeenCalledTimes(3);
+    const sent = [1, 2].map((n) => JSON.parse(String(vi.mocked(fetch).mock.calls[n][1]?.body)).ids as number[]);
+    expect(sent.map((chunk) => chunk.length)).toEqual([200, 1]);
+    expect(items.map((i) => i.id)).toEqual(ids);
+  });
+
   it('skips the batch read when nothing matches', async () => {
     vi.mocked(fetch).mockResolvedValueOnce(makeFetchResponse({ workItems: [] }));
     expect(await queryWorkItems(ctx, pat, { top: 5 })).toEqual([]);
@@ -151,6 +166,14 @@ describe('azdo list-items', () => {
         assignedTo: null,
       },
     ]);
+  });
+
+  it('reports a 404 without naming a work item', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(makeErrorResponse(404, '{}'));
+    await expect(run()).rejects.toThrow('EXIT_1');
+    expect(getExitCode()).toBe(1);
+    expect(getStderr()).toContain('Project or resource not found in testorg/testproject');
+    expect(getStderr()).not.toContain('Work item 0');
   });
 
   it('--json prints [] when nothing matches', async () => {

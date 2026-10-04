@@ -151,7 +151,7 @@ export function formatCreateError(err: unknown): string {
  */
 export function handleCommandError(
   err: unknown,
-  id: number,
+  id: number | undefined,
   context?: AzdoContext,
   scope: 'read' | 'write' = 'write',
   exit = true,
@@ -176,8 +176,9 @@ export function handleCommandError(
     );
     writeErrorDetail(msg, 'PERMISSION_DENIED');
   } else if (msg.startsWith('NOT_FOUND')) {
+    const subject = id === undefined ? 'Project or resource' : `Work item ${id}`;
     process.stderr.write(
-      `Error: Work item ${id} not found in ${context?.org}/${context?.project}.\n`,
+      `Error: ${subject} not found in ${context?.org}/${context?.project}.\n`,
     );
   } else if (msg === 'NETWORK_ERROR') {
     process.stderr.write(

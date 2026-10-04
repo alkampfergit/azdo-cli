@@ -90,7 +90,7 @@ azdo list-items --assigned-to @me --title-contains login --top 20
 azdo list-items --tag ready --json                         # machine-readable
 ```
 
-One WIQL query (scoped to the project, newest change first) followed by one batch read — never one request per item. The filters combine with AND; omit all of them to list the latest `--top` items.
+One WIQL query (scoped to the project, newest change first) followed by batch reads of up to 200 items each — one request per 200 matches, never one per item. The default `--top 50` costs two requests; 201 matches cost three (1 WIQL + 2 batch). If the org lacks a process-template field, a batch read is retried once with system fields only. The filters combine with AND; omit all of them to list the latest `--top` items.
 
 | Option | Meaning |
 | --- | --- |
