@@ -9,6 +9,7 @@ Azure DevOps CLI focused on work item read/write workflows.
 ## Features
 
 - Retrieve work items with readable output (`get-item`)
+- List work items by state, tag, assignee or title (`list-items`)
 - Update work item state, assignee, or any field (`set-state`, `assign`, `set-field`)
 - Create or update work items from markdown documents (`upsert`)
 - Read and post work item comments (`comments`)
