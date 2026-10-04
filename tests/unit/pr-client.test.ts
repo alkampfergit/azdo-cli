@@ -1755,8 +1755,8 @@ describe('pr-client', () => {
       expect(pr.creationDate).toBe('2026-09-01T10:00:00Z');
       expect(pr.closedDate).toBe('2026-09-02T11:00:00Z');
       expect(pr.reviewers).toEqual([
-        { id: 'r1', displayName: 'Bob', uniqueName: 'bob@contoso.com', isRequired: true, vote: 10 },
-        { id: 'r2', displayName: 'Team', uniqueName: null, isRequired: false, vote: 0 },
+        { id: 'r1', displayName: 'Bob', uniqueName: 'bob@contoso.com', isRequired: true, vote: 10, voteState: 'approved', hasDeclined: false },
+        { id: 'r2', displayName: 'Team', uniqueName: null, isRequired: false, vote: 0, voteState: 'no-vote', hasDeclined: false },
       ]);
       expect(pr.labels).toEqual(['needs-review', 'bug']);
     });
