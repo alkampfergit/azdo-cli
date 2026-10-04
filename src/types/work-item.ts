@@ -22,6 +22,26 @@ export interface WorkItem {
   attachments: WorkItemAttachment[] | null;
 }
 
+export interface WorkItemListFilter {
+  state?: string;
+  tag?: string;
+  assignedTo?: string;
+  titleContains?: string;
+  top: number;
+}
+
+/** One row of `azdo list-items`. `description` is Azure DevOps' HTML until the command converts it. */
+export interface WorkItemSummary {
+  id: number;
+  title: string;
+  description: string | null;
+  url: string;
+  state: string;
+  type: string;
+  tags: string[];
+  assignedTo: string | null;
+}
+
 export interface AzdoContext {
   org: string;
   project: string;

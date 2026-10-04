@@ -1,6 +1,7 @@
 import { Command } from "commander";
 import { version } from "./version.js";
 import { createGetItemCommand } from "./commands/get-item.js";
+import { createListItemsCommand } from "./commands/list-items.js";
 import { createClearPatCommand } from "./commands/clear-pat.js";
 import { createAuthCommand } from "./commands/auth.js";
 import { createConfigCommand } from "./commands/config.js";
@@ -35,6 +36,7 @@ export function createProgram(): Command {
   program.option("--trace <filepath>", "Append redacted HTTP request/response trace to a file (owner-read-only permissions)");
 
   program.addCommand(createGetItemCommand());
+  program.addCommand(createListItemsCommand());
   program.addCommand(createAuthCommand());
   program.addCommand(createClearPatCommand());
   program.addCommand(createConfigCommand());

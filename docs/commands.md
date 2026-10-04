@@ -5,6 +5,7 @@
 | Command | Purpose | Common Flags |
 | --- | --- | --- |
 | `azdo get-item <id>` | Read a work item | `--short`, `--fields`, `--markdown`, `--download-images`, `--resize-images <px>`, `--images-path <dir>`, `--org`, `--project` |
+| `azdo list-items` | List work items by state, tag, assignee, title | `--state`, `--tag`, `--assigned-to`, `--title-contains`, `--top`, `--json`, `--org`, `--project` |
 | `azdo set-state <id> <state>` | Change work item state | `--json`, `--org`, `--project` |
 | `azdo assign <id> [name]` | Assign or unassign owner | `--unassign`, `--json`, `--org`, `--project` |
 | `azdo set-field <id> <field> <value>` | Update any field | `--json`, `--org`, `--project` |
@@ -80,6 +81,27 @@ azdo assign 12345 --unassign
 # Set any field by reference name
 azdo set-field 12345 System.Title "Updated title"
 ```
+
+## List work items
+
+```bash
+azdo list-items --state Active --tag ready                 # one line per item: id, state, assignee, title [tags]
+azdo list-items --assigned-to @me --title-contains login --top 20
+azdo list-items --tag ready --json                         # machine-readable
+```
+
+One WIQL query (scoped to the project, newest change first) followed by one batch read — never one request per item. The filters combine with AND; omit all of them to list the latest `--top` items.
+
+| Option | Meaning |
+| --- | --- |
+| `--state <state>` | exact state, e.g. `Active` |
+| `--tag <tag>` | items carrying this tag |
+| `--assigned-to <user>` | display name or email; `@me` is the caller |
+| `--title-contains <text>` | substring of the title |
+| `--top <n>` | at most `n` items (default 50, max 1000) |
+| `--json` | array of `{ id, title, description, url, state, tags, assignedTo }` |
+
+`description` is markdown (`""` when empty; Acceptance Criteria / Repro Steps are appended as in `get-item`), `tags` is an array, `assignedTo` is the display name or `null`. No match prints `[]` with `--json` and `No work items found.` otherwise. Filter values are quoted for WIQL, so quotes in a title or tag are safe. Needs **Work Items (Read)**. `--org` and `--project` must be given together.
 
 ## List fields
 
@@ -764,6 +786,7 @@ The pull request object shared by `pr list`, `pr status`, `pr open` and `pr comm
 | `set-state`, `assign`, `set-field` | `{ id, rev, title, field, value }` (one line) |
 | `set-md-field` | `{ id, rev, field, value }` (one line) |
 | `upsert` | `{ action, id, workItemType, fields }` — see [JSON output shape](#json-output-shape) |
+| `list-items` | `[{ id, title, description, url, state, tags, assignedTo }]` — `description` markdown, `tags` array |
 | `list-fields` | `{ id, fields: { "<reference name>": <value> } }` |
 | `comments list` | `{ workItemId, count, comments: [{ id, workItemId, text, author, createdAt, modifiedAt, isDeleted }] }` |
 | `comments add` | `{ workItemId, commentId, text, author, createdAt, url }` |

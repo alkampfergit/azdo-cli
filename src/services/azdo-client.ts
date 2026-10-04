@@ -3,6 +3,8 @@ import type {
   AuthCredential,
   WorkItem,
   WorkItemAttachment,
+  WorkItemListFilter,
+  WorkItemSummary,
   AzdoContext,
   JsonPatchOperation,
   UpdateResult,
@@ -876,4 +878,133 @@ export async function createAttachment(
   }
 
   return (await response.json()) as { id: string; url: string };
+}
+
+const LIST_SYSTEM_FIELDS: readonly string[] = [
+  'System.Title',
+  'System.State',
+  'System.WorkItemType',
+  'System.AssignedTo',
+  'System.Description',
+  'System.Tags',
+  'System.TeamProject',
+];
+// Present only in some process templates; dropped when the batch read rejects them.
+const LIST_PROCESS_FIELDS: readonly string[] = [
+  'Microsoft.VSTS.Common.AcceptanceCriteria',
+  'Microsoft.VSTS.TCM.ReproSteps',
+];
+const WORKITEMS_BATCH_LIMIT = 200;
+
+function wiqlLiteral(value: string): string {
+  return `'${value.replaceAll("'", "''")}'`;
+}
+
+/**
+ * Builds the WIQL for `list-items`. Every user-supplied value goes through
+ * `wiqlLiteral` (single quotes doubled), so a filter cannot alter the query.
+ * `@me` (any case) is passed through unquoted as WIQL's own macro.
+ */
+export function buildListWiql(filter: Omit<WorkItemListFilter, 'top'>): string {
+  const clauses = ['[System.TeamProject] = @project'];
+  if (filter.state) clauses.push(`[System.State] = ${wiqlLiteral(filter.state)}`);
+  if (filter.tag) clauses.push(`[System.Tags] CONTAINS ${wiqlLiteral(filter.tag)}`);
+  if (filter.assignedTo) {
+    clauses.push(
+      filter.assignedTo.toLowerCase() === '@me'
+        ? '[System.AssignedTo] = @Me'
+        : `[System.AssignedTo] = ${wiqlLiteral(filter.assignedTo)}`,
+    );
+  }
+  if (filter.titleContains) clauses.push(`[System.Title] CONTAINS ${wiqlLiteral(filter.titleContains)}`);
+  return `SELECT [System.Id] FROM WorkItems WHERE ${clauses.join(' AND ')} ORDER BY [System.ChangedDate] DESC`;
+}
+
+function parseTags(raw: unknown): string[] {
+  if (typeof raw !== 'string') return [];
+  return raw.split(';').map((t) => t.trim()).filter((t) => t.length > 0);
+}
+
+async function runWiql(context: AzdoContext, cred: AuthCredential, wiql: string, top: number): Promise<number[]> {
+  const url = new URL(
+    `https://dev.azure.com/${encodeURIComponent(context.org)}/${encodeURIComponent(context.project)}/_apis/wit/wiql`,
+  );
+  url.searchParams.set('api-version', '7.1');
+  url.searchParams.set('$top', String(top));
+  const response = await fetchWithErrors(url.toString(), {
+    method: 'POST',
+    headers: { ...authHeaders(cred), 'Content-Type': 'application/json' },
+    body: JSON.stringify({ query: wiql }),
+  });
+  if (response.status === 400) {
+    const serverMessage = await readResponseMessage(response);
+    if (serverMessage) throw new Error(`BAD_REQUEST: ${serverMessage}`);
+  }
+  if (!response.ok) throw httpError(response);
+  const data = (await response.json()) as { workItems?: { id: number }[] };
+  return (data.workItems ?? []).map((w) => w.id);
+}
+
+async function postWorkItemsBatch(
+  context: AzdoContext,
+  cred: AuthCredential,
+  ids: number[],
+  fields: readonly string[],
+): Promise<Response> {
+  const url = new URL(
+    `https://dev.azure.com/${encodeURIComponent(context.org)}/${encodeURIComponent(context.project)}/_apis/wit/workitemsbatch`,
+  );
+  url.searchParams.set('api-version', '7.1');
+  return fetchWithErrors(url.toString(), {
+    method: 'POST',
+    headers: { ...authHeaders(cred), 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ids, fields }),
+  });
+}
+
+async function readWorkItemsBatch(
+  context: AzdoContext,
+  cred: AuthCredential,
+  ids: number[],
+): Promise<AzdoWorkItemResponse[]> {
+  let response = await postWorkItemsBatch(context, cred, ids, [...LIST_SYSTEM_FIELDS, ...LIST_PROCESS_FIELDS]);
+  if (response.status === 400) {
+    const serverMessage = await readResponseMessage(response);
+    if (!serverMessage?.includes('TF51535')) {
+      throw serverMessage ? new Error(`BAD_REQUEST: ${serverMessage}`) : httpError(response);
+    }
+    // A process-template field does not exist in this org; retry with system fields only.
+    response = await postWorkItemsBatch(context, cred, ids, LIST_SYSTEM_FIELDS);
+  }
+  if (!response.ok) throw httpError(response);
+  return ((await response.json()) as { value?: AzdoWorkItemResponse[] }).value ?? [];
+}
+
+/**
+ * WIQL query (ids, newest change first) followed by a batch read of the
+ * matching items — two requests per 200 items, never one per item.
+ */
+export async function queryWorkItems(
+  context: AzdoContext,
+  cred: AuthCredential,
+  filter: WorkItemListFilter,
+): Promise<WorkItemSummary[]> {
+  const ids = await runWiql(context, cred, buildListWiql(filter), filter.top);
+  const byId = new Map<number, WorkItemSummary>();
+  for (let i = 0; i < ids.length; i += WORKITEMS_BATCH_LIMIT) {
+    for (const item of await readWorkItemsBatch(context, cred, ids.slice(i, i + WORKITEMS_BATCH_LIMIT))) {
+      const project = String(item.fields['System.TeamProject'] ?? context.project);
+      byId.set(item.id, {
+        id: item.id,
+        title: item.fields['System.Title'],
+        description: buildCombinedDescription(item.fields),
+        url: `https://dev.azure.com/${encodeURIComponent(context.org)}/${encodeURIComponent(project)}/_workitems/edit/${item.id}`,
+        state: item.fields['System.State'],
+        type: item.fields['System.WorkItemType'],
+        tags: parseTags(item.fields['System.Tags']),
+        assignedTo: item.fields['System.AssignedTo']?.displayName ?? null,
+      });
+    }
+  }
+  return ids.flatMap((id) => byId.get(id) ?? []);
 }
