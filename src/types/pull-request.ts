@@ -392,12 +392,12 @@ export interface AzdoIdentity {
   };
 }
 
-// IdentityRefWithVote — the reviewers endpoint's request/response shape.
 // GET .../pullRequests/{id}/workitems — ResourceRef ids are strings.
 export interface AzdoResourceRefListResponse {
   value: Array<{ id: string; url?: string }>;
 }
 
+// IdentityRefWithVote — the reviewers endpoint's request/response shape.
 export interface AzdoIdentityRefWithVote {
   id: string;
   displayName?: string;

@@ -15,7 +15,7 @@ Azure DevOps CLI focused on work item read/write workflows.
 - Attach a local file to a work item, or remove a named attachment (`add-attachment`, `delete-attachment`)
 - Read/write rich-text fields as markdown (`get-md-field`, `set-md-field`)
 - Download images embedded in rich-text fields, optionally resized for LLM use (`get-item`/`get-md-field` `--download-images`, `--resize-images`)
-- Check branch pull request status, open PRs to `develop` (optionally pre-filled from a repository-defined template), update an existing PR's title or description (`pr update`), abandon or reactivate one (`pr abandon` / `pr reactivate`), list PR comment threads for any PR (`--pr-number`), resolve/reopen threads, link/unlink work items, and add/remove required or optional reviewers — all from the CLI (`pr`)
+- List pull requests with their draft state, dates, reviewers, labels and linked work item ids (`pr list --work-items`), check branch pull request status, open PRs to `develop` (optionally pre-filled from a repository-defined template), update an existing PR's title or description (`pr update`), abandon or reactivate one (`pr abandon` / `pr reactivate`), list PR comment threads for any PR (`--pr-number`), resolve/reopen threads, link/unlink work items, and add/remove required or optional reviewers — all from the CLI (`pr`)
 - Feed long PR titles, descriptions and comment bodies from a file or a pipe instead of the shell (`--title-file`, `--description-file`, `--file`; `-` reads standard input)
 - Persist org/project/default fields in local config (`config`)
 - List all fields of a work item (`list-fields`)
@@ -67,9 +67,11 @@ azdo delete-attachment 12345 screenshot.png --yes         # skip the prompt (scr
 azdo delete-attachment 12345 screenshot.png --id <guid>   # disambiguate when the name is shared
 
 # Find a pull request — one API call, any branch
-azdo pr list                            # active PRs in the repository
-azdo pr list --branch feature/x --json  # id, title, source/target, author, url, description
+azdo pr list                            # active PRs in the repository ([active, draft] marks a draft)
+azdo pr list --branch feature/x --json  # id, title, source/target, author, url, description, isDraft,
+                                        # creationDate, closedDate, reviewers (uniqueName, vote), labels
 azdo pr list --status all --top 50
+azdo pr list --work-items --json        # + workItemIds per PR: the whole PR ↔ work item map in one call
 
 # PR comment threads — list, filter, target by number, resolve or reopen
 azdo pr comments                        # active-branch PR; code-anchored threads show file:line
