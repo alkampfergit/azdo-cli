@@ -124,3 +124,21 @@ stored verbatim and comes back with a trailing `\r` on every value.
 The dev container installs the Azure CLI via the
 `ghcr.io/devcontainers/features/azure-cli` feature, so `az` is available there
 out of the box.
+
+## Testing a branch build from npm
+
+Every push to any branch (not only `master`/`develop`) runs the `publish` job in
+`ci.yml` once `build` and `integration-tests` pass. A feature branch publishes
+`<next-minor>-<branch>.<run>` (e.g. `0.22.0-feature-052-pipeline-logs-glued-progress.812`)
+under the shared `dev` dist-tag; `develop` publishes `-develop.<run>` under `dev` too,
+`release/*` under `next`, and `master` under `latest`.
+
+```
+npm install -g azdo-cli@dev                    # newest build from any branch
+npm install -g azdo-cli@<exact-version>        # a specific branch build
+```
+
+Because `dev` is shared, use the exact version from the `Publish to npm` step of the
+CI run when several branches are in flight. To republish without a new commit, re-run
+the workflow's `publish` job from the Actions tab. A manual `workflow_dispatch` run
+builds and tests but does not publish.
