@@ -565,6 +565,7 @@ describe('pr open --target/--source/--draft/--work-item/--label — option plumb
   });
 
   it.each([
+    [['--source', 'develop'], 'other than develop'],
     [['--source', 'master', '--target', 'refs/heads/master'], 'other than the target branch (master)'],
     [['--work-item', '0'], '--work-item must be a positive integer'],
     [['--work-item', 'abc'], '--work-item must be a positive integer'],
@@ -573,7 +574,8 @@ describe('pr open --target/--source/--draft/--work-item/--label — option plumb
     await runTree(['pr', 'open', '--title', 'T', '--description', 'D', ...args]);
 
     expect(getStderr()).toContain(message);
-    expect(getExitCode()).toBe(1);
+    expect(vi.mocked(openPullRequest)).not.toHaveBeenCalled();
+    expect(vi.mocked(requireAuthCredential)).not.toHaveBeenCalled();
     expect(vi.mocked(openPullRequest)).not.toHaveBeenCalled();
   });
 
@@ -585,6 +587,6 @@ describe('pr open --target/--source/--draft/--work-item/--label — option plumb
     await runTree(['pr', 'open', '--title', 'T', '--description', 'D', '--target', 'master', '--draft']);
 
     expect(getStdout()).toContain('feature/test -> master: #77');
-    expect(getStdout()).toContain('were not applied to the existing pull request');
+    expect(getStdout()).toContain('the existing pull request was left unchanged');
   });
 });

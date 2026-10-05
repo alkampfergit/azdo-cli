@@ -949,11 +949,10 @@ export function createPrOpenCommand(): Command {
       let context: AzdoContext | undefined;
 
       try {
-        // An explicit --source needs no git checkout, so the branch lookup is skipped.
-        const resolved = await resolvePrCommandContext(options, { requireBranch: options.source === undefined });
-        context = resolved.context;
-
-        const openBranch = (openOptions.source ?? resolved.branch!);
+        // Self-target is rejected before credential resolution, which can refresh
+        // an OAuth token over the network. An explicit --source needs no git
+        // checkout, so the branch lookup is skipped.
+        const openBranch = openOptions.source ?? getCurrentBranch();
         const target = openOptions.targetBranch;
         if (openBranch === target) {
           writeError(
@@ -963,6 +962,9 @@ export function createPrOpenCommand(): Command {
           );
           return;
         }
+
+        const resolved = await resolvePrCommandContext(options, { requireBranch: false });
+        context = resolved.context;
 
         const result = await openPullRequest(
           resolved.context,
@@ -989,8 +991,9 @@ export function createPrOpenCommand(): Command {
           `Active pull request already exists for ${openBranch} -> ${result.targetBranch}: #${result.pullRequest.id}\n${result.pullRequest.url ?? '—'}\n`,
         );
         if (openOptions.isDraft || openOptions.labels?.length || openOptions.workItemIds?.length) {
+          const hint = openOptions.workItemIds?.length ? ' Use pr work-items link to link a work item.' : '';
           process.stdout.write(
-            '--draft, --label and --work-item were not applied to the existing pull request; use pr update or pr work-items link to change it.\n',
+            `--draft, --label and --work-item were not applied; the existing pull request was left unchanged.${hint}\n`,
           );
         }
       } catch (err) {
