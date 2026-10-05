@@ -10,7 +10,7 @@
 | `azdo assign <id> [name]` | Assign or unassign owner | `--unassign`, `--json`, `--org`, `--project` |
 | `azdo set-field <id> <field> <value>` | Update any field | `--json`, `--org`, `--project` |
 | `azdo upsert [id]` | Create or update from markdown | `--content`, `--file`, `--type`, `--json`, `--org`, `--project` |
-| `azdo comments <subcommand>` | Read or add work item comments | `list`, `add`, `--json`, `--org`, `--project` |
+| `azdo comments <subcommand>` | Read, add, edit or delete work item comments | `list`, `add`, `edit`, `delete`, `--file`, `--json`, `--org`, `--project` |
 | `azdo get-md-field <id> <field>` | Get rich-text field as markdown | `--download-images`, `--resize-images <px>`, `--images-path <dir>`, `--org`, `--project` |
 | `azdo set-md-field <id> <field> [content]` | Set markdown field | `--file`, `--json`, `--org`, `--project` |
 | `azdo list-fields <id>` | List all fields of a work item | `--json`, `--org`, `--project` |
@@ -501,11 +501,22 @@ azdo comments list 12345
 azdo comments list 12345 --json
 azdo comments add 12345 "Investigation complete. Working on the fix next."
 azdo comments add 12345 "Queued validation run." --json
+azdo comments edit 12345 987 "Working on this in PR #42."
+azdo comments edit 12345 987 --file note.md --markdown
+echo "Done." | azdo comments edit 12345 987 --file - --json
+azdo comments delete 12345 987
+azdo comments delete 12345 987 --json
 ```
 
 **`azdo comments list`** — prints comments newest-first (ID, author, timestamp, body)
 
-**`azdo comments add`** — requires non-empty text; fails locally before any API call when blank
+**`azdo comments add`** — requires non-empty text; fails locally before any API call when blank. `--json` returns `commentId` and `createdAt`, so the comment can be edited or deleted later.
+
+**`azdo comments edit <id> <commentId> [text]`** — rewrites a comment in place (`PATCH .../workItems/{id}/comments/{commentId}`). The text is inline or from `--file <path>` (`-` reads stdin), never both; blank text fails locally before any API call. `--markdown` posts it as markdown (default html), as with `add`. Prints `Updated comment #N on work item #M`.
+
+**`azdo comments delete <id> <commentId>`** — deletes a comment (`DELETE .../workItems/{id}/comments/{commentId}`). Azure DevOps soft-deletes, and `comments list` already hides deleted comments. **No confirmation prompt**, so it is safe in scripts; it is not idempotent — an unknown or already-deleted comment is an error. Prints `Deleted comment #N from work item #M`.
+
+Both fail with exit 1 and nothing on stdout when the comment does not exist (`Comment N not found on work item M in org/project.`) or on 401/403/400 (server message included).
 
 ## Work item attachments
 
@@ -814,6 +825,9 @@ The pull request object shared by `pr list`, `pr status`, `pr open` and `pr comm
 | `upsert` | `{ action, id, workItemType, fields }` — see [JSON output shape](#json-output-shape) |
 | `list-items` | `[{ id, title, description, url, state, tags, assignedTo }]` — `description` markdown, `tags` array |
 | `list-fields` | `{ id, fields: { "<reference name>": <value> } }` |
+| `comments add` | `{ workItemId, commentId, text, author, createdAt, url }` |
+| `comments edit` | `{ workItemId, commentId, text, author, createdAt, modifiedAt, url }` |
+| `comments delete` | `{ workItemId, commentId, deleted: true }` |
 | `comments list` | `{ workItemId, count, comments: [{ id, workItemId, text, author, createdAt, modifiedAt, isDeleted }] }` |
 | `comments add` | `{ workItemId, commentId, text, author, createdAt, url }` |
 | `relations types` | `[{ referenceName, name, usage, enabled, directional }]` |

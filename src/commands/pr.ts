@@ -1,4 +1,3 @@
-import { existsSync, readFileSync } from 'node:fs';
 import { Command } from 'commander';
 import type {
   ActiveCommentThread,
@@ -51,7 +50,9 @@ import { describeResolvedCredential, requireAuthCredential } from '../services/a
 import { resolveContext } from '../services/context.js';
 import {
   isSentinel,
+  readTextSource as readTextSourceOrThrow,
   reportCredentialStoreUnavailable,
+  STDIN_PATH,
   splitSentinel,
   validateOrgProjectPair,
   writeErrorDetail,
@@ -199,35 +200,14 @@ function writeContractError(line: string): void {
 // two authoring commands (add / edit) and reply fail identically.
 const EMPTY_BODY_ERROR = 'Comment text must not be empty. Pass the text inline or use --file <path>.';
 
-// The POSIX "read standard input" path, accepted by every `--file` /
-// `--*-file` option in the `pr` group so a body can be piped in
-// (`gh issue view 96 | azdo pr update --description-file -`).
-const STDIN_PATH = '-';
-
 // Reads a text source named by a `--file` style option: `-` means standard
 // input, anything else is a UTF-8 file path. Returns null when the source
 // could not be read — the error is already on stderr and the exit code set.
 function readTextSource(file: string): string | null {
-  if (file === STDIN_PATH) {
-    // fd 0 is read synchronously: the CLI has nothing else to do until the
-    // body arrives, and stdin can only be drained once per process — which is
-    // also why callers reject `-` used for two options at once.
-    try {
-      return readFileSync(0, 'utf-8');
-    } catch {
-      writeError('Cannot read standard input.');
-      return null;
-    }
-  }
-
-  if (!existsSync(file)) {
-    writeError(`File not found: ${file}`);
-    return null;
-  }
   try {
-    return readFileSync(file, 'utf-8');
-  } catch {
-    writeError(`Cannot read file: ${file}`);
+    return readTextSourceOrThrow(file);
+  } catch (err) {
+    writeError((err as Error).message);
     return null;
   }
 }
