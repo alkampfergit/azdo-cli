@@ -324,6 +324,17 @@ describe('pipeline logs / start', () => {
     expect(getStderr()).toContain('require --log-id or --step');
   });
 
+  it('--no-progress keeps the timestamp and last bar of glued progress bars; single bars stay', async () => {
+    const bar = (a: string, pct: string) => `${a} MiB / 121.10 MiB [->____] ${pct}% ? p/s ?`;
+    const ts = '2026-10-05T02:10:46.8545782Z ';
+    const single = `${ts}${bar('1.47', '1.21')}`;
+    vi.mocked(getRunLog).mockResolvedValue(
+      `${ts}${bar('1.47', '1.21')}${bar('3.69', '3.04')}${bar('121.10', '100')}\n${single}\n`,
+    );
+    await run(['logs', '100', '--log-id', '7', '--no-progress']);
+    expect(getStdout()).toBe(`${ts}${bar('121.10', '100')}\n${single}\n`);
+  });
+
   it('--tail prints only the last N lines of a log', async () => {
     vi.mocked(getRunLog).mockResolvedValue('one\ntwo\nthree\nfour\n');
     await run(['logs', '100', '--log-id', '7', '--tail', '2']);

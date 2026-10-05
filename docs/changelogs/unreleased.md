@@ -14,6 +14,10 @@
 - The pull request object in `--json` (`pr list`, `pr status`, `pr open`, `pr comments`) now carries `isDraft`, `creationDate`, `closedDate`, `reviewers` (`uniqueName`, `vote`, `isRequired`) and `labels`; `pr list` marks drafts as `[active, draft]`. (#122)
 - `azdo pr reviewers list` lists a pull request's reviewers with their votes. `--json` returns, per reviewer, the stable identity (`id`, `uniqueName`) next to the display name, `isRequired`, the raw Azure DevOps `vote` and its named `voteState` (`approved`, `approved-with-suggestions`, `no-vote`, `waiting-for-author`, `rejected`, `bypassed`, or `unknown` for a value the CLI does not know) plus `hasDeclined`. Read-only, **Code (Read)** only; `--pr-number`, `--repo` and the current-branch auto-detection work as on every other `pr` subcommand. The `azdo` counterpart of `gh pr view --json reviews`. (#124)
 
+### Fixed
+
+- `azdo pipeline logs --no-progress` now also collapses progress bars Azure DevOps stores glued into one line (no `\r`/`\n` between them): the timestamp and the last bar are kept. `artifact-download` no longer holds the zip twice while downloading. (#138)
+
 ### Changed
 
 - `azdo config --help` now prints a *Settings* section generated from the settings registry: for every key its meaning, type or accepted values (`credentialStore`: `keyring`, `dpapi` marked Windows only), whether it is global only or also `--org`-scoped, the `AZDO_CREDENTIAL_STORE` override, and a ready-to-paste `azdo config set` example. The credential resolution order stays below it. (#118)

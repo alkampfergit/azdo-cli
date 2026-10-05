@@ -542,10 +542,23 @@ function grepWithContext(lines: string[], grep: RegExp, context: number): string
 // Returns the lines to print; an empty array means "print nothing".
 // Progress bars redraw one line with carriage returns; keep only the final
 // state of each line (a trailing CR from CRLF endings is not a redraw).
+// Azure DevOps also stores some tools' bars glued into one line with no
+// separator at all; when a line holds two or more bars, keep the leading
+// timestamp and only the last bar.
+const PROGRESS_BAR = /\d+(?:\.\d+)? [KMGT]?i?B \/ \d+(?:\.\d+)? [KMGT]?i?B \[/g;
+const LOG_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T[\d:.]+Z /;
+
+function collapseGluedBars(line: string): string {
+  const starts = [...line.matchAll(PROGRESS_BAR)].map((m) => m.index);
+  if (starts.length < 2) return line;
+  const prefix = LOG_TIMESTAMP.exec(line)?.[0] ?? '';
+  return prefix + line.slice(starts[starts.length - 1]);
+}
+
 function collapseProgress(line: string): string {
   let end = line.length;
   while (end > 0 && line[end - 1] === '\r') end--;
-  return line.slice(line.lastIndexOf('\r', end - 1) + 1, end);
+  return collapseGluedBars(line.slice(line.lastIndexOf('\r', end - 1) + 1, end));
 }
 
 function filterLogLines(
@@ -717,7 +730,7 @@ function createPipelineLogsCommand(): Command {
     .option('--head <n>', 'with --log-id/--step, print only the first N lines')
     .option('--grep <pattern>', 'with --log-id/--step, print only lines matching this regular expression')
     .option('--context <n>', 'with --grep, also print N lines around each match (grep -C)')
-    .option('--no-progress', 'with --log-id/--step, collapse carriage-return progress redraws to their final state')
+    .option('--no-progress', 'with --log-id/--step, collapse progress-bar redraws (carriage-return or glued into one line) to their final state')
     .option('--json', 'output JSON')
     .action(async (runIdRaw: string, options: LogsOptions) => {
       validateOrgProjectPair(options);

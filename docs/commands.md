@@ -466,7 +466,7 @@ azdo pipeline start 12 --branch develop --parameter env=staging
 - With `--log-id`/`--step`: `--tail <n>` prints only the last N lines, `--grep <pattern>` prints only lines matching a regular expression, and `--grep … --context <n>` adds ±N surrounding lines per match (grep `-C` semantics, chunks separated by `--`) — multi-line stack traces come out whole
 
 - The listing also shows each log's **record type** (`Stage` / `Job` / `Task`) and its **parent** (`(in <job>)`), so two logs sharing a title (a job log and its task log) are told apart; `--json` carries `type` and `parent`, and the `--step` ambiguity error prints them for every candidate
-- `--head <n>` prints only the first N lines (mutually exclusive with `--tail`). `--no-progress` keeps only the final state of each carriage-return progress redraw (e.g. a Trivy DB download) — opt-in, never applied automatically, even off a TTY
+- `--head <n>` prints only the first N lines (mutually exclusive with `--tail`). `--no-progress` keeps only the final state of each carriage-return progress redraw, and, for a line where Azure DevOps stored several progress bars glued together (e.g. a Trivy DB download), its timestamp plus the last bar (a line with a single bar is left alone) — opt-in, never applied automatically, even off a TTY
 
 **`azdo pipeline artifacts <run_id>`**
 - Lists the run's build artifacts (name, type — `Container` / `PipelineArtifact` — and size) from `GET build/builds/{id}/artifacts`; `--json` emits `[{ id, name, type, sizeBytes, downloadUrl }]`. Uses the CLI's own credential, so no separate `az login`
@@ -475,6 +475,7 @@ azdo pipeline start 12 --branch develop --parameter env=staging
 - Downloads one artifact and **extracts it straight into the destination folder** — the zip is held in memory and never written to disk, so none is left behind, even on failure
 - `--path <dir>` is the destination (default `./<name>`); `--all` downloads every artifact, each into `<dir>/<name>` (a name together with `--all` is rejected; neither is an error that lists the available artifacts); an unknown name also lists them
 - Never overwrites an existing file unless `--force` is given; entries that would escape the destination (zip-slip), pass through a symbolic link in the destination, or collide with another entry abort the extraction before anything is written
+- Memory: the zip is held in memory and extraction inflates every entry at once, so peak memory is a multiple of the artifact size (roughly the zip plus its full uncompressed size) — budget accordingly in memory-limited containers
 - Silent by default: stdout carries only the destination path(s) (`--json`: `[{ name, path, files }]`); `--progress` adds byte-progress lines on stderr
 - Both artifact types are fetched through the artifact's `downloadUrl` requested as `$format=zip`
 

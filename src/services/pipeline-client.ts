@@ -517,12 +517,24 @@ export async function downloadArtifactZip(
   if (!response.body) {
     return new Uint8Array(await response.arrayBuffer());
   }
+  // With a known Content-Length fill one preallocated buffer so the zip is not
+  // held twice (chunks + Buffer.concat); a body that disagrees with the header
+  // falls back to concatenation.
+  const declared = Number.parseInt(response.headers.get('content-length') ?? '', 10);
+  let target: Uint8Array | null = declared > 0 ? new Uint8Array(declared) : null;
   const chunks: Uint8Array[] = [];
   let received = 0;
   for await (const chunk of response.body as unknown as AsyncIterable<Uint8Array>) {
-    chunks.push(chunk);
+    if (target && received + chunk.length <= target.length) {
+      target.set(chunk, received);
+    } else {
+      if (target) chunks.push(target.subarray(0, received));
+      target = null;
+      chunks.push(chunk);
+    }
     received += chunk.length;
     onProgress?.(received);
   }
-  return Buffer.concat(chunks);
+  if (target && received === target.length) return target;
+  return Buffer.concat(target ? [target.subarray(0, received)] : chunks);
 }
