@@ -105,6 +105,7 @@ git log -1 --format=%B | azdo pr comments add --file - --pr-number 64      # "-"
 azdo pr open --title "Fix the thing" --description "Because X was broken"
 azdo pr open --title "Fix the thing"   # uses docs/pull_request_template[/branches/<branch>].md if present
 azdo pr open --title "Fix the thing" --description-file body.md   # or --description-file - to pipe it in
+azdo pr open --title "Fix the thing" --target master --source feature/x --draft --work-item 1234 --label bug   # --work-item/--label repeat; --json adds top-level id and url
 # The description plus the template must stay within Azure DevOps' 4000-character cap; over it,
 # the command says by how much and creates nothing. See docs/commands.md.
 

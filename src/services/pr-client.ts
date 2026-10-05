@@ -631,9 +631,6 @@ export async function openPullRequest(
   if (options.labels && options.labels.length > 0) {
     payload.labels = options.labels.map((name) => ({ name }));
   }
-  if (options.workItemIds && options.workItemIds.length > 0) {
-    payload.workItemRefs = options.workItemIds.map((id) => ({ id: String(id) }));
-  }
 
   const url = new URL(
     `https://dev.azure.com/${encodeURIComponent(context.org)}/${encodeURIComponent(context.project)}/_apis/git/repositories/${encodeURIComponent(repo)}/pullrequests`,
@@ -661,12 +658,27 @@ export async function openPullRequest(
     throw err;
   }
 
-  return {
+  const pullRequest = mapPullRequest(context, repo, data);
+  const result: PullRequestOpenResult = {
     branch: sourceBranch,
     targetBranch,
     created: true,
-    pullRequest: mapPullRequest(context, repo, data),
+    pullRequest,
   };
+  // The create endpoint has no work item input, so link afterwards. A failure
+  // must not hide the PR that now exists: each outcome is reported per item.
+  if (options.workItemIds && options.workItemIds.length > 0) {
+    result.workItems = [];
+    for (const id of options.workItemIds) {
+      try {
+        await linkWorkItemToPullRequest(context, repo, cred, pullRequest.id, id);
+        result.workItems.push({ id, linked: true });
+      } catch (err) {
+        result.workItems.push({ id, linked: false, error: err instanceof Error ? err.message : String(err) });
+      }
+    }
+  }
+  return result;
 }
 
 // Updates a pull request's title, description and/or status (038-pr-update,

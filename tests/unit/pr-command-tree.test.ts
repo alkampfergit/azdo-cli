@@ -546,6 +546,23 @@ describe('pr open --target/--source/--draft/--work-item/--label — option plumb
     );
   });
 
+  it('exits 1 and names the work item when linking fails after the PR was created', async () => {
+    vi.mocked(openPullRequest).mockResolvedValueOnce({
+      branch: 'feature/test',
+      targetBranch: 'develop',
+      created: true,
+      pullRequest: { ...branchPr, id: 77, url: 'https://example.test/pr/77' },
+      workItems: [{ id: 12, linked: true }, { id: 13, linked: false, error: 'HTTP_500' }],
+    });
+
+    await runTree(['pr', 'open', '--title', 'T', '--description', 'D', '--work-item', '12', '--work-item', '13']);
+
+    expect(getStdout()).toContain('Created pull request #77');
+    expect(getStderr()).toContain('#13 (HTTP_500)');
+    expect(getStderr()).not.toContain('#12 (');
+    expect(process.exitCode).toBe(1);
+  });
+
   it('defaults to the current branch and develop', async () => {
     await runTree(['pr', 'open', '--title', 'T', '--description', 'D']);
 
