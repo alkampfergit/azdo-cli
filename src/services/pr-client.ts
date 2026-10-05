@@ -26,6 +26,7 @@ import type {
   CreatableThreadStatus,
   PostedPrComment,
   PullRequestCheck,
+  PullRequestOpenOptions,
   PullRequestOpenRequest,
   PullRequestOpenResult,
   PullRequestTemplate,
@@ -580,16 +581,18 @@ export async function openPullRequest(
   sourceBranch: string,
   title: string,
   description?: string,
+  options: PullRequestOpenOptions = {},
 ): Promise<PullRequestOpenResult> {
+  const targetBranch = options.targetBranch ?? 'develop';
   const existing = await listPullRequests(context, repo, cred, sourceBranch, {
     status: 'active',
-    targetBranch: 'develop',
+    targetBranch,
   });
 
   if (existing.length === 1) {
     return {
       branch: sourceBranch,
-      targetBranch: 'develop',
+      targetBranch,
       created: false,
       pullRequest: existing[0],
     };
@@ -603,7 +606,7 @@ export async function openPullRequest(
   const defaultBranch = repository.defaultBranch
     ? repository.defaultBranch.replace(/^refs\/heads\//, '')
     : 'develop';
-  const template = await resolvePullRequestTemplate(context, repo, cred, defaultBranch, 'develop');
+  const template = await resolvePullRequestTemplate(context, repo, cred, defaultBranch, targetBranch);
   const composed = composeDescription(description, template);
   if (composed === null) {
     throw new Error('DESCRIPTION_REQUIRED');
@@ -617,10 +620,20 @@ export async function openPullRequest(
 
   const payload: PullRequestOpenRequest = {
     sourceRefName: `refs/heads/${sourceBranch}`,
-    targetRefName: 'refs/heads/develop',
+    targetRefName: `refs/heads/${targetBranch}`,
     title,
     description: composed.text,
   };
+  // Only present when requested, so a default invocation sends the pre-050 body.
+  if (options.isDraft) {
+    payload.isDraft = true;
+  }
+  if (options.labels && options.labels.length > 0) {
+    payload.labels = options.labels.map((name) => ({ name }));
+  }
+  if (options.workItemIds && options.workItemIds.length > 0) {
+    payload.workItemRefs = options.workItemIds.map((id) => ({ id: String(id) }));
+  }
 
   const url = new URL(
     `https://dev.azure.com/${encodeURIComponent(context.org)}/${encodeURIComponent(context.project)}/_apis/git/repositories/${encodeURIComponent(repo)}/pullrequests`,
@@ -650,7 +663,7 @@ export async function openPullRequest(
 
   return {
     branch: sourceBranch,
-    targetBranch: 'develop',
+    targetBranch,
     created: true,
     pullRequest: mapPullRequest(context, repo, data),
   };

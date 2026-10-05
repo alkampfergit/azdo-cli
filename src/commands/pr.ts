@@ -9,6 +9,7 @@ import type {
   PullRequestCommentsResult,
   PullRequestCheck,
   PullRequestLifecycleStatus,
+  PullRequestOpenOptions,
   PullRequestStatusChangeResult,
   PullRequestStatusPullRequest,
   PullRequestStatusResult,
@@ -768,12 +769,12 @@ export function createPrStatusCommand(): Command {
 
 // The `pr open` failures that are not API failures. Kept out of the action
 // callback so the command body stays a straight line: resolve, create, report.
-function handlePrOpenError(err: unknown, context?: AzdoContext): void {
+function handlePrOpenError(err: unknown, context?: AzdoContext, targetBranch = 'develop'): void {
   const message = err instanceof Error ? err.message : '';
 
   if (message.startsWith('AMBIGUOUS_PRS:')) {
     const ids = message.replace('AMBIGUOUS_PRS:', '').split(',').map((id) => `#${id}`).join(', ');
-    writeError(`Multiple active pull requests already exist for this branch targeting develop: ${ids}. Use pr status to review them.`);
+    writeError(`Multiple active pull requests already exist for this branch targeting ${targetBranch}: ${ids}. Use pr status to review them.`);
     return;
   }
 
@@ -790,6 +791,62 @@ function handlePrOpenError(err: unknown, context?: AzdoContext): void {
   }
 
   handlePrCommandError(err, context, 'write');
+}
+
+function collectOption(value: string, previous: string[]): string[] {
+  return [...previous, value];
+}
+
+function stripHeadsPrefix(branch: string): string {
+  return branch.trim().replace(/^refs\/heads\//, '');
+}
+
+// `pr open`'s branch / draft / label / work-item flags, validated before any
+// network call. `null` means the input was rejected and the error is already
+// on stderr.
+function resolveOpenOptions(options: {
+  target?: string;
+  source?: string;
+  draft?: boolean;
+  workItem?: string[];
+  label?: string[];
+}): (PullRequestOpenOptions & { targetBranch: string; source?: string }) | null {
+  const targetBranch = options.target === undefined ? 'develop' : stripHeadsPrefix(options.target);
+  const source = options.source === undefined ? undefined : stripHeadsPrefix(options.source);
+  if (!targetBranch) {
+    writeError('--target must not be empty.');
+    return null;
+  }
+  if (source !== undefined && !source) {
+    writeError('--source must not be empty.');
+    return null;
+  }
+
+  const workItemIds: number[] = [];
+  for (const raw of options.workItem ?? []) {
+    const id = Number(raw.trim());
+    if (!/^\d+$/.test(raw.trim()) || !Number.isSafeInteger(id) || id <= 0) {
+      writeError(`--work-item must be a positive integer, got "${raw}".`);
+      return null;
+    }
+    if (!workItemIds.includes(id)) {
+      workItemIds.push(id);
+    }
+  }
+
+  const labels: string[] = [];
+  for (const raw of options.label ?? []) {
+    const name = raw.trim();
+    if (!name) {
+      writeError('--label must not be empty.');
+      return null;
+    }
+    if (!labels.includes(name)) {
+      labels.push(name);
+    }
+  }
+
+  return { targetBranch, source, isDraft: options.draft === true, labels, workItemIds };
 }
 
 // `pr open`'s description, resolved before any network call: the template
@@ -836,7 +893,7 @@ export function createPrOpenCommand(): Command {
   const command = new Command('open');
 
   withCommonPrOptions(command)
-    .description('Open a pull request from the current branch to develop')
+    .description('Open a pull request (default: from the current branch to develop)')
     .option('--title <title>', 'pull request title')
     .option(
       '--description <description>',
@@ -846,11 +903,26 @@ export function createPrOpenCommand(): Command {
       '--description-file <path>',
       'read the description from a UTF-8 file instead of --description; "-" reads standard input',
     )
-    .option('--json', 'output JSON')
+    .option('--target <branch>', 'target branch (default: develop); refs/heads/ prefix accepted')
+    .option('--source <branch>', 'source branch (default: the current branch); no local checkout needed')
+    .option('--draft', 'open the pull request as a draft')
+    .option(
+      '--work-item <id>',
+      'link a work item to the pull request (positive integer; repeatable)',
+      collectOption,
+      [] as string[],
+    )
+    .option('--label <label>', 'add a label to the pull request (repeatable)', collectOption, [] as string[])
+    .option('--json', 'output JSON; adds top-level id and url next to pullRequest')
     .action(async (options: {
       title?: string;
       description?: string;
       descriptionFile?: string;
+      target?: string;
+      source?: string;
+      draft?: boolean;
+      workItem?: string[];
+      label?: string[];
       org?: string;
       project?: string;
       repo?: string;
@@ -869,19 +941,29 @@ export function createPrOpenCommand(): Command {
         return;
       }
 
+      const openOptions = resolveOpenOptions(options);
+      if (openOptions === null) {
+        return;
+      }
+
       let context: AzdoContext | undefined;
 
       try {
-        const resolved = await resolvePrCommandContext(options);
+        // An explicit --source needs no git checkout, so the branch lookup is skipped.
+        const resolved = await resolvePrCommandContext(options, { requireBranch: options.source === undefined });
         context = resolved.context;
 
-        if (resolved.branch === 'develop') {
-          writeError('Pull request creation requires a source branch other than develop.');
+        const openBranch = (openOptions.source ?? resolved.branch!);
+        const target = openOptions.targetBranch;
+        if (openBranch === target) {
+          writeError(
+            target === 'develop'
+              ? 'Pull request creation requires a source branch other than develop.'
+              : `Pull request creation requires a source branch other than the target branch (${target}).`,
+          );
           return;
         }
 
-        // pr open uses the default requireBranch=true resolver.
-        const openBranch = resolved.branch!;
         const result = await openPullRequest(
           resolved.context,
           resolved.repo,
@@ -889,10 +971,12 @@ export function createPrOpenCommand(): Command {
           openBranch,
           title,
           description,
+          openOptions,
         );
 
         if (options.json) {
-          process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+          const output = { ...result, id: result.pullRequest.id, url: result.pullRequest.url };
+          process.stdout.write(`${JSON.stringify(output, null, 2)}\n`);
           return;
         }
 
@@ -902,10 +986,15 @@ export function createPrOpenCommand(): Command {
         }
 
         process.stdout.write(
-          `Active pull request already exists for ${resolved.branch} -> develop: #${result.pullRequest.id}\n${result.pullRequest.url ?? '—'}\n`,
+          `Active pull request already exists for ${openBranch} -> ${result.targetBranch}: #${result.pullRequest.id}\n${result.pullRequest.url ?? '—'}\n`,
         );
+        if (openOptions.isDraft || openOptions.labels?.length || openOptions.workItemIds?.length) {
+          process.stdout.write(
+            '--draft, --label and --work-item were not applied to the existing pull request; use pr update or pr work-items link to change it.\n',
+          );
+        }
       } catch (err) {
-        handlePrOpenError(err, context);
+        handlePrOpenError(err, context, openOptions.targetBranch);
       }
     });
 
