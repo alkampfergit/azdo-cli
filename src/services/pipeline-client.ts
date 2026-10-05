@@ -497,6 +497,19 @@ export async function listBuildArtifacts(
   });
 }
 
+// Content-Length is response-controlled: only trust a sane value, and fall back
+// to chunk concatenation (null) when the buffer cannot be allocated.
+const MAX_PREALLOCATE_BYTES = 2 * 1024 * 1024 * 1024;
+
+function preallocate(declared: number): Uint8Array | null {
+  if (!Number.isSafeInteger(declared) || declared <= 0 || declared > MAX_PREALLOCATE_BYTES) return null;
+  try {
+    return new Uint8Array(declared);
+  } catch {
+    return null;
+  }
+}
+
 // Downloads an artifact as a zip. Container and PipelineArtifact artifacts both
 // expose a `downloadUrl` that serves a zip when asked for `$format=zip`; the
 // zip's entries are prefixed with the artifact name.
@@ -521,20 +534,20 @@ export async function downloadArtifactZip(
   // held twice (chunks + Buffer.concat); a body that disagrees with the header
   // falls back to concatenation.
   const declared = Number.parseInt(response.headers.get('content-length') ?? '', 10);
-  let target: Uint8Array | null = declared > 0 ? new Uint8Array(declared) : null;
+  let target = preallocate(declared);
   const chunks: Uint8Array[] = [];
   let received = 0;
   for await (const chunk of response.body as unknown as AsyncIterable<Uint8Array>) {
-    if (target && received + chunk.length <= target.length) {
+    if (target !== null && received + chunk.length <= target.length) {
       target.set(chunk, received);
     } else {
-      if (target) chunks.push(target.subarray(0, received));
+      if (target !== null) chunks.push(target.subarray(0, received));
       target = null;
       chunks.push(chunk);
     }
     received += chunk.length;
     onProgress?.(received);
   }
-  if (target && received === target.length) return target;
-  return Buffer.concat(target ? [target.subarray(0, received)] : chunks);
+  if (target !== null && received === target.length) return target;
+  return Buffer.concat(target === null ? chunks : [target.subarray(0, received)]);
 }

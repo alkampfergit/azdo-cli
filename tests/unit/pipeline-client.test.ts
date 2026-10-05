@@ -209,6 +209,10 @@ describe('pipeline-client', () => {
     expect(Array.from(await downloadArtifactZip(cred, art))).toEqual([1, 2, 3, 4]);
     spy.mockResolvedValueOnce(mk('9'));
     expect(Array.from(await downloadArtifactZip(cred, art))).toEqual([1, 2, 3, 4]);
+    for (const bad of ['abc', '-5', '0', '99999999999999999999', '9999999999']) {
+      spy.mockResolvedValueOnce(mk(bad));
+      expect(Array.from(await downloadArtifactZip(cred, art))).toEqual([1, 2, 3, 4]);
+    }
   });
 
   it('downloadArtifactZip requests $format=zip and reports progress', async () => {

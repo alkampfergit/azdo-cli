@@ -545,14 +545,14 @@ function grepWithContext(lines: string[], grep: RegExp, context: number): string
 // Azure DevOps also stores some tools' bars glued into one line with no
 // separator at all; when a line holds two or more bars, keep the leading
 // timestamp and only the last bar.
-const PROGRESS_BAR = /\d+(?:\.\d+)? [KMGT]?i?B \/ \d+(?:\.\d+)? [KMGT]?i?B \[/g;
+const PROGRESS_BAR = /(?<![\d.])\d+(?:\.\d+)? [KMGT]?i?B \/ \d+(?:\.\d+)? [KMGT]?i?B \[/g;
 const LOG_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T[\d:.]+Z /;
 
 function collapseGluedBars(line: string): string {
-  const starts = [...line.matchAll(PROGRESS_BAR)].map((m) => m.index);
+  const starts = [...line.matchAll(PROGRESS_BAR)].map((m) => m.index ?? 0);
   if (starts.length < 2) return line;
   const prefix = LOG_TIMESTAMP.exec(line)?.[0] ?? '';
-  return prefix + line.slice(starts[starts.length - 1]);
+  return prefix + line.slice(starts.at(-1));
 }
 
 function collapseProgress(line: string): string {
