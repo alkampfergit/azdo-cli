@@ -10,6 +10,7 @@ import type {
   PullRequestCheck,
   PullRequestLifecycleStatus,
   PullRequestOpenOptions,
+  PullRequestOpenResult,
   PullRequestStatusChangeResult,
   PullRequestStatusPullRequest,
   PullRequestStatusResult,
@@ -979,11 +980,13 @@ export function createPrOpenCommand(): Command {
         if (options.json) {
           const output = { ...result, id: result.pullRequest.id, url: result.pullRequest.url };
           process.stdout.write(`${JSON.stringify(output, null, 2)}\n`);
+          reportWorkItemLinkFailures(result);
           return;
         }
 
         if (result.created) {
           process.stdout.write(`Created pull request #${result.pullRequest.id}: ${result.pullRequest.title}\n${result.pullRequest.url ?? '—'}\n`);
+          reportWorkItemLinkFailures(result);
           return;
         }
 
@@ -1002,6 +1005,17 @@ export function createPrOpenCommand(): Command {
     });
 
   return command;
+}
+
+// The PR exists but some --work-item links failed: say which, and exit 1 so a
+// script does not mistake a half-linked PR for success.
+function reportWorkItemLinkFailures(result: PullRequestOpenResult): void {
+  const failed = (result.workItems ?? []).filter((item) => !item.linked);
+  if (failed.length === 0) return;
+  const detail = failed.map((item) => `#${item.id} (${item.error ?? 'unknown error'})`).join(', ');
+  writeError(
+    `Pull request #${result.pullRequest.id} was created but could not be linked to work item ${detail}. Retry with: azdo pr work-items link <id> --pr-number ${result.pullRequest.id}`,
+  );
 }
 
 // `pr update` failures that are validation, not API failures: the composed

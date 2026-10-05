@@ -81,7 +81,6 @@ export interface PullRequestOpenRequest {
   description: string;
   isDraft?: boolean;
   labels?: { name: string }[];
-  workItemRefs?: { id: string }[];
 }
 
 // Optional `pr open` inputs (050-pr-open-options). Every field defaults to the
@@ -98,6 +97,16 @@ export interface PullRequestOpenResult {
   targetBranch: string;
   created: boolean;
   pullRequest: BranchPullRequestMatch;
+  // Present only when --work-item was passed and the PR was created. The create
+  // endpoint takes no work item input, so each link is a separate call that can
+  // fail on its own while the PR itself already exists.
+  workItems?: PullRequestOpenWorkItemLink[];
+}
+
+export interface PullRequestOpenWorkItemLink {
+  id: number;
+  linked: boolean;
+  error?: string;
 }
 
 // The two pull request statuses this CLI writes (039-pr-abandon). The

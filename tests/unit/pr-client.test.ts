@@ -467,11 +467,11 @@ describe('pr-client', () => {
       );
     });
 
-    it('sends target, draft, labels and work item refs in the single create POST (050)', async () => {
+    it('sends target, draft and labels in the create POST and no workItemRefs (050)', async () => {
       const fetchSpy = mockOpenPullRequestFetch();
 
       await openPullRequest(context, 'repo-name', 'pat', 'feature/test', 'New PR', 'Description', {
-        targetBranch: 'master', isDraft: true, labels: ['a', 'b'], workItemIds: [12, 13],
+        targetBranch: 'master', isDraft: true, labels: ['a', 'b'],
       });
 
       const lookup = String(fetchSpy.mock.calls[0][0]);
@@ -484,8 +484,39 @@ describe('pr-client', () => {
         description: 'Description',
         isDraft: true,
         labels: [{ name: 'a' }, { name: 'b' }],
-        workItemRefs: [{ id: '12' }, { id: '13' }],
       });
+    });
+
+    it('links work items after create and reports a failed link without hiding the PR (050)', async () => {
+      const base = mockOpenPullRequestFetch();
+      const baseImpl = base.getMockImplementation()!;
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+        const url = String(input);
+        const method = init?.method ?? 'GET';
+        if (url.includes('/projects/')) {
+          return { ok: true, status: 200, json: async () => ({ id: 'project-guid' }) } as Response;
+        }
+        if (url.includes('/workitems/12') && method === 'GET') {
+          return { ok: true, status: 200, json: async () => ({ id: 12, relations: [] }) } as Response;
+        }
+        if (url.includes('/workitems/12') && method === 'PATCH') {
+          return { ok: true, status: 200, json: async () => ({ id: 12 }) } as Response;
+        }
+        if (url.includes('/workitems/13')) {
+          return { ok: false, status: 500, headers: { get: () => null }, text: async () => '' } as unknown as Response;
+        }
+        return baseImpl(input, init);
+      });
+
+      const result = await openPullRequest(context, 'repo-name', 'pat', 'feature/test', 'New PR', 'D', { workItemIds: [12, 13] });
+
+      expect(result.created).toBe(true);
+      expect(result.workItems).toEqual([
+        { id: 12, linked: true },
+        { id: 13, linked: false, error: expect.stringContaining('HTTP_500') },
+      ]);
+      const create = fetchSpy.mock.calls.find(([u, i]) => String(u).includes('/pullrequests?') && i?.method === 'POST')!;
+      expect(JSON.parse(create[1]!.body as string)).not.toHaveProperty('workItemRefs');
     });
 
     it('writes nothing and reports the chosen target when an active PR already exists (050)', async () => {
