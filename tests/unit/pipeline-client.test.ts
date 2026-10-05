@@ -7,6 +7,8 @@ import {
   getPipelineDefinitions,
   getPipelineRuns,
   getRunLogs,
+  listBuildArtifacts,
+  downloadArtifactZip,
   getTestSummary,
   runPipeline,
 } from '../../src/services/pipeline-client.js';
@@ -149,6 +151,63 @@ describe('pipeline-client', () => {
     expect(result.logSteps.get(8)).toBe('build');
   });
 
+  it('getRunLogs labels each log with its record type and parent name', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch');
+    const json = (body: unknown) =>
+      new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } });
+    fetchSpy
+      .mockResolvedValueOnce(json({ value: [{ id: 5, lineCount: 73 }, { id: 9, lineCount: 1707 }] }))
+      .mockResolvedValueOnce(
+        json({
+          records: [
+            { id: 'stage', type: 'Stage', name: 'Scan' },
+            { id: 'job', parentId: 'stage', type: 'Job', name: 'Trivy', log: { id: 5 } },
+            { id: 'task', parentId: 'job', type: 'Task', name: 'Trivy', log: { id: 9 } },
+          ],
+        }),
+      );
+    const logs = await getRunLogs(context, cred, 100);
+    expect(logs[0]).toMatchObject({ id: 5, step: 'Trivy', type: 'Job', parent: 'Scan' });
+    expect(logs[1]).toMatchObject({ id: 9, step: 'Trivy', type: 'Task', parent: 'Trivy' });
+  });
+
+  it('listBuildArtifacts maps name, type, size and download url', async () => {
+    const fetchSpy = mockFetchJson({
+      value: [
+        {
+          id: 1,
+          name: 'scan',
+          resource: { type: 'Container', downloadUrl: 'https://x/dl', properties: { artifactsize: '2048' } },
+        },
+        { id: 2, name: 'bare' },
+      ],
+    });
+    const result = await listBuildArtifacts(context, cred, 100);
+    expect(fetchSpy.mock.calls[0][0]).toContain('/_apis/build/builds/100/artifacts');
+    expect(result).toEqual([
+      { id: 1, name: 'scan', type: 'Container', sizeBytes: 2048, downloadUrl: 'https://x/dl' },
+      { id: 2, name: 'bare', type: null, sizeBytes: null, downloadUrl: null },
+    ]);
+  });
+
+  it('downloadArtifactZip requests $format=zip and reports progress', async () => {
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(new Response(new Uint8Array([1, 2, 3])));
+    const seen: number[] = [];
+    const bytes = await downloadArtifactZip(
+      cred,
+      { id: 1, name: 'scan', type: 'Container', sizeBytes: null, downloadUrl: 'https://x/dl?artifactName=scan' },
+      (n) => seen.push(n),
+    );
+    expect(String(fetchSpy.mock.calls[0][0])).toContain('%24format=zip');
+    expect(Array.from(bytes)).toEqual([1, 2, 3]);
+    expect(seen.at(-1)).toBe(3);
+    await expect(
+      downloadArtifactZip(cred, { id: 2, name: 'x', type: null, sizeBytes: null, downloadUrl: null }),
+    ).rejects.toThrow(/no download URL/);
+  });
+
   it('getTestSummary aggregates per-run statistics from the stable test-runs list', async () => {
     // ResultSummaryByBuild is preview-only and rejected by some collections —
     // counts come from the runs list instead.
@@ -219,8 +278,8 @@ describe('pipeline-client', () => {
         ),
       );
     expect(await getRunLogs(context, cred, 100)).toEqual([
-      { id: 1, createdOn: '2026-06-03T10:00:00Z', lineCount: 42, step: 'Run tests' },
-      { id: 2, createdOn: null, lineCount: null, step: null },
+      { id: 1, createdOn: '2026-06-03T10:00:00Z', lineCount: 42, step: 'Run tests', type: 'Task', parent: null },
+      { id: 2, createdOn: null, lineCount: null, step: null, type: null, parent: null },
     ]);
   });
 
@@ -231,7 +290,7 @@ describe('pipeline-client', () => {
       )
       .mockResolvedValueOnce(new Response(null, { status: 500 }));
     expect(await getRunLogs(context, cred, 100)).toEqual([
-      { id: 1, createdOn: null, lineCount: null, step: null },
+      { id: 1, createdOn: null, lineCount: null, step: null, type: null, parent: null },
     ]);
   });
 
