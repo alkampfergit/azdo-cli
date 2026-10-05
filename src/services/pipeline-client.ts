@@ -12,6 +12,7 @@ import type {
   AzdoTestRun,
   AzdoTestRunListResponse,
   AzdoTimeline,
+  AzdoTimelineRecord,
   FailedTest,
   PipelineDefinition,
   PipelineArtifact,
@@ -232,6 +233,12 @@ export interface TimelineLogRecord {
   parent: string | null;
 }
 
+function recordErrors(record: AzdoTimelineRecord): PipelineRunError[] {
+  return (record.issues ?? [])
+    .filter((issue) => issue.type === 'error' && issue.message)
+    .map((issue) => ({ message: issue.message ?? '', source: record.name ?? null }));
+}
+
 export async function getBuildTimeline(
   context: AzdoContext,
   cred: AuthCredential,
@@ -254,11 +261,7 @@ export async function getBuildTimeline(
     if (record.id && record.name) namesById.set(record.id, record.name);
   }
   for (const record of records) {
-    for (const issue of record.issues ?? []) {
-      if (issue.type === 'error' && issue.message) {
-        errors.push({ message: issue.message, source: record.name ?? null });
-      }
-    }
+    errors.push(...recordErrors(record));
     if (record.name && record.log?.id !== undefined) {
       logSteps.set(record.log.id, record.name);
       logRecords.set(record.log.id, {

@@ -1,4 +1,4 @@
-import { mkdtempSync, existsSync, readFileSync, readdirSync, rmSync, mkdirSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, existsSync, readFileSync, readdirSync, rmSync, mkdirSync, writeFileSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { zipSync, strToU8 } from 'fflate';
@@ -43,5 +43,25 @@ describe('extractArtifactZip', () => {
     expect(readFileSync(path.join(dest, 'report.json'), 'utf8')).toBe('old');
     extractArtifactZip(zip, dest, { ...opts, force: true });
     expect(readFileSync(path.join(dest, 'report.json'), 'utf8')).toBe('new');
+  });
+});
+
+describe('extractArtifactZip hardening', () => {
+  it('rejects archive entries that collapse to the same target', () => {
+    const zip = zipSync({ 'scan/report.txt': strToU8('a'), 'scan\\report.txt': strToU8('b') });
+    const dest = path.join(dir, 'out');
+    expect(() => extractArtifactZip(zip, dest, opts)).toThrow(/several archive entries/);
+    expect(existsSync(path.join(dest, 'report.txt'))).toBe(false);
+  });
+
+  it('refuses to write through a symlinked directory, even with --force', () => {
+    const outside = path.join(dir, 'outside');
+    const dest = path.join(dir, 'out');
+    mkdirSync(outside);
+    mkdirSync(dest);
+    symlinkSync(outside, path.join(dest, 'link'));
+    const zip = zipSync({ 'scan/link/new.txt': strToU8('x') });
+    expect(() => extractArtifactZip(zip, dest, { ...opts, force: true })).toThrow(/symbolic link/);
+    expect(readdirSync(outside)).toEqual([]);
   });
 });

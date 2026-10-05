@@ -474,7 +474,7 @@ azdo pipeline start 12 --branch develop --parameter env=staging
 **`azdo pipeline artifact-download <run_id> [name]`**
 - Downloads one artifact and **extracts it straight into the destination folder** — the zip is held in memory and never written to disk, so none is left behind, even on failure
 - `--path <dir>` is the destination (default `./<name>`); `--all` downloads every artifact, each into `<dir>/<name>` (a name together with `--all` is rejected; neither is an error that lists the available artifacts); an unknown name also lists them
-- Never overwrites an existing file unless `--force` is given; entries that would escape the destination (zip-slip) abort the extraction before anything is written
+- Never overwrites an existing file unless `--force` is given; entries that would escape the destination (zip-slip), pass through a symbolic link in the destination, or collide with another entry abort the extraction before anything is written
 - Silent by default: stdout carries only the destination path(s) (`--json`: `[{ name, path, files }]`); `--progress` adds byte-progress lines on stderr
 - Both artifact types are fetched through the artifact's `downloadUrl` requested as `$format=zip`
 

@@ -139,6 +139,9 @@ azdo pipeline get-runs 12 --branch develop --limit 1
 azdo pipeline wait 3456                     # blocks; exit 0 success / non-zero failure / 124 timeout
 azdo pipeline get-run-detail 3456           # errors, failing tests, per-stage status
 azdo pipeline start 12 --branch develop --parameter env=staging
+azdo pipeline artifacts 3456                # list a run's build artifacts (name, type, size)
+azdo pipeline artifact-download 3456 reports --path ./out   # extract into ./out (--all for every artifact, --force to overwrite)
+azdo pipeline logs 3456 --step "Trivy" --head 50 --no-progress   # also --tail/--grep; --no-progress drops CR redraws
 
 # Work item relations — types, add, remove, list
 azdo relations types                        # list all relation types (Child, Parent, Related, ...)

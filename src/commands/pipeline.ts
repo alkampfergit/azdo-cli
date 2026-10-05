@@ -467,6 +467,29 @@ function formatRunDetail(detail: PipelineRunDetail): string {
   ].join('\n');
 }
 
+// Shared body of the single-run commands: validates the run id and org/project
+// pair, resolves the context once and routes any failure to the common handler.
+async function withRunContext(
+  runIdRaw: string,
+  options: PipelineCommonOptions,
+  body: (runId: number, resolved: { context: AzdoContext; cred: AuthCredential }) => Promise<void>,
+): Promise<void> {
+  validateOrgProjectPair(options);
+  const runId = parsePositiveId(runIdRaw);
+  if (runId === null) {
+    writeError(`Invalid run id "${runIdRaw}"; expected a positive integer.`);
+    return;
+  }
+  let context: AzdoContext | undefined;
+  try {
+    const resolved = await resolvePipelineContext(options);
+    context = resolved.context;
+    await body(runId, resolved);
+  } catch (err) {
+    handlePipelineError(err, context);
+  }
+}
+
 function createPipelineGetRunDetailCommand(): Command {
   const command = new Command('get-run-detail');
   command
@@ -475,27 +498,16 @@ function createPipelineGetRunDetailCommand(): Command {
     .option('--org <org>', 'Azure DevOps organization')
     .option('--project <project>', 'Azure DevOps project')
     .option('--json', 'output JSON')
-    .action(async (runIdRaw: string, options: PipelineCommonOptions) => {
-      validateOrgProjectPair(options);
-      const runId = parsePositiveId(runIdRaw);
-      if (runId === null) {
-        writeError(`Invalid run id "${runIdRaw}"; expected a positive integer.`);
-        return;
-      }
-      let context: AzdoContext | undefined;
-      try {
-        const resolved = await resolvePipelineContext(options);
-        context = resolved.context;
+    .action((runIdRaw: string, options: PipelineCommonOptions) =>
+      withRunContext(runIdRaw, options, async (runId, resolved) => {
         const detail = await getRunDetail(resolved.context, resolved.cred, runId);
         if (options.json) {
           process.stdout.write(`${JSON.stringify(detail, null, 2)}\n`);
           return;
         }
         process.stdout.write(`${formatRunDetail(detail)}\n`);
-      } catch (err) {
-        handlePipelineError(err, context);
-      }
-    });
+      }),
+    );
   return command;
 }
 
@@ -531,8 +543,9 @@ function grepWithContext(lines: string[], grep: RegExp, context: number): string
 // Progress bars redraw one line with carriage returns; keep only the final
 // state of each line (a trailing CR from CRLF endings is not a redraw).
 function collapseProgress(line: string): string {
-  const trimmed = line.replace(/\r+$/, '');
-  return trimmed.slice(trimmed.lastIndexOf('\r') + 1);
+  let end = line.length;
+  while (end > 0 && line[end - 1] === '\r') end--;
+  return line.slice(line.lastIndexOf('\r', end - 1) + 1, end);
 }
 
 function filterLogLines(
@@ -780,17 +793,8 @@ function createPipelineArtifactsCommand(): Command {
     .option('--org <org>', 'Azure DevOps organization')
     .option('--project <project>', 'Azure DevOps project')
     .option('--json', 'output JSON')
-    .action(async (runIdRaw: string, options: PipelineCommonOptions) => {
-      validateOrgProjectPair(options);
-      const runId = parsePositiveId(runIdRaw);
-      if (runId === null) {
-        writeError(`Invalid run id "${runIdRaw}"; expected a positive integer.`);
-        return;
-      }
-      let context: AzdoContext | undefined;
-      try {
-        const resolved = await resolvePipelineContext(options);
-        context = resolved.context;
+    .action((runIdRaw: string, options: PipelineCommonOptions) =>
+      withRunContext(runIdRaw, options, async (runId, resolved) => {
         const artifacts = await listBuildArtifacts(resolved.context, resolved.cred, runId);
         if (options.json) {
           process.stdout.write(`${JSON.stringify(artifacts, null, 2)}\n`);
@@ -802,10 +806,8 @@ function createPipelineArtifactsCommand(): Command {
         }
         const rows = artifacts.map((a) => [a.name, a.type ?? '', formatSize(a.sizeBytes)]);
         process.stdout.write(`${formatTable(rows)}\n`);
-      } catch (err) {
-        handlePipelineError(err, context);
-      }
-    });
+      }),
+    );
   return command;
 }
 
@@ -869,21 +871,22 @@ function createPipelineArtifactDownloadCommand(): Command {
         const artifacts = await listBuildArtifacts(resolved.context, resolved.cred, runId);
         const selected = selectArtifacts(artifacts, name, options.all === true, runId);
         if (selected === null) return;
-        const results: { name: string; path: string; files: number }[] = [];
-        for (const artifact of selected) {
-          const destination = path.resolve(
-            options.all ? path.join(options.path ?? '.', artifact.name) : (options.path ?? artifact.name),
-          );
-          const onProgress = options.progress
-            ? (bytes: number) => process.stderr.write(`${artifact.name}: ${bytes} bytes\n`)
-            : undefined;
-          const zip = await downloadArtifactZip(resolved.cred, artifact, onProgress);
-          const files = extractArtifactZip(zip, destination, {
-            artifactName: artifact.name,
-            force: options.force === true,
-          });
-          results.push({ name: artifact.name, path: destination, files: files.length });
-        }
+        const results = await Promise.all(
+          selected.map(async (artifact) => {
+            const destination = path.resolve(
+              options.all ? path.join(options.path ?? '.', artifact.name) : (options.path ?? artifact.name),
+            );
+            const onProgress = options.progress
+              ? (bytes: number) => process.stderr.write(`${artifact.name}: ${bytes} bytes\n`)
+              : undefined;
+            const zip = await downloadArtifactZip(resolved.cred, artifact, onProgress);
+            const files = extractArtifactZip(zip, destination, {
+              artifactName: artifact.name,
+              force: options.force === true,
+            });
+            return { name: artifact.name, path: destination, files: files.length };
+          }),
+        );
         if (options.json) {
           process.stdout.write(`${JSON.stringify(results, null, 2)}\n`);
           return;
