@@ -224,7 +224,7 @@ work from outside a checkout of the target repository.
 - `--work-item <id>` links a work item to the PR (positive integer, repeatable); `--label <label>` adds a label (repeatable, trimmed, de-duplicated)
 - Everything goes in **one create call** (`isDraft`, `labels`, `workItemRefs`), so a failure never leaves a half-configured PR. `AB#<id>` is not added to the description
 - Validation runs before any call: `--source` equal to `--target`, a non-positive or non-numeric `--work-item`, and an empty `--label` are rejected (exit 1). An unpushed source branch is reported by Azure DevOps itself
-- Reuses an existing active PR if one already matches the source and target; nothing is written, so `--draft`, `--label` and `--work-item` are **not** applied to it (use `pr update` or `pr work-items link`)
+- Reuses an existing active PR if one already matches the source and target; nothing is written, so `--draft`, `--label` and `--work-item` are **not** applied to it and it is left unchanged (use `pr work-items link` to link a work item; the CLI cannot change draft state or labels afterwards)
 - Fails when the source equals the target (by default: run from `develop`) or when multiple active PRs exist
 
 **`azdo pr update`** (alias: `azdo pr edit`)
