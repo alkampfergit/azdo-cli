@@ -89,7 +89,7 @@ describe('pr open command', () => {
     await run(['--title', 'Title']);
 
     expect(vi.mocked(openPullRequest)).toHaveBeenCalledWith(
-      expect.any(Object), 'repo-name', expect.any(Object), 'feature/test', 'Title', undefined,
+      expect.any(Object), 'repo-name', expect.any(Object), 'feature/test', 'Title', undefined, expect.any(Object),
     );
     expect(getStdout()).toContain('Created pull request #12: Created PR');
   });
@@ -141,6 +141,8 @@ describe('pr open command', () => {
   it('prints JSON output with --json', async () => {
     await run(['--title', 'Title', '--description', 'Description', '--json']);
     expect(JSON.parse(getStdout())).toEqual({
+      id: 12,
+      url: 'https://example.test/pr/12',
       branch: 'feature/test',
       targetBranch: 'develop',
       created: true,
@@ -185,7 +187,7 @@ describe('pr open --description-file (038, FR-010)', () => {
     await run(['--title', 'Title', '--description-file', writeTemp('body.md', '# Heading\n\nBody\n')]);
 
     expect(vi.mocked(openPullRequest)).toHaveBeenCalledWith(
-      expect.any(Object), 'repo-name', expect.any(Object), 'feature/test', 'Title', '# Heading\n\nBody',
+      expect.any(Object), 'repo-name', expect.any(Object), 'feature/test', 'Title', '# Heading\n\nBody', expect.any(Object),
     );
   });
 
@@ -221,7 +223,7 @@ describe('pr open --description-file (038, FR-010)', () => {
 
     expect(vi.mocked(readFileSync)).toHaveBeenCalledWith(0, 'utf-8');
     expect(vi.mocked(openPullRequest)).toHaveBeenCalledWith(
-      expect.any(Object), 'repo-name', expect.any(Object), 'feature/test', 'Title', 'Piped body',
+      expect.any(Object), 'repo-name', expect.any(Object), 'feature/test', 'Title', 'Piped body', expect.any(Object),
     );
   });
 
@@ -241,7 +243,7 @@ describe('pr open --description-file (038, FR-010)', () => {
     await run(['--title', 'Title', '--description', '   ']);
 
     expect(vi.mocked(openPullRequest)).toHaveBeenCalledWith(
-      expect.any(Object), 'repo-name', expect.any(Object), 'feature/test', 'Title', undefined,
+      expect.any(Object), 'repo-name', expect.any(Object), 'feature/test', 'Title', undefined, expect.any(Object),
     );
   });
 });

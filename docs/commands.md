@@ -152,6 +152,8 @@ azdo pr status --branch feature/x --json   # checks for another branch, no check
 azdo pr status --pr-number 96              # checks for one PR by number
 azdo pr open --title "…" --description "…"      # open PR targeting develop
 azdo pr open --title "…"                   # description from a repo-defined PR template, if one exists
+azdo pr open --title "…" --target master --draft --work-item 123 --label automata   # other target, draft, linked, labelled
+azdo pr open --title "…" --source feature/x --target master   # from any pushed branch, no checkout needed
 azdo pr open --title "…" --description-file body.md   # description from a file ("-" = stdin)
 azdo pr update --pr-number 96 --title "Real title"    # fix a title after the fact
 azdo pr update --pr-number 96 --description-file body.md  # replace the description literally
@@ -216,9 +218,14 @@ work from outside a checkout of the target repository.
 
   Exit code `1` — nothing was sent, so no pull request was created. There is no `--truncate`: silently clipping a description is the failure mode this replaces. If Azure DevOps rejects the create anyway, the same arithmetic is appended to the server's own message.
 - `--description-file <path>` reads the description from a UTF-8 file instead of `--description`; the two are mutually exclusive. `-` means **standard input**, so `cat body.md | azdo pr open --title "…" --description-file -` works. The file's content is composed with the repository template exactly as inline text is — `--description-file` changes where the text comes from, nothing else. An empty file is an error (unlike an empty `--description`, which has always meant "use the template")
-- **Always targets `develop`** — there is no flag to choose another target branch; running it from `develop` itself fails
-- Reuses an existing active PR if one already matches the branch and target
-- Fails when run from `develop` or when multiple active PRs exist
+- `--target <branch>` picks the target branch (default `develop`; a leading `refs/heads/` is accepted). It drives the existing-PR lookup, the template lookup and the create call
+- `--source <branch>` picks the source branch (default: the current branch). When given, no local checkout is needed, so it works outside a repo with `--org/--project/--repo`
+- `--draft` opens the PR as a draft
+- `--work-item <id>` links a work item to the PR (positive integer, repeatable); `--label <label>` adds a label (repeatable, trimmed, de-duplicated)
+- Everything goes in **one create call** (`isDraft`, `labels`, `workItemRefs`), so a failure never leaves a half-configured PR. `AB#<id>` is not added to the description
+- Validation runs before any call: `--source` equal to `--target`, a non-positive or non-numeric `--work-item`, and an empty `--label` are rejected (exit 1). An unpushed source branch is reported by Azure DevOps itself
+- Reuses an existing active PR if one already matches the source and target; nothing is written, so `--draft`, `--label` and `--work-item` are **not** applied to it (use `pr update` or `pr work-items link`)
+- Fails when the source equals the target (by default: run from `develop`) or when multiple active PRs exist
 
 **`azdo pr update`** (alias: `azdo pr edit`)
 - Updates the title and/or the description of an existing pull request — the counterpart to `pr open`, which cannot change a PR it did not create. Re-running `pr open` on a branch that already has an active PR reports `created: false` and changes nothing, by design
@@ -752,7 +759,7 @@ The pull request object shared by `pr list`, `pr status`, `pr open` and `pr comm
 | --- | --- |
 | `pr list` | `{ repository, branch, status, pullRequests: [PullRequest] }` — `branch` is `null` without `--branch`; `status` echoes the filter; with `--work-items` each PR also carries `workItemIds: [number]` (sorted, `[]` when none) |
 | `pr status` | `{ branch, repository, pullRequests: [PullRequest & { checks: [Check], codeCommentCounts: { open, closed }, checksError? }] }` |
-| `pr open` | `{ branch, targetBranch, created, pullRequest: PullRequest }` — `created: false` when an active PR already existed |
+| `pr open` | `{ id, url, branch, targetBranch, created, pullRequest: PullRequest }` — `id`/`url` repeat `pullRequest.id`/`url`; `created: false` when an active PR already existed |
 | `pr update` / `pr edit` | `{ pullRequestId, title, description, url, noop, updatedFields }` — `updatedFields` ⊆ `["title","description"]`, `[]` on a no-op |
 | `pr abandon` / `pr close` / `pr reactivate` | `{ pullRequestId, title, status, previousStatus, url, noop }` |
 | `pr comments` | `{ branch, pullRequest: PullRequest, threads: [Thread] }` |

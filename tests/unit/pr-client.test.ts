@@ -467,6 +467,39 @@ describe('pr-client', () => {
       );
     });
 
+    it('sends target, draft, labels and work item refs in the single create POST (050)', async () => {
+      const fetchSpy = mockOpenPullRequestFetch();
+
+      await openPullRequest(context, 'repo-name', 'pat', 'feature/test', 'New PR', 'Description', {
+        targetBranch: 'master', isDraft: true, labels: ['a', 'b'], workItemIds: [12, 13],
+      });
+
+      const lookup = String(fetchSpy.mock.calls[0][0]);
+      expect(lookup).toContain('searchCriteria.targetRefName=refs%2Fheads%2Fmaster');
+      const [, init] = fetchSpy.mock.calls.at(-1)!;
+      expect(JSON.parse(init.body as string)).toEqual({
+        sourceRefName: 'refs/heads/feature/test',
+        targetRefName: 'refs/heads/master',
+        title: 'New PR',
+        description: 'Description',
+        isDraft: true,
+        labels: [{ name: 'a' }, { name: 'b' }],
+        workItemRefs: [{ id: '12' }, { id: '13' }],
+      });
+    });
+
+    it('writes nothing and reports the chosen target when an active PR already exists (050)', async () => {
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+        ok: true, status: 200,
+        json: async () => ({ count: 1, value: [{ pullRequestId: 5, title: 'X', status: 'active', sourceRefName: 'refs/heads/feature/test', targetRefName: 'refs/heads/master', createdBy: { displayName: 'A' } }] }),
+      } as Response);
+
+      const result = await openPullRequest(context, 'repo-name', 'pat', 'feature/test', 'T', 'D', { targetBranch: 'master', isDraft: true });
+
+      expect(result).toMatchObject({ created: false, targetBranch: 'master' });
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+    });
+
     it('uses a repository-defined template when --description is omitted (FR-012)', async () => {
       mockOpenPullRequestFetch({ templateContent: 'Template body' });
 

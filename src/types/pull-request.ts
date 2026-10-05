@@ -79,6 +79,18 @@ export interface PullRequestOpenRequest {
   targetRefName: string;
   title: string;
   description: string;
+  isDraft?: boolean;
+  labels?: { name: string }[];
+  workItemRefs?: { id: string }[];
+}
+
+// Optional `pr open` inputs (050-pr-open-options). Every field defaults to the
+// pre-050 behaviour: target `develop`, not a draft, no labels, no work items.
+export interface PullRequestOpenOptions {
+  targetBranch?: string;
+  isDraft?: boolean;
+  labels?: string[];
+  workItemIds?: number[];
 }
 
 export interface PullRequestOpenResult {

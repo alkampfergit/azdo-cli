@@ -22,6 +22,7 @@ vi.mock('../../src/services/pr-client.js', async (importOriginal) => {
     getPullRequestReviewers: vi.fn(),
     removePullRequestReviewer: vi.fn(),
     updatePullRequest: vi.fn(),
+    openPullRequest: vi.fn(),
   };
 });
 
@@ -52,6 +53,7 @@ import {
   getPullRequestReviewers,
   removePullRequestReviewer,
   updatePullRequest,
+  openPullRequest,
 } from '../../src/services/pr-client.js';
 import { detectRepoName, getCurrentBranch } from '../../src/services/git-remote.js';
 import { requireAuthCredential } from '../../src/services/auth.js';
@@ -518,5 +520,71 @@ describe('credential store unavailable (043 FR-006)', () => {
     expect(getExitCode()).toBe(4);
     expect(getStderr()).toContain('The DPAPI store is only available on Windows.');
     expect(vi.mocked(listPullRequests)).not.toHaveBeenCalled();
+  });
+});
+
+describe('pr open --target/--source/--draft/--work-item/--label — option plumbing through the real tree (050)', () => {
+  beforeEach(() => {
+    vi.mocked(openPullRequest).mockImplementation(async (_ctx, _repo, _cred, source, _title, _desc, opts) => ({
+      branch: source,
+      targetBranch: opts?.targetBranch ?? 'develop',
+      created: true,
+      pullRequest: { ...branchPr, id: 77, url: 'https://example.test/pr/77' },
+    }));
+  });
+
+  it('passes every option through and needs no checkout when --source is given', async () => {
+    await runTree([
+      'pr', 'open', '--title', 'T', '--description', 'D', '--source', 'refs/heads/feature/x', '--target', 'master',
+      '--draft', '--work-item', '12', '--work-item', '13', '--label', 'a', '--label', ' b ', '--label', 'a',
+    ]);
+
+    expect(vi.mocked(getCurrentBranch)).not.toHaveBeenCalled();
+    expect(vi.mocked(openPullRequest)).toHaveBeenCalledWith(
+      expect.any(Object), 'repo-name', expect.any(Object), 'feature/x', 'T', 'D',
+      expect.objectContaining({ targetBranch: 'master', isDraft: true, labels: ['a', 'b'], workItemIds: [12, 13] }),
+    );
+  });
+
+  it('defaults to the current branch and develop', async () => {
+    await runTree(['pr', 'open', '--title', 'T', '--description', 'D']);
+
+    expect(vi.mocked(openPullRequest)).toHaveBeenCalledWith(
+      expect.any(Object), 'repo-name', expect.any(Object), 'feature/test', 'T', 'D',
+      expect.objectContaining({ targetBranch: 'develop', isDraft: false, labels: [], workItemIds: [] }),
+    );
+  });
+
+  it('adds top-level id and url to --json and keeps the existing keys', async () => {
+    await runTree(['pr', 'open', '--title', 'T', '--description', 'D', '--json']);
+
+    expect(JSON.parse(getStdout())).toMatchObject({
+      id: 77, url: 'https://example.test/pr/77', branch: 'feature/test', targetBranch: 'develop', created: true,
+      pullRequest: { id: 77 },
+    });
+  });
+
+  it.each([
+    [['--source', 'master', '--target', 'refs/heads/master'], 'other than the target branch (master)'],
+    [['--work-item', '0'], '--work-item must be a positive integer'],
+    [['--work-item', 'abc'], '--work-item must be a positive integer'],
+    [['--label', '  '], '--label must not be empty.'],
+  ])('rejects %j before any call', async (args, message) => {
+    await runTree(['pr', 'open', '--title', 'T', '--description', 'D', ...args]);
+
+    expect(getStderr()).toContain(message);
+    expect(getExitCode()).toBe(1);
+    expect(vi.mocked(openPullRequest)).not.toHaveBeenCalled();
+  });
+
+  it('says the flags were not applied when an active PR already exists', async () => {
+    vi.mocked(openPullRequest).mockResolvedValue({
+      branch: 'feature/test', targetBranch: 'master', created: false, pullRequest: { ...branchPr, id: 77 },
+    });
+
+    await runTree(['pr', 'open', '--title', 'T', '--description', 'D', '--target', 'master', '--draft']);
+
+    expect(getStdout()).toContain('feature/test -> master: #77');
+    expect(getStdout()).toContain('were not applied to the existing pull request');
   });
 });
