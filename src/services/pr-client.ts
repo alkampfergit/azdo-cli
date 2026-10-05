@@ -574,6 +574,80 @@ function describeDescriptionBudget(composed: ComposedDescription): string {
   return `description: ${composed.providedChars} provided + ${composed.separatorChars} separator + ${composed.templateChars} template = ${composed.totalChars} characters (client limit ${MAX_PR_DESCRIPTION_CHARS})`;
 }
 
+// Only optional keys present when requested, so a default invocation sends the pre-050 body.
+function buildOpenPayload(
+  sourceBranch: string,
+  targetBranch: string,
+  title: string,
+  description: string,
+  options: PullRequestOpenOptions,
+): PullRequestOpenRequest {
+  const payload: PullRequestOpenRequest = {
+    sourceRefName: `refs/heads/${sourceBranch}`,
+    targetRefName: `refs/heads/${targetBranch}`,
+    title,
+    description,
+  };
+  if (options.isDraft) {
+    payload.isDraft = true;
+  }
+  if (options.labels && options.labels.length > 0) {
+    payload.labels = options.labels.map((name) => ({ name }));
+  }
+  return payload;
+}
+
+async function createPullRequest(
+  context: AzdoContext,
+  repo: string,
+  cred: AuthCredential,
+  payload: PullRequestOpenRequest,
+  composed: ComposedDescription,
+): Promise<AzdoPullRequest> {
+  const url = new URL(
+    `https://dev.azure.com/${encodeURIComponent(context.org)}/${encodeURIComponent(context.project)}/_apis/git/repositories/${encodeURIComponent(repo)}/pullrequests`,
+  );
+  url.searchParams.set('api-version', '7.1');
+
+  try {
+    const response = await fetchWithErrors(url.toString(), {
+      method: 'POST',
+      headers: {
+        ...authHeaders(cred),
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+    });
+    return await readJsonResponse<AzdoPullRequest>(response);
+  } catch (err) {
+    // Backstop for a 400 the pre-flight did not predict: whatever the server
+    // objected to, the operator still gets the description arithmetic next to
+    // the server's own message rather than having to guess at it.
+    if (err instanceof Error && err.message.startsWith('HTTP_400')) {
+      throw new Error(`${err.message} | ${describeDescriptionBudget(composed)}`, { cause: err });
+    }
+    throw err;
+  }
+}
+
+// A failure must not hide the PR that now exists: each outcome is reported per item.
+function linkWorkItems(
+  context: AzdoContext,
+  repo: string,
+  cred: AuthCredential,
+  prId: number,
+  workItemIds: number[],
+): Promise<NonNullable<PullRequestOpenResult['workItems']>> {
+  return Promise.all(
+    workItemIds.map((id) =>
+      linkWorkItemToPullRequest(context, repo, cred, prId, id).then(
+        () => ({ id, linked: true }),
+        (err: unknown) => ({ id, linked: false, error: err instanceof Error ? err.message : String(err) }),
+      ),
+    ),
+  );
+}
+
 export async function openPullRequest(
   context: AzdoContext,
   repo: string,
@@ -618,45 +692,13 @@ export async function openPullRequest(
     throw new Error(`DESCRIPTION_TOO_LONG: ${formatDescriptionOverflow(composed)}`);
   }
 
-  const payload: PullRequestOpenRequest = {
-    sourceRefName: `refs/heads/${sourceBranch}`,
-    targetRefName: `refs/heads/${targetBranch}`,
-    title,
-    description: composed.text,
-  };
-  // Only present when requested, so a default invocation sends the pre-050 body.
-  if (options.isDraft) {
-    payload.isDraft = true;
-  }
-  if (options.labels && options.labels.length > 0) {
-    payload.labels = options.labels.map((name) => ({ name }));
-  }
-
-  const url = new URL(
-    `https://dev.azure.com/${encodeURIComponent(context.org)}/${encodeURIComponent(context.project)}/_apis/git/repositories/${encodeURIComponent(repo)}/pullrequests`,
+  const data = await createPullRequest(
+    context,
+    repo,
+    cred,
+    buildOpenPayload(sourceBranch, targetBranch, title, composed.text, options),
+    composed,
   );
-  url.searchParams.set('api-version', '7.1');
-
-  let data: AzdoPullRequest;
-  try {
-    const response = await fetchWithErrors(url.toString(), {
-      method: 'POST',
-      headers: {
-        ...authHeaders(cred),
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(payload),
-    });
-    data = await readJsonResponse<AzdoPullRequest>(response);
-  } catch (err) {
-    // Backstop for a 400 the pre-flight did not predict: whatever the server
-    // objected to, the operator still gets the description arithmetic next to
-    // the server's own message rather than having to guess at it.
-    if (err instanceof Error && err.message.startsWith('HTTP_400')) {
-      throw new Error(`${err.message} | ${describeDescriptionBudget(composed)}`, { cause: err });
-    }
-    throw err;
-  }
 
   const pullRequest = mapPullRequest(context, repo, data);
   const result: PullRequestOpenResult = {
@@ -665,18 +707,9 @@ export async function openPullRequest(
     created: true,
     pullRequest,
   };
-  // The create endpoint has no work item input, so link afterwards. A failure
-  // must not hide the PR that now exists: each outcome is reported per item.
+  // The create endpoint has no work item input, so link afterwards.
   if (options.workItemIds && options.workItemIds.length > 0) {
-    result.workItems = [];
-    for (const id of options.workItemIds) {
-      try {
-        await linkWorkItemToPullRequest(context, repo, cred, pullRequest.id, id);
-        result.workItems.push({ id, linked: true });
-      } catch (err) {
-        result.workItems.push({ id, linked: false, error: err instanceof Error ? err.message : String(err) });
-      }
-    }
+    result.workItems = await linkWorkItems(context, repo, cred, pullRequest.id, options.workItemIds);
   }
   return result;
 }
