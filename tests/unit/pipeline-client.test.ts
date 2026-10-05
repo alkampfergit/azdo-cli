@@ -8,6 +8,7 @@ import {
   getPipelineRuns,
   getRunLogs,
   listBuildArtifacts,
+  collectBody,
   downloadArtifactZip,
   getTestSummary,
   runPipeline,
@@ -190,7 +191,7 @@ describe('pipeline-client', () => {
     ]);
   });
 
-  it('downloadArtifactZip fills one buffer from Content-Length and survives a lying header', async () => {
+  it('downloadArtifactZip survives accurate, short, inflated and malformed Content-Length', async () => {
     const art = { id: 1, name: 's', type: null, sizeBytes: null, downloadUrl: 'https://x/dl' };
     const mk = (len: string) => {
       const body = new ReadableStream<Uint8Array>({
@@ -203,16 +204,23 @@ describe('pipeline-client', () => {
       return new Response(body, { headers: { 'content-length': len } });
     };
     const spy = vi.spyOn(globalThis, 'fetch');
-    spy.mockResolvedValueOnce(mk('4'));
-    expect(Array.from(await downloadArtifactZip(cred, art))).toEqual([1, 2, 3, 4]);
-    spy.mockResolvedValueOnce(mk('3'));
-    expect(Array.from(await downloadArtifactZip(cred, art))).toEqual([1, 2, 3, 4]);
-    spy.mockResolvedValueOnce(mk('9'));
-    expect(Array.from(await downloadArtifactZip(cred, art))).toEqual([1, 2, 3, 4]);
-    for (const bad of ['abc', '-5', '0', '99999999999999999999', '9999999999']) {
-      spy.mockResolvedValueOnce(mk(bad));
+    for (const len of ['4', '3', '9', 'abc', '-5', '0', '99999999999999999999', '9999999999']) {
+      spy.mockResolvedValueOnce(mk(len));
       expect(Array.from(await downloadArtifactZip(cred, art))).toEqual([1, 2, 3, 4]);
     }
+  });
+
+  it('collectBody grows past its initial capacity and never reserves the inflated header', async () => {
+    async function* chunks() {
+      yield new Uint8Array([1, 2, 3]);
+      yield new Uint8Array([4, 5]);
+      yield new Uint8Array([6, 7, 8, 9]);
+    }
+    const seen: number[] = [];
+    const out = await collectBody(chunks(), 2_000_000_000, (n) => seen.push(n), 2);
+    expect(Array.from(out)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9]);
+    expect(seen).toEqual([3, 5, 9]);
+    expect(Array.from(await collectBody(chunks(), 9, undefined, 2))).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9]);
   });
 
   it('downloadArtifactZip requests $format=zip and reports progress', async () => {

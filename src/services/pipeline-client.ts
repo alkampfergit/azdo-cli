@@ -497,17 +497,37 @@ export async function listBuildArtifacts(
   });
 }
 
-// Content-Length is response-controlled: only trust a sane value, and fall back
-// to chunk concatenation (null) when the buffer cannot be allocated.
-const MAX_PREALLOCATE_BYTES = 2 * 1024 * 1024 * 1024;
+// Content-Length is response-controlled, so it is only a sizing hint: the
+// buffer starts small and grows geometrically (capped at the hinted size when
+// that is larger than what has arrived), so the reservation follows the bytes
+// actually received and a stale or inflated header cannot trigger a huge
+// up-front allocation.
+const INITIAL_BUFFER_BYTES = 8 * 1024 * 1024;
 
-function preallocate(declared: number): Uint8Array | null {
-  if (!Number.isSafeInteger(declared) || declared <= 0 || declared > MAX_PREALLOCATE_BYTES) return null;
-  try {
-    return new Uint8Array(declared);
-  } catch {
-    return null;
+export async function collectBody(
+  body: AsyncIterable<Uint8Array>,
+  declared: number,
+  onProgress?: (receivedBytes: number) => void,
+  initialBytes: number = INITIAL_BUFFER_BYTES,
+): Promise<Uint8Array> {
+  const hint = Number.isSafeInteger(declared) && declared > 0 ? declared : Infinity;
+  let buffer = new Uint8Array(Math.min(hint, initialBytes));
+  let received = 0;
+  for await (const chunk of body) {
+    const needed = received + chunk.length;
+    if (needed > buffer.length) {
+      let capacity = Math.max(buffer.length * 2, needed);
+      // Trust the header only as an upper bound for this growth step.
+      if (hint >= needed) capacity = Math.min(capacity, hint);
+      const grown = new Uint8Array(capacity);
+      grown.set(buffer.subarray(0, received));
+      buffer = grown;
+    }
+    buffer.set(chunk, received);
+    received = needed;
+    onProgress?.(received);
   }
+  return buffer.subarray(0, received);
 }
 
 // Downloads an artifact as a zip. Container and PipelineArtifact artifacts both
@@ -530,24 +550,6 @@ export async function downloadArtifactZip(
   if (!response.body) {
     return new Uint8Array(await response.arrayBuffer());
   }
-  // With a known Content-Length fill one preallocated buffer so the zip is not
-  // held twice (chunks + Buffer.concat); a body that disagrees with the header
-  // falls back to concatenation.
   const declared = Number.parseInt(response.headers.get('content-length') ?? '', 10);
-  let target = preallocate(declared);
-  const chunks: Uint8Array[] = [];
-  let received = 0;
-  for await (const chunk of response.body as unknown as AsyncIterable<Uint8Array>) {
-    if (target !== null && received + chunk.length <= target.length) {
-      target.set(chunk, received);
-    } else {
-      if (target !== null) chunks.push(target.subarray(0, received));
-      target = null;
-      chunks.push(chunk);
-    }
-    received += chunk.length;
-    onProgress?.(received);
-  }
-  if (target !== null && received === target.length) return target;
-  return Buffer.concat(target === null ? chunks : [target.subarray(0, received)]);
+  return collectBody(response.body as unknown as AsyncIterable<Uint8Array>, declared, onProgress);
 }
