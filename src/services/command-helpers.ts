@@ -1,3 +1,4 @@
+import { existsSync, readFileSync } from 'node:fs';
 import type { AzdoContext } from '../types/work-item.js';
 import { CredentialStoreUnavailableError } from '../types/credential.js';
 
@@ -200,5 +201,32 @@ export function handleCommandError(
     process.exit(1);
   } else {
     process.exitCode = 1;
+  }
+}
+
+/** The POSIX "read standard input" path accepted by every `--file` style option. */
+export const STDIN_PATH = '-';
+
+/**
+ * Reads a text source named by a `--file` option: `-` means standard input,
+ * anything else is a UTF-8 file path. Throws an Error whose message is ready
+ * for the console when the source cannot be read.
+ */
+export function readTextSource(file: string): string {
+  if (file === STDIN_PATH) {
+    try {
+      return readFileSync(0, 'utf-8');
+    } catch {
+      throw new Error('Cannot read standard input.');
+    }
+  }
+
+  if (!existsSync(file)) {
+    throw new Error(`File not found: ${file}`);
+  }
+  try {
+    return readFileSync(file, 'utf-8');
+  } catch {
+    throw new Error(`Cannot read file: ${file}`);
   }
 }

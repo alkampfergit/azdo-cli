@@ -123,6 +123,22 @@ export interface AddWorkItemCommentResult {
   url: string | null;
 }
 
+export interface UpdateWorkItemCommentResult {
+  workItemId: number;
+  commentId: number;
+  text: string;
+  author: string | null;
+  createdAt: string | null;
+  modifiedAt: string | null;
+  url: string | null;
+}
+
+export interface DeleteWorkItemCommentResult {
+  workItemId: number;
+  commentId: number;
+  deleted: true;
+}
+
 export interface ParsedField {
   refName: string;
   value: string | null;

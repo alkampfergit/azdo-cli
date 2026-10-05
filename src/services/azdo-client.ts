@@ -1,5 +1,7 @@
 import type {
   AddWorkItemCommentResult,
+  DeleteWorkItemCommentResult,
+  UpdateWorkItemCommentResult,
   AuthCredential,
   WorkItem,
   WorkItemAttachment,
@@ -403,6 +405,12 @@ function buildWorkItemCommentsUrl(context: AzdoContext, id: number): URL {
   return url;
 }
 
+function buildWorkItemCommentUrl(context: AzdoContext, id: number, commentId: number): URL {
+  const url = buildWorkItemCommentsUrl(context, id);
+  url.pathname = `${url.pathname}/${commentId}`;
+  return url;
+}
+
 function mapWorkItemComment(comment: AzdoCommentResponse, fallbackWorkItemId: number): WorkItemComment {
   return {
     id: comment.id ?? comment.commentId ?? 0,
@@ -772,6 +780,70 @@ export async function addWorkItemComment(
     createdAt: data.createdDate ?? null,
     url: data.url ?? null,
   };
+}
+
+export async function updateWorkItemComment(
+  context: AzdoContext,
+  id: number,
+  commentId: number,
+  cred: AuthCredential,
+  text: string,
+  format: 'html' | 'markdown' = 'html',
+): Promise<UpdateWorkItemCommentResult> {
+  const url = buildWorkItemCommentUrl(context, id, commentId);
+  url.searchParams.set('format', format);
+  const response = await fetchWithErrors(url.toString(), {
+    method: 'PATCH',
+    headers: {
+      ...authHeaders(cred),
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ text }),
+  });
+
+  if (response.status === 400) {
+    const serverMessage = await readResponseMessage(response) ?? 'Unknown error';
+    throw new Error(`BAD_REQUEST: ${serverMessage}`);
+  }
+
+  if (!response.ok) {
+    throw httpError(response);
+  }
+
+  const data = (await response.json()) as AzdoCommentResponse;
+
+  return {
+    workItemId: data.workItemId ?? id,
+    commentId: data.commentId ?? data.id ?? commentId,
+    text: typeof data.text === 'string' ? data.text : text,
+    author: data.createdBy?.displayName ?? null,
+    createdAt: data.createdDate ?? null,
+    modifiedAt: data.modifiedDate ?? null,
+    url: data.url ?? null,
+  };
+}
+
+export async function deleteWorkItemComment(
+  context: AzdoContext,
+  id: number,
+  commentId: number,
+  cred: AuthCredential,
+): Promise<DeleteWorkItemCommentResult> {
+  const response = await fetchWithErrors(buildWorkItemCommentUrl(context, id, commentId).toString(), {
+    method: 'DELETE',
+    headers: authHeaders(cred),
+  });
+
+  if (response.status === 400) {
+    const serverMessage = await readResponseMessage(response) ?? 'Unknown error';
+    throw new Error(`BAD_REQUEST: ${serverMessage}`);
+  }
+
+  if (!response.ok) {
+    throw httpError(response);
+  }
+
+  return { workItemId: id, commentId, deleted: true };
 }
 
 export async function updateWorkItem(

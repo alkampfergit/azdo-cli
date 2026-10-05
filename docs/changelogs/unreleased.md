@@ -5,6 +5,7 @@
 
 ### Added
 
+- `azdo comments edit <id> <commentId> [text]` (inline or `--file <path|->`, `--markdown`, `--json`) and `azdo comments delete <id> <commentId>` (`--json`, no confirmation prompt) for work item comments. An unknown or already-deleted comment is an error (exit 1, nothing on stdout). (#131)
 - `azdo pipeline artifacts <run_id>` lists a run's build artifacts (name, type, size; `--json`), and `azdo pipeline artifact-download <run_id> [name]` downloads one (or `--all`) and extracts it straight into `--path` — the zip is never written to disk. No overwrite without `--force`, zip-slip entries rejected, silent unless `--progress`. Adds the zero-dependency `fflate`. (#135)
 - `azdo pipeline logs --head <n>` and `--no-progress` (collapse carriage-return progress redraws, opt-in); the logs listing and `--json` now carry each log's record `type` and `parent`, and the `--step` ambiguity error prints them. (#135)
 - `azdo pr open` gains `--target <branch>`, `--source <branch>` (no checkout needed), `--draft`, `--work-item <id>` and `--label <label>` (both repeatable), with `--draft` and `--label` sent in the create call and each `--work-item` linked right after (a failed link keeps the PR, names the work item and exits 1). `--json` now also carries top-level `id` and `url`. An existing active PR for the same source and target is still reused untouched. (#132)
