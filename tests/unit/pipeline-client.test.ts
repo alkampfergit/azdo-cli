@@ -190,6 +190,27 @@ describe('pipeline-client', () => {
     ]);
   });
 
+  it('downloadArtifactZip fills one buffer from Content-Length and survives a lying header', async () => {
+    const art = { id: 1, name: 's', type: null, sizeBytes: null, downloadUrl: 'https://x/dl' };
+    const mk = (len: string) => {
+      const body = new ReadableStream<Uint8Array>({
+        start(c) {
+          c.enqueue(new Uint8Array([1, 2]));
+          c.enqueue(new Uint8Array([3, 4]));
+          c.close();
+        },
+      });
+      return new Response(body, { headers: { 'content-length': len } });
+    };
+    const spy = vi.spyOn(globalThis, 'fetch');
+    spy.mockResolvedValueOnce(mk('4'));
+    expect(Array.from(await downloadArtifactZip(cred, art))).toEqual([1, 2, 3, 4]);
+    spy.mockResolvedValueOnce(mk('3'));
+    expect(Array.from(await downloadArtifactZip(cred, art))).toEqual([1, 2, 3, 4]);
+    spy.mockResolvedValueOnce(mk('9'));
+    expect(Array.from(await downloadArtifactZip(cred, art))).toEqual([1, 2, 3, 4]);
+  });
+
   it('downloadArtifactZip requests $format=zip and reports progress', async () => {
     const fetchSpy = vi
       .spyOn(globalThis, 'fetch')
