@@ -3,6 +3,7 @@ import { authHeaders, fetchWithErrors, httpError } from './azdo-client.js';
 import type {
   AzdoBuild,
   AzdoBuildListResponse,
+  AzdoBuildArtifactListResponse,
   AzdoBuildLogListResponse,
   AzdoPipeline,
   AzdoPipelineListResponse,
@@ -13,6 +14,7 @@ import type {
   AzdoTimeline,
   FailedTest,
   PipelineDefinition,
+  PipelineArtifact,
   PipelineLog,
   PipelineRunDetail,
   PipelineRunError,
@@ -220,6 +222,14 @@ export interface BuildTimelineSummary {
   jobs: PipelineStageStatus[];
   // log id → owning step/job name; lets `logs` label each log file.
   logSteps: Map<number, string>;
+  // log id → record type and parent name, for the logs listing.
+  logRecords: Map<number, TimelineLogRecord>;
+}
+
+export interface TimelineLogRecord {
+  name: string;
+  type: string | null;
+  parent: string | null;
 }
 
 export async function getBuildTimeline(
@@ -238,6 +248,11 @@ export async function getBuildTimeline(
   const stages: PipelineStageStatus[] = [];
   const jobs: { startTime?: string; status: PipelineStageStatus }[] = [];
   const logSteps = new Map<number, string>();
+  const logRecords = new Map<number, TimelineLogRecord>();
+  const namesById = new Map<string, string>();
+  for (const record of records) {
+    if (record.id && record.name) namesById.set(record.id, record.name);
+  }
   for (const record of records) {
     for (const issue of record.issues ?? []) {
       if (issue.type === 'error' && issue.message) {
@@ -246,6 +261,11 @@ export async function getBuildTimeline(
     }
     if (record.name && record.log?.id !== undefined) {
       logSteps.set(record.log.id, record.name);
+      logRecords.set(record.log.id, {
+        name: record.name,
+        type: record.type ?? null,
+        parent: (record.parentId && namesById.get(record.parentId)) || null,
+      });
     }
     if (!record.name) continue;
     const status: PipelineStageStatus = {
@@ -267,7 +287,7 @@ export async function getBuildTimeline(
     if (b.startTime === undefined) return -1;
     return a.startTime < b.startTime ? -1 : 1;
   });
-  return { errors, stages, jobs: jobs.map((j) => j.status), logSteps };
+  return { errors, stages, jobs: jobs.map((j) => j.status), logSteps, logRecords };
 }
 
 async function listTestRuns(
@@ -418,9 +438,9 @@ export async function getRunLogs(
   const data = await readJsonResponse<AzdoBuildLogListResponse>(response);
   // Joining the timeline names each log after its step/job, so picking the
   // right log id isn't guesswork. Degrade to unlabelled logs if it fails.
-  let logSteps = new Map<number, string>();
+  let logRecords = new Map<number, TimelineLogRecord>();
   try {
-    logSteps = (await getBuildTimeline(context, cred, buildId)).logSteps;
+    logRecords = (await getBuildTimeline(context, cred, buildId)).logRecords;
   } catch {
     // log list is still useful without step names
   }
@@ -428,7 +448,9 @@ export async function getRunLogs(
     id: log.id,
     createdOn: log.createdOn ?? null,
     lineCount: log.lineCount ?? null,
-    step: logSteps.get(log.id) ?? null,
+    step: logRecords.get(log.id)?.name ?? null,
+    type: logRecords.get(log.id)?.type ?? null,
+    parent: logRecords.get(log.id)?.parent ?? null,
   }));
 }
 
@@ -448,4 +470,56 @@ export async function getRunLog(
     throw httpError(response);
   }
   return response.text();
+}
+
+export async function listBuildArtifacts(
+  context: AzdoContext,
+  cred: AuthCredential,
+  buildId: number,
+): Promise<PipelineArtifact[]> {
+  const url = withApiVersion(
+    new URL(`${orgProjectBase(context)}/_apis/build/builds/${buildId}/artifacts`),
+  );
+  const response = await fetchWithErrors(url.toString(), { headers: authHeaders(cred) });
+  const data = await readJsonResponse<AzdoBuildArtifactListResponse>(response);
+  return data.value.map((artifact) => {
+    const size = Number.parseInt(artifact.resource?.properties?.artifactsize ?? '', 10);
+    return {
+      id: artifact.id,
+      name: artifact.name,
+      type: artifact.resource?.type ?? null,
+      sizeBytes: Number.isFinite(size) ? size : null,
+      downloadUrl: artifact.resource?.downloadUrl ?? null,
+    };
+  });
+}
+
+// Downloads an artifact as a zip. Container and PipelineArtifact artifacts both
+// expose a `downloadUrl` that serves a zip when asked for `$format=zip`; the
+// zip's entries are prefixed with the artifact name.
+export async function downloadArtifactZip(
+  cred: AuthCredential,
+  artifact: PipelineArtifact,
+  onProgress?: (receivedBytes: number) => void,
+): Promise<Uint8Array> {
+  if (!artifact.downloadUrl) {
+    throw new Error(`Artifact "${artifact.name}" (${artifact.type ?? 'unknown type'}) has no download URL.`);
+  }
+  const url = new URL(artifact.downloadUrl);
+  url.searchParams.set('$format', 'zip');
+  const response = await fetchWithErrors(url.toString(), { headers: authHeaders(cred) });
+  if (!response.ok) {
+    throw httpError(response);
+  }
+  if (!response.body) {
+    return new Uint8Array(await response.arrayBuffer());
+  }
+  const chunks: Uint8Array[] = [];
+  let received = 0;
+  for await (const chunk of response.body as unknown as AsyncIterable<Uint8Array>) {
+    chunks.push(chunk);
+    received += chunk.length;
+    onProgress?.(received);
+  }
+  return Buffer.concat(chunks);
 }

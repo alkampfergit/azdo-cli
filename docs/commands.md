@@ -15,7 +15,7 @@
 | `azdo set-md-field <id> <field> [content]` | Set markdown field | `--file`, `--json`, `--org`, `--project` |
 | `azdo list-fields <id>` | List all fields of a work item | `--json`, `--org`, `--project` |
 | `azdo pr <subcommand>` | Manage pull requests (current branch or by `--pr-number`) — see [Pull request commands](#pull-request-commands) | `list`, `status`, `open`, `update` (`edit`), `abandon` (`close`), `reactivate`, `comments`, `comments add\|edit\|reply` (`comment-add`, `comment-edit`, `comment-reply`), `comment-resolve`, `comment-reopen`, `work-items link\|unlink`, `reviewers list\|add\|remove`, `--pr-number`, `--repo`, `--json`, `--org`, `--project` |
-| `azdo pipeline <subcommand>` | Inspect and operate Azure DevOps pipelines | `list`, `get-runs`, `wait`, `get-run-detail`, `logs`, `tests`, `start`, `--filter`, `--limit`, `--branch`, `--commit`, `--pr`, `--timeout`, `--poll-interval`, `--log-id`, `--parameter`, `--json`, `--org`, `--project` |
+| `azdo pipeline <subcommand>` | Inspect and operate Azure DevOps pipelines | `list`, `get-runs`, `wait`, `get-run-detail`, `logs`, `artifacts`, `artifact-download`, `tests`, `start`, `--filter`, `--limit`, `--branch`, `--commit`, `--pr`, `--timeout`, `--poll-interval`, `--log-id`, `--head`, `--no-progress`, `--path`, `--progress`, `--parameter`, `--json`, `--org`, `--project` |
 | `azdo download-attachment <id> <filename>` | Download a work item attachment | `--output <dir>`, `--org`, `--project` |
 | `azdo add-attachment <id> <file>` | Attach a local file to a work item | `--comment <text>`, `--org`, `--project` |
 | `azdo delete-attachment <id> <filename>` | Remove a work item attachment (prompts unless `--yes`) | `--id <guid>`, `--yes`, `--org`, `--project` |
@@ -431,6 +431,11 @@ azdo pipeline logs 3456 --step "Run tests" # print a log by step/job name
 azdo pipeline logs 3456 --log-id 7 --tail 50          # only the last 50 lines
 azdo pipeline logs 3456 --log-id 7 --grep 'error CS'  # only matching lines
 azdo pipeline logs 3456 --log-id 7 --grep Exception --context 5  # ±5 lines around matches
+azdo pipeline logs 3456 --log-id 7 --head 40          # only the first 40 lines
+azdo pipeline logs 3456 --step "Trivy" --no-progress  # collapse carriage-return progress redraws
+azdo pipeline artifacts 3456               # list the run's build artifacts
+azdo pipeline artifact-download 3456 scan-results --path ./out  # download + extract into ./out
+azdo pipeline artifact-download 3456 --all # every artifact into ./<name>
 azdo pipeline tests 3456                   # test summary + failing tests by name
 azdo pipeline tests 3456 --failed          # only the failing tests
 azdo pipeline start 12 --branch develop --parameter env=staging
@@ -459,6 +464,19 @@ azdo pipeline start 12 --branch develop --parameter env=staging
 - Lists the run's logs with the step/job each log belongs to (joined from the build timeline), so the right `--log-id` is no longer guesswork; `--log-id <id>` prints a specific log's content to stdout
 - `--step <name>` selects the log by step/job name (case-insensitive substring, exact match wins) — stable across runs even when skipped jobs shift the numeric log ids
 - With `--log-id`/`--step`: `--tail <n>` prints only the last N lines, `--grep <pattern>` prints only lines matching a regular expression, and `--grep … --context <n>` adds ±N surrounding lines per match (grep `-C` semantics, chunks separated by `--`) — multi-line stack traces come out whole
+
+- The listing also shows each log's **record type** (`Stage` / `Job` / `Task`) and its **parent** (`(in <job>)`), so two logs sharing a title (a job log and its task log) are told apart; `--json` carries `type` and `parent`, and the `--step` ambiguity error prints them for every candidate
+- `--head <n>` prints only the first N lines (mutually exclusive with `--tail`). `--no-progress` keeps only the final state of each carriage-return progress redraw (e.g. a Trivy DB download) — opt-in, never applied automatically, even off a TTY
+
+**`azdo pipeline artifacts <run_id>`**
+- Lists the run's build artifacts (name, type — `Container` / `PipelineArtifact` — and size) from `GET build/builds/{id}/artifacts`; `--json` emits `[{ id, name, type, sizeBytes, downloadUrl }]`. Uses the CLI's own credential, so no separate `az login`
+
+**`azdo pipeline artifact-download <run_id> [name]`**
+- Downloads one artifact and **extracts it straight into the destination folder** — the zip is held in memory and never written to disk, so none is left behind, even on failure
+- `--path <dir>` is the destination (default `./<name>`); `--all` downloads every artifact, each into `<dir>/<name>` (a name together with `--all` is rejected; neither is an error that lists the available artifacts); an unknown name also lists them
+- Never overwrites an existing file unless `--force` is given; entries that would escape the destination (zip-slip) abort the extraction before anything is written
+- Silent by default: stdout carries only the destination path(s) (`--json`: `[{ name, path, files }]`); `--progress` adds byte-progress lines on stderr
+- Both artifact types are fetched through the artifact's `downloadUrl` requested as `$format=zip`
 
 **`azdo pipeline tests <run_id>`**
 - Prints the run's test summary plus the failing tests **by name with their error messages** (Test Runs API, capped at 50) — replaces log grepping for "which tests failed"
@@ -803,8 +821,10 @@ The pull request object shared by `pr list`, `pr status`, `pr open` and `pr comm
 | `pipeline get-runs` | `[Run]` where `Run` is `{ id, name, state, result, createdDate, finishedDate, sourceBranch, sourceCommit }` — `state` is `inProgress`, `completed` or `unknown`; `result` is `succeeded`, `failed`, `canceled` or `null` |
 | `pipeline wait` | `{ id, state, result, timedOut }` — the exit code still reflects the result |
 | `pipeline get-run-detail` | `Run & { startedDate, durationSeconds, reason, requestedFor, webUrl, errors: [{ message, source }], errorsAvailable, stages: [Stage], jobs: [Stage], tests: { present, total, failed, failedTests }, testsAvailable }` where `Stage` is `{ name, state, result }` |
-| `pipeline logs` | `[{ id, createdOn, lineCount, step }]` — with `--log-id` / `--step` the log text is printed as-is and `--json` has no effect |
+| `pipeline logs` | `[{ id, createdOn, lineCount, step, type, parent }]` — with `--log-id` / `--step` the log text is printed as-is and `--json` has no effect |
 | `pipeline tests` | `{ present, total, failed, failedTests: [{ name, errorMessage }] }` |
+| `pipeline artifacts` | `[{ id, name, type, sizeBytes, downloadUrl }]` |
+| `pipeline artifact-download` | `[{ name, path, files }]` |
 | `pipeline start` | `{ id, state, webUrl }` — `RID=$(azdo pipeline start 12 --json \| jq .id)` |
 
 ### Authentication and configuration
