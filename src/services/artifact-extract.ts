@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, realpathSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { unzipSync } from 'fflate';
 
@@ -22,6 +22,24 @@ function entryTarget(entry: string, artifactName: string): string | null {
   return relative;
 }
 
+// Rejects a target whose existing path components include a symlink (even a
+// dangling one): writing through it could land outside the destination.
+function assertNoSymlinkEscape(root: string, relative: string): void {
+  let current = root;
+  for (const segment of relative.split('/')) {
+    current = path.join(current, segment);
+    let isLink: boolean;
+    try {
+      isLink = lstatSync(current).isSymbolicLink();
+    } catch {
+      return; // component does not exist yet; nothing deeper can be a link
+    }
+    if (isLink) {
+      throw new Error(`Refusing to extract through symbolic link "${current}".`);
+    }
+  }
+}
+
 // Extracts the zip held in memory straight into `destination`. No zip file is
 // ever written, so there is nothing to clean up if extraction fails; all
 // targets are validated (and checked for collisions) before the first write.
@@ -33,9 +51,16 @@ export function extractArtifactZip(
 ): string[] {
   const entries = unzipSync(zip);
   const targets: { relative: string; data: Uint8Array }[] = [];
+  const seen = new Set<string>();
   for (const [entry, data] of Object.entries(entries)) {
     const relative = entryTarget(entry, options.artifactName);
-    if (relative !== null) targets.push({ relative, data });
+    if (relative === null) continue;
+    const key = path.posix.normalize(relative);
+    if (seen.has(key)) {
+      throw new Error(`Refusing to extract: several archive entries resolve to "${key}".`);
+    }
+    seen.add(key);
+    targets.push({ relative: key, data });
   }
   if (!options.force) {
     const existing = targets.find((t) => existsSync(path.join(destination, t.relative)));
@@ -45,8 +70,11 @@ export function extractArtifactZip(
       );
     }
   }
+  mkdirSync(destination, { recursive: true });
+  const root = realpathSync(destination);
+  for (const { relative } of targets) assertNoSymlinkEscape(root, relative);
   for (const { relative, data } of targets) {
-    const file = path.join(destination, relative);
+    const file = path.join(root, relative);
     mkdirSync(path.dirname(file), { recursive: true });
     writeFileSync(file, data);
   }
