@@ -138,7 +138,7 @@ index ba3e876..f2b9fc5 100644
 +          VERSION: ${{ needs.prepare.outputs.version }}
 +        run: |
 +          npm pkg set version="$VERSION"
-+          npm pack --pack-destination preview
++          mkdir -p preview && npm pack --pack-destination preview
 +
 +      - uses: actions/upload-artifact@v4
 +        with:
@@ -175,7 +175,7 @@ index ba3e876..f2b9fc5 100644
 +      - name: Publish preview to npm
 +        env:
 +          TAG: ${{ needs.prepare.outputs.tag }}
-+        run: npm publish preview/*.tgz --tag "$TAG" --provenance --access public
++        run: npm publish preview/*.tgz --registry https://registry.npmjs.org/ --tag "$TAG" --provenance --access public
 +
 +      - name: Summary
 +        env:
