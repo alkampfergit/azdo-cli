@@ -6,16 +6,70 @@ on:
   pull_request:
     branches: [master, develop]
   workflow_dispatch:
+    inputs:
+      pr:
+        description: "Pull request number to publish as a preview (leave empty for a normal run)"
+        required: false
+        type: string
 
 jobs:
-  build:
+  # Trusted gate for a manual preview run. Runs only code from the dispatched
+  # ref (never the PR), validates the PR, pins its head SHA so every later job
+  # builds exactly the same commit, and derives the version from tags.
+  prepare:
     runs-on: ubuntu-latest
     permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      sha: ${{ steps.pr.outputs.sha }}
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+
+    steps:
+      - name: Check PR is open
+        id: pr
+        if: inputs.pr != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ inputs.pr }}
+        run: |
+          if ! [[ "$PR" =~ ^[0-9]+$ ]]; then
+            echo "Invalid PR number: $PR"; exit 1
+          fi
+          state=$(gh pr view "$PR" -R "$GITHUB_REPOSITORY" --json state -q .state)
+          if [ "$state" != "OPEN" ]; then
+            echo "PR #$PR is $state, nothing to publish"; exit 1
+          fi
+          echo "sha=$(gh pr view "$PR" -R "$GITHUB_REPOSITORY" --json headRefOid -q .headRefOid)" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v4
+        if: inputs.pr != ''
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Compute preview version
+        id: version
+        if: inputs.pr != ''
+        env:
+          PR: ${{ inputs.pr }}
+        run: |
+          out=$(bash scripts/compute-version.sh --pr "$PR" "$GITHUB_RUN_NUMBER")
+          echo "$out" | grep -Eq '^version=[0-9]+\.[0-9]+\.[0-9]+-pr\.[0-9]+\.[0-9]+$'
+          echo "$out" | tee -a "$GITHUB_OUTPUT"
+
+  build:
+    needs: prepare
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
       checks: write
 
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: ${{ needs.prepare.outputs.sha }}
           fetch-depth: 0
           fetch-tags: true
 
@@ -44,14 +98,17 @@ jobs:
           reporter: java-junit
 
   integration-tests:
+    needs: prepare
     runs-on: ubuntu-latest
     permissions:
+      contents: read
       checks: write
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
 
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: ${{ needs.prepare.outputs.sha }}
           fetch-depth: 0
           fetch-tags: true
 
@@ -120,6 +177,88 @@ jobs:
 
       - name: Publish to npm
         run: npm publish --tag "${{ steps.version.outputs.tag }}" --provenance --access public
+
+  # Preview of a pull request, started by hand (workflow_dispatch with `pr`).
+  # Split in two so the job holding the npm publish permission never executes
+  # PR code: `package-preview` runs the PR's scripts without id-token and hands
+  # over a tarball; `publish-preview` only publishes that tarball.
+  package-preview:
+    needs: [prepare, build, integration-tests]
+    if: github.event_name == 'workflow_dispatch' && inputs.pr != ''
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.sha }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm run build
+
+      - name: Pack preview
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          npm pkg set version="$VERSION"
+          mkdir -p preview && npm pack --pack-destination preview
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: preview-tarball
+          path: preview/*.tgz
+          if-no-files-found: error
+
+  publish-preview:
+    needs: [prepare, package-preview]
+    if: github.event_name == 'workflow_dispatch' && inputs.pr != ''
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: preview-tarball
+          path: preview
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          registry-url: https://registry.npmjs.org
+
+      - name: Verify tarball
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          [ "$(ls preview/*.tgz | wc -l)" = 1 ]
+          [ "$(tar -xzOf preview/*.tgz package/package.json | node -p 'JSON.parse(require("fs").readFileSync(0)).name')" = azdo-cli ]
+          [ "$(tar -xzOf preview/*.tgz package/package.json | node -p 'JSON.parse(require("fs").readFileSync(0)).version')" = "$VERSION" ]
+
+      - name: Publish preview to npm
+        env:
+          TAG: ${{ needs.prepare.outputs.tag }}
+        run: npm publish preview/*.tgz --registry https://registry.npmjs.org/ --tag "$TAG" --provenance --access public
+
+      - name: Summary
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+        run: |
+          {
+            echo "### Preview published: \`$VERSION\`"
+            echo
+            echo '```'
+            echo "npm i -g azdo-cli@$TAG"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
 
   release:
     needs: publish
