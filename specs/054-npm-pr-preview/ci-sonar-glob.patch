@@ -1,0 +1,39 @@
+From da25f634f8efaeb523676b04caa517a7ebdf846a Mon Sep 17 00:00:00 2001
+From: alkampferoutlook <alkampferoutlook@users.noreply.github.com>
+Date: Tue, 6 Oct 2026 14:30:55 +0000
+Subject: [PATCH] fix(ci): resolve the preview tarball once with a ./ glob
+ (Sonar S6573)
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ .github/workflows/ci.yml | 13 ++++++++-----
+ 1 file changed, 8 insertions(+), 5 deletions(-)
+
+diff --git a/.github/workflows/ci.yml b/.github/workflows/ci.yml
+index c1eaa53..ecc7716 100644
+--- a/.github/workflows/ci.yml
++++ b/.github/workflows/ci.yml
+@@ -225,12 +225,15 @@ jobs:
+         env:
+           VERSION: ${{ needs.prepare.outputs.version }}
+         run: |
+-          [ "$(ls *.tgz | wc -l)" = 1 ]
++          shopt -s nullglob
++          tarballs=(./*.tgz)
++          [ "${#tarballs[@]}" = 1 ]
++          src="${tarballs[0]}"
+           # Only plain files and directories under package/: no links, no "..".
+-          tar -tvzf *.tgz | awk '$1 !~ /^[-d]/ { print; bad=1 } END { exit bad }'
+-          tar -tzf *.tgz | grep -Ev '^package/' && exit 1
+-          tar -tzf *.tgz | grep -E '(^|/)\.\.(/|$)' && exit 1
+-          mkdir out && tar -xzf *.tgz -C out --no-same-owner --no-same-permissions
++          tar -tvzf "$src" | awk '$1 !~ /^[-d]/ { print; bad=1 } END { exit bad }'
++          tar -tzf "$src" | grep -Ev '^package/' && exit 1
++          tar -tzf "$src" | grep -E '(^|/)\.\.(/|$)' && exit 1
++          mkdir out && tar -xzf "$src" -C out --no-same-owner --no-same-permissions
+           node -e '
+             const fs = require("fs"); const f = "out/package/package.json";
+             const p = JSON.parse(fs.readFileSync(f));
+-- 
+2.47.3
+
