@@ -3,6 +3,7 @@
 #
 # Usage:
 #   compute-version.sh [BRANCH [RUN_NUMBER]]
+#   compute-version.sh --pr PR_NUMBER [RUN_NUMBER]
 #
 # Arguments default to $GITHUB_REF_NAME and $GITHUB_RUN_NUMBER when omitted,
 # so the script works both in CI and locally for exploration:
@@ -11,6 +12,7 @@
 #   ./scripts/compute-version.sh 032-fix-code-generics 1
 #   ./scripts/compute-version.sh release/0.14.0 5
 #   ./scripts/compute-version.sh master          # requires a semver tag at HEAD
+#   ./scripts/compute-version.sh --pr 134 57     # preview of pull request 134
 #
 # Outputs (printed to stdout, one per line):
 #   version=<computed version>
@@ -19,8 +21,20 @@
 # Exit codes:
 #   0  success
 #   1  master branch with no semver tag at HEAD
+#   2  --pr given without a numeric pull request number
 
 set -euo pipefail
+
+PR_NUMBER=""
+if [[ "${1:-}" == "--pr" ]]; then
+  PR_NUMBER="${2:-}"
+  if ! [[ "$PR_NUMBER" =~ ^[0-9]+$ ]]; then
+    echo "ERROR: --pr needs a numeric pull request number, got '${PR_NUMBER}'." >&2
+    exit 2
+  fi
+  shift 2
+  set -- "pr-${PR_NUMBER}" "$@"
+fi
 
 BRANCH="${1:-${GITHUB_REF_NAME:-$(git rev-parse --abbrev-ref HEAD)}}"
 RUN="${2:-${GITHUB_RUN_NUMBER:-0}}"
@@ -44,7 +58,13 @@ next_minor_base() {
   echo "${major}.$((minor + 1)).0"
 }
 
-if [[ "$BRANCH" == "master" ]]; then
+if [[ -n "$PR_NUMBER" ]]; then
+  # Preview of a pull request: same tag-derived base as develop, its own
+  # dist-tag so `npm i -g azdo-cli@pr-<number>` installs it.
+  TAG="pr-${PR_NUMBER}"
+  VERSION="$(next_minor_base)-pr.${PR_NUMBER}.${RUN}"
+
+elif [[ "$BRANCH" == "master" ]]; then
   HEAD_TAG=$(git tag --points-at HEAD | grep -E '^v?[0-9]+\.[0-9]+\.[0-9]+([.-].*)?$' | head -n 1)
   if [[ -z "$HEAD_TAG" ]]; then
     echo "ERROR: no semver tag found at HEAD on master branch." >&2
