@@ -1,0 +1,27 @@
+From 7e1ef5504d8f76d42750d21040b44a859fa32193 Mon Sep 17 00:00:00 2001
+From: alkampferoutlook <alkampferoutlook@users.noreply.github.com>
+Date: Tue, 6 Oct 2026 12:15:31 +0000
+Subject: [PATCH] fix(ci): install preview dependencies with --ignore-scripts
+ (SonarCloud S6505)
+
+Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
+---
+ .github/workflows/ci.yml | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/.github/workflows/ci.yml b/.github/workflows/ci.yml
+index 490b6a0..2ea4334 100644
+--- a/.github/workflows/ci.yml
++++ b/.github/workflows/ci.yml
+@@ -199,7 +199,7 @@ jobs:
+           node-version: lts/*
+           cache: npm
+ 
+-      - run: npm ci
++      - run: npm ci --ignore-scripts
+ 
+       - run: npm run build
+ 
+-- 
+2.47.3
+
