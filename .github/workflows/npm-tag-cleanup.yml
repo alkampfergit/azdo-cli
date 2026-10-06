@@ -1,0 +1,46 @@
+name: Cleanup PR npm tags
+
+on:
+  schedule:
+    - cron: "17 3 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          registry-url: https://registry.npmjs.org
+
+      # Removes only the dist-tag; the preview versions stay on npm.
+      # A tag goes away only for a CLOSED or MERGED pull request; anything
+      # else (OPEN, or a lookup that failed) keeps it.
+      - name: Remove tags of closed/merged PRs
+        run: |
+          PKG=$(node -p "require('./package.json').name")
+          npm view "$PKG" dist-tags --json \
+            | jq -r 'keys[] | select(test("^pr-[0-9]+$"))' \
+            | while read -r tag; do
+                pr=${tag#pr-}
+                state=$(gh pr view "$pr" -R "$GITHUB_REPOSITORY" --json state -q .state 2>/dev/null || echo UNKNOWN)
+                case "$state" in
+                  CLOSED|MERGED)
+                    echo "Removing $tag (PR #$pr is $state)"
+                    npm dist-tag rm "$PKG" "$tag"
+                    ;;
+                  *)
+                    echo "Keeping $tag (PR #$pr is $state)"
+                    ;;
+                esac
+              done
