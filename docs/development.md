@@ -141,4 +141,26 @@ npm install -g azdo-cli@<exact-version>        # a specific branch build
 Because `dev` is shared, use the exact version from the `Publish to npm` step of the
 CI run when several branches are in flight. To republish without a new commit, re-run
 the workflow's `publish` job from the Actions tab. A manual `workflow_dispatch` run
-builds and tests but does not publish.
+without a pull request number builds and tests but does not publish.
+
+## Testing a pull request from npm
+
+A maintainer can publish a preview of one open pull request and anyone can then install it:
+
+```
+npm i -g azdo-cli@pr-134
+```
+
+Start it from **Actions > CI > Run workflow** (use the default branch and type the PR number), or:
+
+```
+gh workflow run ci.yml -f pr=134
+```
+
+The run validates the number, requires the PR to be open, pins its head commit, runs lint, typecheck, build, unit and integration tests on it, and only then publishes `<next-minor>-pr.<number>.<run>` (e.g. `0.22.0-pr.134.57`) under the dist-tag `pr-<number>`. `latest` is never touched. The version and install command appear in the run's job summary. The version comes from git tags via `scripts/compute-version.sh --pr <number> <run>`, run from the dispatched ref, never from the PR.
+
+The job that holds the npm publish permission (`publish-preview`) executes no PR code: `package-preview` builds and packs a tarball without that permission, and `publish-preview` only verifies the tarball's name and version and publishes it.
+
+**Fork PRs:** the tests still execute the PR's code with the Azure DevOps secrets available. Read every change in a fork PR before dispatching.
+
+`npm-tag-cleanup.yml` runs weekly (and on demand) and removes the `pr-<number>` dist-tag of every closed or merged PR; a tag is kept when the PR is open or its state cannot be read. Preview versions stay on npm. It authenticates with an `NPM_TOKEN` repository secret (a granular npm token with read and write access to `azdo-cli` only), because the trusted publisher cannot remove tags. The `ci.yml` trusted publisher is unchanged. The schedule only fires once the workflow is on the default branch.
