@@ -1,0 +1,70 @@
+From 8a92e6f006535f4294b4303e15f89e018099df3f Mon Sep 17 00:00:00 2001
+From: alkampferoutlook <alkampferoutlook@users.noreply.github.com>
+Date: Tue, 6 Oct 2026 12:22:15 +0000
+Subject: [PATCH] fix(ci): harden preview jobs against cache poisoning and PR
+ lifecycle scripts
+
+- package-preview: no npm cache, npm ci/pack with --ignore-scripts
+  (CodeQL actions/cache-poisoning, SonarCloud githubactions:S6505)
+- build, integration-tests: npm cache disabled on preview runs
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ .github/workflows/ci.yml | 13 ++++++++-----
+ 1 file changed, 8 insertions(+), 5 deletions(-)
+
+diff --git a/.github/workflows/ci.yml b/.github/workflows/ci.yml
+index 490b6a0..e34c358 100644
+--- a/.github/workflows/ci.yml
++++ b/.github/workflows/ci.yml
+@@ -73,10 +73,12 @@ jobs:
+           fetch-depth: 0
+           fetch-tags: true
+ 
++      # No npm cache on a preview run: it executes PR code, which must not be
++      # able to write a cache that later default-branch runs restore.
+       - uses: actions/setup-node@v4
+         with:
+           node-version: lts/*
+-          cache: npm
++          cache: ${{ inputs.pr == '' && 'npm' || '' }}
+ 
+       - run: npm ci
+ 
+@@ -115,7 +117,7 @@ jobs:
+       - uses: actions/setup-node@v4
+         with:
+           node-version: lts/*
+-          cache: npm
++          cache: ${{ inputs.pr == '' && 'npm' || '' }}
+ 
+       - run: npm ci
+ 
+@@ -194,12 +196,13 @@ jobs:
+         with:
+           ref: ${{ needs.prepare.outputs.sha }}
+ 
++      # No npm cache (cache poisoning) and no lifecycle scripts: the build is
++      # plain tsup, so install and pack need none of the PR's scripts.
+       - uses: actions/setup-node@v4
+         with:
+           node-version: lts/*
+-          cache: npm
+ 
+-      - run: npm ci
++      - run: npm ci --ignore-scripts
+ 
+       - run: npm run build
+ 
+@@ -208,7 +211,7 @@ jobs:
+           VERSION: ${{ needs.prepare.outputs.version }}
+         run: |
+           npm pkg set version="$VERSION"
+-          mkdir -p preview && npm pack --pack-destination preview
++          mkdir -p preview && npm pack --ignore-scripts --pack-destination preview
+ 
+       - uses: actions/upload-artifact@v4
+         with:
+-- 
+2.47.3
+

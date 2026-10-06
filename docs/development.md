@@ -159,7 +159,7 @@ gh workflow run ci.yml -f pr=134
 
 The run validates the number, requires the PR to be open, pins its head commit, runs lint, typecheck, build, unit and integration tests on it, and only then publishes `<next-minor>-pr.<number>.<run>` (e.g. `0.22.0-pr.134.57`) under the dist-tag `pr-<number>`. `latest` is never touched. The version and install command appear in the run's job summary. The version comes from git tags via `scripts/compute-version.sh --pr <number> <run>`, run from the dispatched ref, never from the PR.
 
-The job that holds the npm publish permission (`publish-preview`) executes no PR code: `package-preview` builds and packs a tarball without that permission, and `publish-preview` only verifies the tarball's name and version and publishes it.
+The job that holds the npm publish permission (`publish-preview`) executes no PR code: `package-preview` builds and packs a tarball without that permission, and `publish-preview` only verifies the tarball's name and version and publishes it. `package-preview` installs and packs with `--ignore-scripts`, so no PR lifecycle script runs there, and a preview run uses no npm cache in any job, so PR code cannot poison the cache that default-branch runs restore.
 
 **Fork PRs:** the tests still execute the PR's code with the Azure DevOps secrets available. Read every change in a fork PR before dispatching.
 
