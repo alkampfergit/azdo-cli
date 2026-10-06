@@ -73,10 +73,12 @@ jobs:
           fetch-depth: 0
           fetch-tags: true
 
+      # No npm cache on a preview run: it executes PR code, which must not be
+      # able to write a cache that later default-branch runs restore.
       - uses: actions/setup-node@v4
         with:
           node-version: lts/*
-          cache: npm
+          cache: ${{ inputs.pr == '' && 'npm' || '' }}
 
       - run: npm ci
 
@@ -115,7 +117,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: lts/*
-          cache: npm
+          cache: ${{ inputs.pr == '' && 'npm' || '' }}
 
       - run: npm ci
 
@@ -194,12 +196,13 @@ jobs:
         with:
           ref: ${{ needs.prepare.outputs.sha }}
 
+      # No npm cache (cache poisoning) and no lifecycle scripts: the build is
+      # plain tsup, so install and pack need none of the PR's scripts.
       - uses: actions/setup-node@v4
         with:
           node-version: lts/*
-          cache: npm
 
-      - run: npm ci
+      - run: npm ci --ignore-scripts
 
       - run: npm run build
 
@@ -208,7 +211,7 @@ jobs:
           VERSION: ${{ needs.prepare.outputs.version }}
         run: |
           npm pkg set version="$VERSION"
-          mkdir -p preview && npm pack --pack-destination preview
+          mkdir -p preview && npm pack --ignore-scripts --pack-destination preview
 
       - uses: actions/upload-artifact@v4
         with:
