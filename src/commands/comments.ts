@@ -1,5 +1,5 @@
 import { Command } from 'commander';
-import type { AzdoContext, WorkItemComment, WorkItemCommentsResult } from '../types/work-item.js';
+import type { AuthCredential, AzdoContext, WorkItemComment, WorkItemCommentsResult } from '../types/work-item.js';
 import {
   addWorkItemComment,
   deleteWorkItemComment,
@@ -22,6 +22,40 @@ interface CommentCommandOptions {
   json?: boolean;
   markdown?: boolean;
   file?: string;
+}
+
+interface CommentTarget {
+  id: number;
+  commentId?: number;
+}
+
+// Shared by add/edit/delete: resolve context + credential, run the request,
+// print JSON or the human line, and route failures through the error handlers.
+async function runCommentWrite<T>(
+  options: CommentCommandOptions,
+  target: CommentTarget,
+  request: (context: AzdoContext, credential: AuthCredential) => Promise<T>,
+  humanLine: (result: T) => string,
+): Promise<void> {
+  let context: AzdoContext | undefined;
+
+  try {
+    context = resolveContext(options);
+    const credential = await requireAuthCredential(context.org);
+    const result = await request(context, credential);
+
+    process.stdout.write(options.json ? `${JSON.stringify(result, null, 2)}\n` : `${humanLine(result)}\n`);
+  } catch (err: unknown) {
+    if (target.commentId === undefined) {
+      handleCommandError(err, target.id, context, 'write');
+    } else {
+      handleCommentWriteError(err, target.id, target.commentId, context);
+    }
+  }
+}
+
+function commentFormat(options: CommentCommandOptions): 'markdown' | 'html' {
+  return options.markdown === true ? 'markdown' : 'html';
 }
 
 function writeError(message: string): never {
@@ -105,23 +139,12 @@ export function createCommentsAddCommand(): Command {
         writeError('Comment text must be a non-empty string.');
       }
 
-      let context: AzdoContext | undefined;
-
-      try {
-        context = resolveContext(options);
-        const credential = await requireAuthCredential(context.org);
-        const format = options.markdown === true ? 'markdown' : 'html';
-        const result = await addWorkItemComment(context, id, credential, text, format);
-
-        if (options.json) {
-          process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
-          return;
-        }
-
-        process.stdout.write(`Added comment #${result.commentId} to work item #${result.workItemId}\n`);
-      } catch (err: unknown) {
-        handleCommandError(err, id, context, 'write');
-      }
+      await runCommentWrite(
+        options,
+        { id },
+        (context, credential) => addWorkItemComment(context, id, credential, text, commentFormat(options)),
+        (result) => `Added comment #${result.commentId} to work item #${result.workItemId}`,
+      );
     });
 
   return command;
@@ -191,23 +214,12 @@ export function createCommentsEditCommand(): Command {
       const commentId = parseCommentId(commentIdStr);
       const body = resolveEditText(text, options.file);
 
-      let context: AzdoContext | undefined;
-
-      try {
-        context = resolveContext(options);
-        const credential = await requireAuthCredential(context.org);
-        const format = options.markdown === true ? 'markdown' : 'html';
-        const result = await updateWorkItemComment(context, id, commentId, credential, body, format);
-
-        if (options.json) {
-          process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
-          return;
-        }
-
-        process.stdout.write(`Updated comment #${result.commentId} on work item #${result.workItemId}\n`);
-      } catch (err: unknown) {
-        handleCommentWriteError(err, id, commentId, context);
-      }
+      await runCommentWrite(
+        options,
+        { id, commentId },
+        (context, credential) => updateWorkItemComment(context, id, commentId, credential, body, commentFormat(options)),
+        (result) => `Updated comment #${result.commentId} on work item #${result.workItemId}`,
+      );
     });
 
   return command;
@@ -228,22 +240,12 @@ export function createCommentsDeleteCommand(): Command {
       const id = parseWorkItemId(idStr);
       const commentId = parseCommentId(commentIdStr);
 
-      let context: AzdoContext | undefined;
-
-      try {
-        context = resolveContext(options);
-        const credential = await requireAuthCredential(context.org);
-        const result = await deleteWorkItemComment(context, id, commentId, credential);
-
-        if (options.json) {
-          process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
-          return;
-        }
-
-        process.stdout.write(`Deleted comment #${result.commentId} from work item #${result.workItemId}\n`);
-      } catch (err: unknown) {
-        handleCommentWriteError(err, id, commentId, context);
-      }
+      await runCommentWrite(
+        options,
+        { id, commentId },
+        (context, credential) => deleteWorkItemComment(context, id, commentId, credential),
+        (result) => `Deleted comment #${result.commentId} from work item #${result.workItemId}`,
+      );
     });
 
   return command;
