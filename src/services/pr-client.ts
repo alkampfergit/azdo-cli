@@ -255,6 +255,8 @@ function mapComment(comment: AzdoThread['comments'][number]): ActivePullRequestC
   return {
     id: comment.id,
     author: comment.author?.displayName ?? null,
+    authorUniqueName: comment.author?.uniqueName ?? null,
+    authorId: comment.author?.id ?? null,
     content,
     publishedAt: comment.publishedDate ?? null,
     commentType: comment.commentType ?? null,
@@ -880,6 +882,8 @@ export async function updateThreadComment(
   return {
     id: data.id,
     author: data.author?.displayName ?? null,
+    authorUniqueName: data.author?.uniqueName ?? null,
+    authorId: data.author?.id ?? null,
     content: data.content ?? content,
     publishedAt: data.publishedDate ?? null,
   };
@@ -935,6 +939,8 @@ export async function postThreadComment(
   return {
     id: data.id,
     author: data.author?.displayName ?? null,
+    authorUniqueName: data.author?.uniqueName ?? null,
+    authorId: data.author?.id ?? null,
     content: data.content ?? content,
     publishedAt: data.publishedDate ?? null,
   };

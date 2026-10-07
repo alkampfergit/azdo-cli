@@ -103,6 +103,9 @@ export interface WorkItemComment {
   workItemId: number;
   text: string;
   author: string | null;
+  // Stable identity of the author (055): the display name is not a safe key.
+  authorUniqueName?: string | null;
+  authorId?: string | null;
   createdAt: string | null;
   modifiedAt: string | null;
   isDeleted: boolean;
@@ -119,6 +122,9 @@ export interface AddWorkItemCommentResult {
   commentId: number;
   text: string;
   author: string | null;
+  // Stable identity of the author (055): the display name is not a safe key.
+  authorUniqueName?: string | null;
+  authorId?: string | null;
   createdAt: string | null;
   url: string | null;
 }
@@ -128,6 +134,9 @@ export interface UpdateWorkItemCommentResult {
   commentId: number;
   text: string;
   author: string | null;
+  // Stable identity of the author (055): the display name is not a safe key.
+  authorUniqueName?: string | null;
+  authorId?: string | null;
   createdAt: string | null;
   modifiedAt: string | null;
   url: string | null;

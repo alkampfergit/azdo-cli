@@ -1287,7 +1287,7 @@ describe('pr-client', () => {
               status: 'active',
               threadContext: { filePath: '/src/file.ts' },
               comments: [
-                { id: 10, author: { displayName: 'Alice' }, content: 'Needs work', publishedDate: '2026-03-27T00:00:00Z' },
+                { id: 10, author: { displayName: 'Alice', uniqueName: 'alice@contoso.com', id: 'a-1' }, content: 'Needs work', publishedDate: '2026-03-27T00:00:00Z' },
                 { id: 11, author: { displayName: 'Bob' }, content: '   ', publishedDate: '2026-03-27T00:00:00Z' },
               ],
             },
@@ -1329,6 +1329,8 @@ describe('pr-client', () => {
             {
               id: 10,
               author: 'Alice',
+              authorUniqueName: 'alice@contoso.com',
+              authorId: 'a-1',
               content: 'Needs work',
               publishedAt: '2026-03-27T00:00:00Z',
               commentType: null,
@@ -1344,6 +1346,8 @@ describe('pr-client', () => {
             {
               id: 12,
               author: 'Alice',
+              authorUniqueName: null,
+              authorId: null,
               content: 'Closed',
               publishedAt: '2026-03-27T00:00:00Z',
               commentType: null,
@@ -1359,6 +1363,8 @@ describe('pr-client', () => {
             {
               id: 13,
               author: 'Bob',
+              authorUniqueName: null,
+              authorId: null,
               content: 'Pending review',
               publishedAt: '2026-03-27T00:00:00Z',
               commentType: null,
@@ -1464,7 +1470,7 @@ describe('pr-client', () => {
         status: 200,
         json: async () => ({
           id: 3,
-          author: { displayName: 'Alice' },
+          author: { displayName: 'Alice', uniqueName: 'alice@contoso.com', id: 'a-1' },
           content: 'Great suggestion!',
           publishedDate: '2026-06-15T13:00:00.000Z',
         }),
@@ -1475,6 +1481,8 @@ describe('pr-client', () => {
       expect(result).toEqual({
         id: 3,
         author: 'Alice',
+        authorUniqueName: 'alice@contoso.com',
+        authorId: 'a-1',
         content: 'Great suggestion!',
         publishedAt: '2026-06-15T13:00:00.000Z',
       });
@@ -1715,7 +1723,7 @@ describe('pr-client', () => {
         status: 200,
         json: async () => ({
           id: 1,
-          author: { displayName: 'Alice' },
+          author: { displayName: 'Alice', uniqueName: 'alice@contoso.com', id: 'a-1' },
           content: 'corrected text',
           publishedDate: '2026-06-15T13:00:00.000Z',
         }),
@@ -1726,6 +1734,8 @@ describe('pr-client', () => {
       expect(result).toEqual({
         id: 1,
         author: 'Alice',
+        authorUniqueName: 'alice@contoso.com',
+        authorId: 'a-1',
         content: 'corrected text',
         publishedAt: '2026-06-15T13:00:00.000Z',
       });

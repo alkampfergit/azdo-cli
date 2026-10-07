@@ -160,6 +160,9 @@ export interface PullRequestStatusChangeResult {
 export interface ActivePullRequestComment {
   id: number;
   author: string | null;
+  // Stable identity of the author (055): the display name is not a safe key.
+  authorUniqueName?: string | null;
+  authorId?: string | null;
   content: string;
   publishedAt: string | null;
   // Azure DevOps comment kind: `text` for human comments, `system` for the
@@ -254,6 +257,8 @@ export interface AzdoComment {
   id: number;
   author?: {
     displayName?: string;
+    uniqueName?: string;
+    id?: string;
   };
   content?: string;
   isDeleted?: boolean;
@@ -287,7 +292,7 @@ export interface AzdoPullRequestStatus {
 // fields the CLI reads are declared; the ADO API returns many more.
 export interface AzdoCreatedComment {
   id: number;
-  author?: { displayName?: string };
+  author?: { displayName?: string; uniqueName?: string; id?: string };
   content?: string;
   publishedDate?: string;
 }
@@ -298,6 +303,9 @@ export interface AzdoCreatedComment {
 export interface PostedPrComment {
   id: number;
   author: string | null;
+  // Stable identity of the author (055): the display name is not a safe key.
+  authorUniqueName?: string | null;
+  authorId?: string | null;
   content: string;
   publishedAt: string | null;
 }
