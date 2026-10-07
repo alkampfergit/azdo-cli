@@ -1,0 +1,6 @@
+# Accepted Trivy findings (issue #144). The security workflow fails on every
+# HIGH or CRITICAL finding, fixed or not; list one here only after review.
+# One id per line, with the reason and a review date in the comment above it:
+#
+# # Reason: dev-only, not reachable from the shipped CLI. Review by 2027-01-01.
+# CVE-0000-00000
