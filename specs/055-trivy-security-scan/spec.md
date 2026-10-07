@@ -20,7 +20,7 @@ Fail loudly when a dependency carries a HIGH or CRITICAL vulnerability, and let 
 - The scheduled run is not a required PR status check; a failure is a red scheduled run.
 
 ## Delivery
-The `gh` token lacks the `workflow` scope, so the workflow ships as `security-workflow.patch`: `git apply specs/055-trivy-security-scan/security-workflow.patch`.
+The workflow lives in `.github/workflows/security.yml`. The tarball scan builds `dist/` before `npm pack`, since the package ships only `dist`.
 
 ## Out of scope
 Per-push scanning, Code Scanning upload, container images.

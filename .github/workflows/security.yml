@@ -1,0 +1,111 @@
+name: Security scan
+
+# Vulnerabilities are discovered in code that already exists, so this runs on a
+# schedule rather than on every push or pull request (issue #144).
+on:
+  schedule:
+    - cron: "0 5 */3 * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  trivy:
+    name: Trivy (${{ matrix.ref }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # A scheduled run uses the default branch's copy of this file, so each
+        # branch to scan is checked out explicitly.
+        ref: [develop, master]
+    env:
+      # Trivy skips npm devDependencies unless told otherwise.
+      TRIVY_INCLUDE_DEV_DEPS: "true"
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ matrix.ref }}
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      # Reports first (exit-code 0) so they exist whatever the gate decides.
+      - name: Trivy report (json)
+        uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln,secret,misconfig,license
+          severity: HIGH,CRITICAL
+          format: json
+          output: trivy-repo.json
+          exit-code: "0"
+
+      - name: Trivy report (sarif)
+        uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln,secret,misconfig,license
+          severity: HIGH,CRITICAL
+          format: sarif
+          output: trivy-repo.sarif
+          exit-code: "0"
+
+      # The published artefact: what `npm i -g azdo-cli` actually ships.
+      - name: Pack and extract the published tarball
+        run: |
+          npm ci --ignore-scripts
+          npm run build
+          npm pack --ignore-scripts --quiet
+          mkdir pack
+          tar -xzf ./azdo-cli-*.tgz -C pack
+          cp -f .trivyignore pack/package/ 2>/dev/null || true
+
+      - name: Trivy report (published tarball)
+        uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: pack/package
+          scanners: vuln,secret
+          severity: HIGH,CRITICAL
+          format: json
+          output: trivy-package.json
+          exit-code: "0"
+
+      # Gates: any HIGH or CRITICAL finding fails the run, fixed or not.
+      # Accepted risks go in .trivyignore, each with a reason.
+      - name: Trivy gate (repository)
+        uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln,secret,misconfig,license
+          severity: HIGH,CRITICAL
+          format: table
+          exit-code: "1"
+
+      - name: Trivy gate (published tarball)
+        uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: pack/package
+          scanners: vuln,secret
+          severity: HIGH,CRITICAL
+          format: table
+          exit-code: "1"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: trivy-report-${{ matrix.ref }}
+          path: |
+            trivy-repo.json
+            trivy-repo.sarif
+            trivy-package.json
+          if-no-files-found: warn
