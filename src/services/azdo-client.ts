@@ -319,6 +319,8 @@ interface AzdoWorkItemResponse {
 
 interface AzdoIdentityRef {
   displayName?: string;
+  uniqueName?: string;
+  id?: string;
 }
 
 interface AzdoCommentResponse {
@@ -417,6 +419,8 @@ function mapWorkItemComment(comment: AzdoCommentResponse, fallbackWorkItemId: nu
     workItemId: comment.workItemId ?? fallbackWorkItemId,
     text: typeof comment.text === 'string' ? comment.text : '',
     author: comment.createdBy?.displayName ?? null,
+    authorUniqueName: comment.createdBy?.uniqueName ?? null,
+    authorId: comment.createdBy?.id ?? null,
     createdAt: comment.createdDate ?? null,
     modifiedAt: comment.modifiedDate ?? null,
     isDeleted: comment.isDeleted === true,
@@ -779,6 +783,8 @@ async function writeCommentText(
     commentId: data.commentId ?? data.id ?? fallback.commentId,
     text: typeof data.text === 'string' ? data.text : text,
     author: data.createdBy?.displayName ?? null,
+    authorUniqueName: data.createdBy?.uniqueName ?? null,
+    authorId: data.createdBy?.id ?? null,
     createdAt: data.createdDate ?? null,
     modifiedAt: data.modifiedDate ?? null,
     url: data.url ?? null,
@@ -805,6 +811,8 @@ export async function addWorkItemComment(
     commentId: written.commentId,
     text: written.text,
     author: written.author,
+    authorUniqueName: written.authorUniqueName,
+    authorId: written.authorId,
     createdAt: written.createdAt,
     url: written.url,
   };

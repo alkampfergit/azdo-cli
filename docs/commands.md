@@ -414,7 +414,8 @@ azdo auth diagnose --json     # { authType, credentialSource, org, project, conn
 
 `identity` comes from the Azure DevOps `connectionData` endpoint and is the way to check that the
 token about to post a comment belongs to the pull request author: compare `identity.uniqueName`
-with `createdByUniqueName` from `azdo pr list --json` / `azdo pr comments --json`. It is `null`
+with `createdByUniqueName` from `azdo pr list --json`. To tell whether a *comment* is your own, compare
+`identity.id` with `authorId` from `azdo pr comments --json` / `azdo comments list --json`. It is `null`
 when there is no credential, when connectivity already failed, or when the lookup itself failed —
 the diagnosis never breaks because of it.
 
@@ -508,7 +509,7 @@ azdo comments delete 12345 987
 azdo comments delete 12345 987 --json
 ```
 
-**`azdo comments list`** — prints comments newest-first (ID, author, timestamp, body)
+**`azdo comments list`** — prints comments newest-first (ID, author, timestamp, body). `--json` also carries `authorUniqueName` (the email/UPN; a non-email value for service identities) and `authorId` (the identity GUID) next to the display-name `author`. Match **"is this my own comment"** on `authorId` against `azdo auth diagnose --json` → `identity.id` — exact and unaffected by renames. For a hand-maintained allow list use `authorUniqueName`, compared case-insensitively. Both are `null` when Azure DevOps omits them
 
 **`azdo comments add`** — requires non-empty text; fails locally before any API call when blank. `--json` returns `commentId` and `createdAt`, so the comment can be edited or deleted later.
 
@@ -806,6 +807,8 @@ The pull request object shared by `pr list`, `pr status`, `pr open` and `pr comm
     {
       "id": 1,
       "author": "Jane Doe",
+      "authorUniqueName": "jane@contoso.com", // email/UPN; null when absent
+      "authorId": "6f1c…",                    // identity GUID; stable across renames
       "content": "Please rename this.",
       "publishedAt": "2026-09-30T09:00:00Z",
       "commentType": "text",    // text | system
@@ -825,10 +828,10 @@ The pull request object shared by `pr list`, `pr status`, `pr open` and `pr comm
 | `upsert` | `{ action, id, workItemType, fields }` — see [JSON output shape](#json-output-shape) |
 | `list-items` | `[{ id, title, description, url, state, tags, assignedTo }]` — `description` markdown, `tags` array |
 | `list-fields` | `{ id, fields: { "<reference name>": <value> } }` |
-| `comments add` | `{ workItemId, commentId, text, author, createdAt, url }` |
-| `comments edit` | `{ workItemId, commentId, text, author, createdAt, modifiedAt, url }` |
+| `comments add` | `{ workItemId, commentId, text, author, authorUniqueName, authorId, createdAt, url }` |
+| `comments edit` | `{ workItemId, commentId, text, author, authorUniqueName, authorId, createdAt, modifiedAt, url }` |
 | `comments delete` | `{ workItemId, commentId, deleted: true }` |
-| `comments list` | `{ workItemId, count, comments: [{ id, workItemId, text, author, createdAt, modifiedAt, isDeleted }] }` |
+| `comments list` | `{ workItemId, count, comments: [{ id, workItemId, text, author, authorUniqueName, authorId, createdAt, modifiedAt, isDeleted }] }` |
 | `comments add` | `{ workItemId, commentId, text, author, createdAt, url }` |
 | `relations types` | `[{ referenceName, name, usage, enabled, directional }]` |
 | `relations add` | `{ status, type, referenceName, id1, id2 }` — `status` is `added` or `already_exists` |
