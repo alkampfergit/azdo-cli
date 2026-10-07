@@ -164,3 +164,12 @@ The manual run executes no PR code at all. `build` and `integration-tests` are s
 **Fork PRs:** a fork's `pull_request` run has no secrets, so integration tests are skipped there and the preview rests on lint, typecheck and unit tests. The published package is still the PR's code, so read every change in a fork PR before publishing it for others to install.
 
 `npm-tag-cleanup.yml` runs weekly (and on demand) and removes the `pr-<number>` dist-tag of every closed or merged PR; a tag is kept when the PR is open or its state cannot be read. Preview versions stay on npm. It authenticates with an `NPM_TOKEN` repository secret (a granular npm token with read and write access to `azdo-cli` only), because the trusted publisher cannot remove tags. The `ci.yml` trusted publisher is unchanged. The schedule only fires once the workflow is on the default branch.
+
+## Security scanning
+
+`.github/workflows/security.yml` runs [Trivy](https://github.com/aquasecurity/trivy) every 3 days (and on demand from the Actions tab) against `develop` and `master`. It is deliberately not part of `ci.yml`: vulnerabilities are discovered in code that already exists, so it does not run per push or pull request, and it is not a required PR check.
+
+- **Gate:** any HIGH or CRITICAL finding fails the run — fixed or not (`ignore-unfixed` is off). Scanners: `vuln`, `secret`, `misconfig`, `license`; npm devDependencies are included. The published tarball (`npm pack`) is scanned too, for vulnerabilities and secrets.
+- **Report:** each job uploads `trivy-report-<ref>` (`trivy-repo.json`, `trivy-repo.sarif`, `trivy-package.json`) even when the gate fails; download it from the run's *Artifacts* section.
+- **Accepted risks:** add the id to `.trivyignore` with a reason and a review date in the comment above it.
+- **Manual run:** `gh workflow run security.yml`.
