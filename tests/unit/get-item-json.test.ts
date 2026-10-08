@@ -1,4 +1,27 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { tmpdir } from 'node:os';
+import { createGetItemCommand } from '../../src/commands/get-item.js';
+import { getStdout, getStderr, getExitCode, setupProcessSpies, createCommandRunner } from './helpers/command-test-utils.js';
+
+vi.mock('../../src/services/azdo-client.js', async (orig) => ({
+  ...(await orig<typeof import('../../src/services/azdo-client.js')>()),
+  getWorkItem: vi.fn(),
+  downloadAttachment: vi.fn(),
+}));
+vi.mock('../../src/services/auth.js', () => ({
+  requireAuthCredential: vi.fn(),
+  describeResolvedCredential: vi.fn(() => null),
+}));
+vi.mock('../../src/services/context.js', () => ({ resolveContext: vi.fn() }));
+vi.mock('../../src/services/config-store.js', () => ({
+  loadConfig: vi.fn(() => ({})),
+  resolveScopedConfig: vi.fn(() => ({})),
+}));
+import { getWorkItem } from '../../src/services/azdo-client.js';
+import { requireAuthCredential } from '../../src/services/auth.js';
+import { resolveContext } from '../../src/services/context.js';
+
+const run = createCommandRunner(createGetItemCommand);
 import { toJsonDocument } from '../../src/commands/get-item.js';
 import { mapRelations } from '../../src/services/azdo-client.js';
 import type { WorkItem } from '../../src/types/work-item.js';
@@ -61,5 +84,38 @@ describe('toJsonDocument', () => {
   it('uses null / empty values when the item has none', () => {
     const doc = toJsonDocument({ ...base, description: null, assignedToIdentity: null, createdBy: null, createdDate: null, tags: [], relations: [] });
     expect(doc).toMatchObject({ description: '', assignedTo: null, createdBy: null, createdDate: null, tags: [], relations: [] });
+  });
+});
+
+describe('get-item --json command', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(resolveContext).mockReturnValue({ org: 'testorg', project: 'testproj' });
+    vi.mocked(requireAuthCredential).mockResolvedValue({ pat: 'p', source: 'env', kind: 'pat' });
+    vi.mocked(getWorkItem).mockResolvedValue({
+      id: 42, rev: 1, title: 'T', state: 'Active', type: 'Bug', assignedTo: null,
+      description: null, areaPath: 'a', iterationPath: 'i', url: 'u',
+      extraFields: null, attachments: null,
+    } as WorkItem);
+    setupProcessSpies();
+  });
+  afterEach(() => vi.restoreAllMocks());
+
+  it('emits only the JSON document on stdout', async () => {
+    await run(['42', '--json']);
+    const parsed = JSON.parse(getStdout());
+    expect(parsed.id).toBe(42);
+    expect(getStdout().trim().split('\n')).toHaveLength(1);
+  });
+
+  it.each([
+    [['--download-images']],
+    [['--resize-images', '512']],
+    [['--images-path', tmpdir()]],
+  ])('rejects %j before getWorkItem', async (extra) => {
+    await run(['42', '--json', ...extra]);
+    expect(getExitCode()).toBe(1);
+    expect(getStderr()).toContain('--json cannot be combined');
+    expect(getWorkItem).not.toHaveBeenCalled();
   });
 });

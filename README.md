@@ -45,6 +45,7 @@ azdo config set credentialStore dpapi --copy-credentials
 
 # Read a work item
 azdo get-item 12345
+azdo get-item 12345 --json   # machine-readable: identities, tags and all relations incl. pull requests
 
 # Download images embedded in a work item's rich-text fields (opt-in)
 azdo get-item 12345 --download-images                       # saved to the system temp dir
