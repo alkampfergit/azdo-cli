@@ -24,15 +24,13 @@ jobs:
       # Trivy skips npm devDependencies unless told otherwise.
       TRIVY_INCLUDE_DEV_DEPS: "true"
 
+    # No `run:` step here: the checked-out ref is only read by Trivy, never
+    # executed, so it cannot reach the default branch's cache scope.
     steps:
       - uses: actions/checkout@v4
         with:
           ref: ${{ matrix.ref }}
           persist-credentials: false
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
 
       # Reports first (exit-code 0) so they exist whatever the gate decides.
       - name: Trivy report (json)
@@ -57,27 +55,6 @@ jobs:
           output: trivy-repo.sarif
           exit-code: "0"
 
-      # The published artefact: what `npm i -g azdo-cli` actually ships.
-      - name: Pack and extract the published tarball
-        run: |
-          npm ci --ignore-scripts
-          npm run build
-          npm pack --ignore-scripts --quiet
-          mkdir pack
-          tar -xzf ./azdo-cli-*.tgz -C pack
-          cp -f .trivyignore pack/package/ 2>/dev/null || true
-
-      - name: Trivy report (published tarball)
-        uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
-        with:
-          scan-type: fs
-          scan-ref: pack/package
-          scanners: vuln,secret
-          severity: HIGH,CRITICAL
-          format: json
-          output: trivy-package.json
-          exit-code: "0"
-
       # Gates: any HIGH or CRITICAL finding fails the run, fixed or not.
       # Accepted risks go in .trivyignore, each with a reason.
       - name: Trivy gate (repository)
@@ -90,7 +67,47 @@ jobs:
           format: table
           exit-code: "1"
 
-      - name: Trivy gate (published tarball)
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: trivy-report-${{ matrix.ref }}
+          path: |
+            trivy-repo.json
+            trivy-repo.sarif
+          if-no-files-found: warn
+
+  trivy-package:
+    name: Trivy (published package)
+    runs-on: ubuntu-latest
+    steps:
+      # Default-branch checkout, only for .trivyignore.
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          sparse-checkout: .trivyignore
+          sparse-checkout-cone-mode: false
+
+      # What `npm i -g azdo-cli` actually ships, fetched from the registry
+      # rather than built from a checked-out branch.
+      - name: Fetch and extract the published tarball
+        run: |
+          npm pack azdo-cli@latest --ignore-scripts --quiet
+          mkdir pack
+          tar -xzf ./azdo-cli-*.tgz -C pack
+          cp -f .trivyignore pack/package/ 2>/dev/null || true
+
+      - name: Trivy report (published package)
+        uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: pack/package
+          scanners: vuln,secret
+          severity: HIGH,CRITICAL
+          format: json
+          output: trivy-package.json
+          exit-code: "0"
+
+      - name: Trivy gate (published package)
         uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
         with:
           scan-type: fs
@@ -103,9 +120,6 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: trivy-report-${{ matrix.ref }}
-          path: |
-            trivy-repo.json
-            trivy-repo.sarif
-            trivy-package.json
+          name: trivy-report-package
+          path: trivy-package.json
           if-no-files-found: warn
