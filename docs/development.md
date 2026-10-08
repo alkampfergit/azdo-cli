@@ -169,7 +169,8 @@ The manual run executes no PR code at all. `build` and `integration-tests` are s
 
 `.github/workflows/security.yml` runs [Trivy](https://github.com/aquasecurity/trivy) every 3 days (and on demand from the Actions tab) against `develop` and `master`. It is deliberately not part of `ci.yml`: vulnerabilities are discovered in code that already exists, so it does not run per push or pull request, and it is not a required PR check.
 
-- **Gate:** any HIGH or CRITICAL finding fails the run — fixed or not (`ignore-unfixed` is off). Scanners: `vuln`, `secret`, `misconfig`, `license`; npm devDependencies are included. The published tarball (`npm pack`) is scanned too, for vulnerabilities and secrets.
-- **Report:** each job uploads `trivy-report-<ref>` (`trivy-repo.json`, `trivy-repo.sarif`, `trivy-package.json`) even when the gate fails; download it from the run's *Artifacts* section.
+- **Gate:** any HIGH or CRITICAL finding fails the run — fixed or not (`ignore-unfixed` is off). Scanners: `vuln`, `secret`, `misconfig`, `license`; npm devDependencies are included. The package published on npm (`azdo-cli@latest`, fetched with `npm pack`) is scanned too, for vulnerabilities and secrets, in its own job.
+- **Report:** each branch job uploads `trivy-report-<ref>` (`trivy-repo.json`, `trivy-repo.sarif`) and the package job uploads `trivy-report-package` (`trivy-package.json`), even when the gate fails; download it from the run's *Artifacts* section.
 - **Accepted risks:** add the id to `.trivyignore` with a reason and a review date in the comment above it.
+- **No code execution on the scanned branches:** the branch jobs only check out and scan; nothing from the checkout is built or run, so a scheduled run cannot write to the default branch's Actions cache from branch code (CodeQL `actions/cache-poisoning/poisonable-step`).
 - **Manual run:** `gh workflow run security.yml`.
