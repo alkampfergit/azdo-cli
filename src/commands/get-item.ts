@@ -87,6 +87,22 @@ function convertRichText(html: string | null, markdown: boolean): string {
   return markdown ? toMarkdown(html) : stripHtml(html);
 }
 
+/** The `--json` document: description as markdown, stable identities, every relation (056). */
+export function toJsonDocument(workItem: WorkItem): Record<string, unknown> {
+  return {
+    id: workItem.id,
+    title: workItem.title,
+    description: workItem.description ? toMarkdown(workItem.description) : '',
+    state: workItem.state,
+    tags: workItem.tags ?? [],
+    assignedTo: workItem.assignedToIdentity ?? null,
+    createdBy: workItem.createdBy ?? null,
+    createdDate: workItem.createdDate ?? null,
+    url: workItem.url,
+    relations: workItem.relations ?? [],
+  };
+}
+
 export function formatMarkdownField(fieldLabel: string, value: string): string {
   if (value.includes('\n')) {
     return `${fieldLabel}:\n${value}`;
@@ -185,7 +201,8 @@ export function createGetItemCommand(): Command {
     .option('--project <project>', 'Azure DevOps project')
     .option('--short', 'show abbreviated output')
     .option('--fields <fields>', 'comma-separated additional field reference names')
-    .option('--markdown', 'convert rich text fields to markdown');
+    .option('--markdown', 'convert rich text fields to markdown')
+    .option('--json', 'output { id, title, description (markdown), state, tags, assignedTo, createdBy, createdDate, url, relations } (assignedTo/createdBy: { displayName, uniqueName, id }; relations include pull requests)');
   addImageDownloadOptions(command);
   command
     .action(
@@ -197,6 +214,7 @@ export function createGetItemCommand(): Command {
           short?: boolean;
           fields?: string;
           markdown?: boolean;
+          json?: boolean;
           downloadImages?: boolean;
           resizeImages?: string;
           imagesPath?: string;
@@ -208,6 +226,11 @@ export function createGetItemCommand(): Command {
         // Resolve image options first so an invalid --resize-images / --images-path
         // fails fast before any network call and downloads nothing.
         const imageOptions = resolveImageDownloadOptionsOrExit(options);
+
+        if (options.json && imageOptions.enabled) {
+          process.stderr.write('Error: --json cannot be combined with image download options.\n');
+          process.exit(1);
+        }
 
         let context: AzdoContext | undefined;
 
@@ -221,6 +244,11 @@ export function createGetItemCommand(): Command {
             : parseRequestedFields(options.fields);
 
           const workItem = await getWorkItem(context, id, credential, fieldsList);
+
+          if (options.json) {
+            process.stdout.write(JSON.stringify(toJsonDocument(workItem)) + '\n');
+            return;
+          }
 
           const markdownEnabled = options.markdown ?? scopedCfg.markdown ?? false;
           const output = formatWorkItem(workItem, options.short ?? false, markdownEnabled);

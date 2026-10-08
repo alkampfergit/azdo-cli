@@ -5,6 +5,7 @@
 
 ### Added
 
+- `azdo get-item <id> --json` returns `{ id, title, description (markdown), state, tags, assignedTo, createdBy, createdDate, url, relations }` in one read. `assignedTo` / `createdBy` carry `{ displayName, uniqueName, id }`; `relations` lists every relation, including pull request ArtifactLinks as `pullRequest: { id, repositoryId, projectId }`. The `azdo` counterpart of `gh issue view --json`. (#129)
 - `comments list|add|edit --json` and `pr comments --json` now carry `authorUniqueName` (email/UPN) and `authorId` (identity GUID) next to the display-name `author`, so a caller can check an allow list or "is this my own comment" without matching a display name. Additive; `author` is unchanged. (#130)
 - A maintainer can publish a preview of an open pull request with `gh workflow run ci.yml -f pr=<n>` (or the Actions tab); the run publishes the tarball built and tested by the PR's own CI run of its head commit, and then `npm i -g azdo-cli@pr-<n>` installs it. The manual run executes no PR code. The version is derived from tags (`<next-minor>-pr.<n>.<run>`), `latest` is untouched, and a weekly `npm-tag-cleanup.yml` drops the tags of closed or merged PRs. (#140)
 - `azdo comments edit <id> <commentId> [text]` (inline or `--file <path|->`, `--markdown`, `--json`) and `azdo comments delete <id> <commentId>` (`--json`, no confirmation prompt) for work item comments. An unknown or already-deleted comment is an error (exit 1, nothing on stdout). (#131)
