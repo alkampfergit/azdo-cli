@@ -5,6 +5,8 @@ import type {
   AuthCredential,
   WorkItem,
   WorkItemAttachment,
+  WorkItemIdentity,
+  WorkItemRelationEntry,
   WorkItemListFilter,
   WorkItemSummary,
   AzdoContext,
@@ -24,6 +26,9 @@ const DEFAULT_FIELDS: readonly string[] = [
   'System.State',
   'System.WorkItemType',
   'System.AssignedTo',
+  'System.CreatedBy',
+  'System.CreatedDate',
+  'System.Tags',
   'System.Description',
   'Microsoft.VSTS.Common.AcceptanceCriteria',
   'Microsoft.VSTS.TCM.ReproSteps',
@@ -302,7 +307,9 @@ interface AzdoWorkItemResponse {
     'System.Title': string;
     'System.State': string;
     'System.WorkItemType': string;
-    'System.AssignedTo'?: { displayName: string };
+    'System.AssignedTo'?: AzdoIdentityRef;
+    'System.CreatedBy'?: AzdoIdentityRef;
+    'System.CreatedDate'?: string;
     'System.Description'?: string;
     'Microsoft.VSTS.Common.AcceptanceCriteria'?: string;
     'Microsoft.VSTS.TCM.ReproSteps'?: string;
@@ -600,6 +607,34 @@ export async function getOrgFieldNames(
   return (data.value ?? []).map((f) => f.referenceName);
 }
 
+function toIdentity(ref: AzdoIdentityRef | undefined): WorkItemIdentity | null {
+  if (!ref) return null;
+  return {
+    displayName: ref.displayName ?? null,
+    uniqueName: ref.uniqueName ?? null,
+    id: ref.id ?? null,
+  };
+}
+
+const PULL_REQUEST_ARTIFACT = /^vstfs:\/\/\/Git\/PullRequestId\/(.+)$/i;
+
+export function mapRelations(relations?: AzdoRelation[]): WorkItemRelationEntry[] {
+  return (relations ?? []).map((r) => {
+    const entry: WorkItemRelationEntry = { rel: r.rel, name: r.attributes?.name ?? null, url: r.url };
+    const workItemMatch = /\/workItems\/(\d+)$/i.exec(r.url);
+    if (workItemMatch) entry.workItemId = Number(workItemMatch[1]);
+    const prMatch = PULL_REQUEST_ARTIFACT.exec(r.url);
+    if (prMatch) {
+      // Segments are joined with %2F by Azure DevOps; tolerate literal slashes too (see 035).
+      const [projectId, repositoryId, prId] = prMatch[1].split(/%2F|\//i);
+      if (projectId && repositoryId && /^\d+$/.test(prId ?? '')) {
+        entry.pullRequest = { id: Number(prId), repositoryId, projectId };
+      }
+    }
+    return entry;
+  });
+}
+
 function buildCombinedDescription(fields: AzdoWorkItemResponse['fields']): string | null {
   const parts: { label: string; value: string }[] = [];
   if (fields['System.Description']) {
@@ -667,6 +702,11 @@ export async function getWorkItem(context: AzdoContext, id: number, cred: AuthCr
     state: data.fields['System.State'],
     type: data.fields['System.WorkItemType'],
     assignedTo: data.fields['System.AssignedTo']?.displayName ?? null,
+    assignedToIdentity: toIdentity(data.fields['System.AssignedTo']),
+    createdBy: toIdentity(data.fields['System.CreatedBy']),
+    createdDate: data.fields['System.CreatedDate'] ?? null,
+    tags: parseTags(data.fields['System.Tags']),
+    relations: mapRelations(relationsData.relations),
     description: buildCombinedDescription(data.fields),
     areaPath: data.fields['System.AreaPath'],
     iterationPath: data.fields['System.IterationPath'],

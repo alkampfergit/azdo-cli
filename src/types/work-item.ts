@@ -7,6 +7,24 @@ export interface WorkItemAttachment {
   url: string;
 }
 
+/** Stable identity of a user on a work item (`displayName` alone is not a safe key). */
+export interface WorkItemIdentity {
+  displayName: string | null;
+  uniqueName: string | null;
+  id: string | null;
+}
+
+/** One entry of a work item's `relations` — work item links, pull requests, attachments, hyperlinks. */
+export interface WorkItemRelationEntry {
+  rel: string;
+  name: string | null;
+  url: string;
+  /** Set for work item links (`.../workItems/<id>`). */
+  workItemId?: number;
+  /** Set for pull request ArtifactLinks (`vstfs:///Git/PullRequestId/<project>%2F<repo>%2F<pr>`). */
+  pullRequest?: { id: number; repositoryId: string; projectId: string };
+}
+
 export interface WorkItem {
   id: number;
   rev: number;
@@ -20,6 +38,12 @@ export interface WorkItem {
   url: string;
   extraFields: Record<string, string> | null;
   attachments: WorkItemAttachment[] | null;
+  // `get-item --json` (056); optional so other producers of WorkItem stay valid.
+  tags?: string[];
+  assignedToIdentity?: WorkItemIdentity | null;
+  createdBy?: WorkItemIdentity | null;
+  createdDate?: string | null;
+  relations?: WorkItemRelationEntry[];
 }
 
 export interface WorkItemListFilter {

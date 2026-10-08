@@ -41,7 +41,30 @@ azdo get-item 12345 --fields "System.Tags,Microsoft.VSTS.Common.Priority"
 
 # Convert rich-text fields to markdown
 azdo get-item 12345 --markdown
+
+# One machine-readable read (the `gh issue view --json` counterpart)
+azdo get-item 12345 --json
 ```
+
+### `get-item --json`
+
+Prints one JSON object and nothing else:
+
+```json
+{ "id": 12345, "title": "...", "description": "markdown", "state": "Active", "tags": ["ready"],
+  "assignedTo": { "displayName": "Alice", "uniqueName": "alice@x.com", "id": "<guid>" },
+  "createdBy":  { "displayName": "Bob",   "uniqueName": "bob@x.com",   "id": "<guid>" },
+  "createdDate": "2026-01-01T00:00:00Z", "url": "https://dev.azure.com/...",
+  "relations": [
+    { "rel": "ArtifactLink", "name": "Pull Request", "url": "vstfs:///Git/PullRequestId/...",
+      "pullRequest": { "id": 77, "repositoryId": "<guid>", "projectId": "<guid>" } },
+    { "rel": "System.LinkTypes.Hierarchy-Forward", "name": "Child", "url": "...", "workItemId": 12 }
+  ] }
+```
+
+- `description` is markdown (`""` when empty; Acceptance Criteria / Repro Steps are appended as in the text view). `assignedTo` / `createdBy` are `null` when unset; compare on `id` (or `uniqueName`, case-insensitively), never on `displayName`.
+- `relations` lists **every** relation — work item links (`workItemId`), pull request ArtifactLinks (`pullRequest`), commits/builds, attachments and hyperlinks — unlike `azdo relations list`. The repository is given by its GUID (`repositoryId`); the link itself carries no name.
+- Combining `--json` with `--short`/`--markdown` is accepted (they only affect the text view); combining it with the image download options is an error. Same `--org`/`--project` overrides and **Work Items (Read)** scope as the text view.
 
 ### Downloading embedded images
 
@@ -566,7 +589,7 @@ azdo relations list 1000 --json
 - Idempotent: adding an existing relation reports `already_exists`, removing a missing one reports `not_found`; both exit 0
 
 **`azdo relations list <id>`**
-- Lists only **work item link** relations. `ArtifactLink` (pull requests, commits, builds), `Hyperlink` and `AttachedFile` relations are omitted — use `azdo get-item` for attachments and `azdo pr work-items` to manage pull request links
+- Lists only **work item link** relations. `ArtifactLink` (pull requests, commits, builds), `Hyperlink` and `AttachedFile` relations are omitted — use `azdo get-item --json` to read every relation (including linked pull requests) and `azdo pr work-items` to manage pull request links
 - Target titles are fetched in one batch call; if that call fails the titles are `null` and the listing still succeeds
 
 ## azdo upsert
