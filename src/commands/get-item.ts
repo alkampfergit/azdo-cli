@@ -227,7 +227,7 @@ export function createGetItemCommand(): Command {
         // fails fast before any network call and downloads nothing.
         const imageOptions = resolveImageDownloadOptionsOrExit(options);
 
-        if (options.json && imageOptions.enabled) {
+        if (options.json && (imageOptions.enabled || options.downloadImages || options.resizeImages !== undefined || options.imagesPath !== undefined)) {
           process.stderr.write('Error: --json cannot be combined with image download options.\n');
           process.exit(1);
         }
