@@ -215,7 +215,7 @@ work from outside a checkout of the target repository.
 - `--status active|completed|abandoned|all` (default `active`), `--top <N>` (default 25)
 - Prints id, state (`[active, draft]` for a draft), title, source → target, author and URL; `--json` adds the PR `description`, `isDraft`, `creationDate`, `closedDate`, `reviewers` (with `uniqueName`, `vote`, `isRequired`) and `labels`
 - `--work-items` adds each PR's linked work item ids (`workItemIds` in `--json`, a `Work items:` line in text). The list endpoint never returns them, so this costs **one extra call per PR** (at most 5 in flight) — still one `azdo` invocation instead of one per PR
-- **`description` is truncated at 400 characters** in `--json` (and `pr status --json`) — that is the Azure DevOps list endpoint's behaviour. For the full text use `azdo pr comments --pr-number <N> --json` (`pullRequest.description`)
+- **`description` is truncated at 400 characters** in `--json` (and in `pr status --json` when the PR is found by branch; `--pr-number` returns the full text) — that is the Azure DevOps list endpoint's behaviour. For the full text use `azdo pr comments --pr-number <N> --json` (`pullRequest.description`)
 - Azure DevOps keeps no "last updated" timestamp on a pull request, so there is none to report; `closedDate` is `null` while the PR is active
 
 **`azdo pr status`**
@@ -226,7 +226,7 @@ work from outside a checkout of the target repository.
 - `Checks: none reported by Azure DevOps` is shown only when both sources are genuinely empty; a retrieval failure shows `Checks: unable to retrieve (…)` instead (never silently "none")
 - Shows `Detail: …` for failed/errored checks when description is available
 - Shows a `Code comments: N open, M closed` line counting only **code-anchored** (file/line) threads; general discussion threads are excluded
-- `--json` `description` is truncated at 400 characters (list endpoint); the full text is `pullRequest.description` of `azdo pr comments --pr-number <N> --json`
+- `--json` `description` is truncated at 400 characters (list endpoint) unless `--pr-number` is given (single-PR endpoint, full text); the full text is `pullRequest.description` of `azdo pr comments --pr-number <N> --json`
 - `--json` includes a `checks` array (with `source`) and a `codeCommentCounts` object per PR
 
 **`azdo pr open`**
@@ -256,7 +256,7 @@ work from outside a checkout of the target repository.
 - Updates the title and/or the description of an existing pull request — the counterpart to `pr open`, which cannot change a PR it did not create. Re-running `pr open` on a branch that already has an active PR reports `created: false` and changes nothing, by design
 - `--title <s>` / `--title-file <path>` and `--description <s>` / `--description-file <path>`; each pair is mutually exclusive and at least one of the four is required. `-` means standard input for either file flag — but only one of them per invocation, since stdin can be drained only once
 - **Only the fields you pass are sent.** `azdo pr update --title X` issues `PATCH` with `{"title": "X"}`, so the description is provably untouched — Azure DevOps leaves omitted properties alone
-- **Never round-trip a description through `pr list` / `pr status`**: they cut it at 400 characters, so writing it back deletes the rest (e.g. a template checklist). Start from `azdo pr comments --pr-number <N> --json` → `pullRequest.description`, which is complete
+- **Never round-trip a description through `pr list` / branch-based `pr status`**: they cut it at 400 characters, so writing it back deletes the rest (e.g. a template checklist). Start from `azdo pr comments --pr-number <N> --json` → `pullRequest.description`, which is complete
 - **`--description` replaces the description literally.** No repository pull request template is looked up or prepended, unlike `pr open` — prepending it on update would re-prepend it on every subsequent edit. If you want the template, paste it into your file
 - Values are trimmed, and an empty title or description is rejected rather than clearing the field
 - Idempotent: when every field you passed already holds that value, the command reports a no-op, issues **no** `PATCH`, and exits 0 (`noop: true` in `--json`)

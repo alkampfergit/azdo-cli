@@ -5,7 +5,7 @@
 **Status**: Approved (issue #148, owner: "ok go")
 
 ## Requirements
-- **FR-1**: `pr list --help` and `pr status --help` state that `description` is truncated at 400 characters and name `azdo pr comments --pr-number <N> --json` for the full text.
+- **FR-1**: `pr list --help` and `pr status --help` state that `description` is truncated at 400 characters (for `pr status`, only in the default/`--branch` list-based modes; `--pr-number` uses the single-PR endpoint and returns the full text) and name `azdo pr comments --pr-number <N> --json` for the full text.
 - **FR-2**: `pr update --help` recommends starting from the full description of `pr comments --json`, never from `pr list`/`pr status`.
 - **FR-3**: `docs/commands.md` carries the same warnings.
 

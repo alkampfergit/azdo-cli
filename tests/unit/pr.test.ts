@@ -92,6 +92,12 @@ describe('description truncation notes in help (#148)', () => {
     expect(getStdout()).toContain('azdo pr comments --pr-number <N> --json');
   });
 
+  it('pr status --help limits the cut to branch lookups', async () => {
+    const run = createCommandRunner(createPrStatusCommand);
+    await run(['--help']);
+    expect(getStdout()).toContain('with --pr-number the full description is returned');
+  });
+
   it('pr update --help warns against starting from pr list', async () => {
     const run = createCommandRunner(createPrUpdateCommand);
     await run(['--help']);

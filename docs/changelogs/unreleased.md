@@ -5,7 +5,7 @@
 
 ### Documentation
 
-- `pr list`, `pr status` and `pr update` `--help` and `docs/commands.md` now state that `description` is cut at 400 characters in `pr list|status --json` and point to `azdo pr comments --pr-number <N> --json` for the full text, to avoid truncating a description when editing it with `pr update`. No behaviour change. (#148)
+- `pr list`, `pr status` and `pr update` `--help` and `docs/commands.md` now state that `description` is cut at 400 characters in `pr list --json` and branch-based `pr status --json` (not `pr status --pr-number`) and point to `azdo pr comments --pr-number <N> --json` for the full text, to avoid truncating a description when editing it with `pr update`. No behaviour change. (#148)
 
 ### Added
 
