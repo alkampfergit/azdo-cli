@@ -616,6 +616,9 @@ async function resolvePrCommandContext(
 // neither the C-1 auto-detection sentence nor the C-2/C-3 zero/multi-match
 // errors of the single-PR commands (owner decision A on PR #43). The options
 // only move WHICH pull requests the overview covers (#123).
+const DESCRIPTION_TRUNCATION_NOTE =
+  '\nNote: in --json, "description" is cut at 400 characters (a limit of the Azure DevOps list endpoint).\n' +
+  'For the full text run: azdo pr comments --pr-number <N> --json  (pullRequest.description).\n';
 const STATUS_PR_NUMBER_HELP =
   'show only the pull request with this numeric id, instead of the current branch\'s pull requests; ' +
   'mutually exclusive with --branch';
@@ -689,6 +692,7 @@ export function createPrStatusCommand(): Command {
     .option('--pr-number <id>', STATUS_PR_NUMBER_HELP)
     .option('--branch <name>', STATUS_BRANCH_HELP)
     .option('--json', 'output JSON')
+    .addHelpText('after', DESCRIPTION_TRUNCATION_NOTE)
     .action(async (options: PrCommandOptions & { branch?: string }) => {
       validateOrgProjectPair(options);
 
@@ -1166,6 +1170,12 @@ export function createPrUpdateCommand(): Command {
     )
     .option('--description-file <path>', 'read the new description from a UTF-8 file; "-" reads standard input')
     .option('--json', 'output JSON')
+    .addHelpText(
+      'after',
+      '\nNote: the description is replaced literally. To edit it, start from the full text returned by\n' +
+        '"azdo pr comments --pr-number <N> --json" (pullRequest.description), never from "pr list" or\n' +
+        '"pr status": those cut it at 400 characters, and writing that back deletes the rest.\n',
+    )
     .action(async (_options: PrCommandOptions, command: Command) => {
       await runPrUpdate(mergedPrOptions(command));
     });
@@ -2504,6 +2514,7 @@ export function createPrListCommand(): Command {
     .option('--top <N>', `maximum number of pull requests to return (default ${DEFAULT_LIST_TOP})`)
     .option('--work-items', 'also return the ids of each pull request\'s linked work items (one extra API call per pull request)')
     .option('--json', 'output JSON')
+    .addHelpText('after', DESCRIPTION_TRUNCATION_NOTE)
     .action(async (options: PrListOptions) => {
       validateOrgProjectPair(options);
 

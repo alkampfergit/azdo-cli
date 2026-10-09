@@ -3,6 +3,10 @@
 > Working detail for the next release. Finalised into
 > `docs/changelogs/0.22.0.md` when the release is cut.
 
+### Documentation
+
+- `pr list`, `pr status` and `pr update` `--help` and `docs/commands.md` now state that `description` is cut at 400 characters in `pr list|status --json` and point to `azdo pr comments --pr-number <N> --json` for the full text, to avoid truncating a description when editing it with `pr update`. No behaviour change. (#148)
+
 ### Added
 
 - `azdo get-item <id> --json` returns `{ id, title, description (markdown), state, tags, assignedTo, createdBy, createdDate, url, relations }` in one read. `assignedTo` / `createdBy` carry `{ displayName, uniqueName, id }`; `relations` lists every relation, including pull request ArtifactLinks as `pullRequest: { id, repositoryId, projectId }`. The `azdo` counterpart of `gh issue view --json`. (#129)
