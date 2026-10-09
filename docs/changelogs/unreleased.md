@@ -1,34 +1,6 @@
-# Unreleased — targeting 0.22.0
+# Unreleased — targeting 0.23.0
 
 > Working detail for the next release. Finalised into
-> `docs/changelogs/0.22.0.md` when the release is cut.
+> `docs/changelogs/0.23.0.md` when the release is cut.
 
-### Documentation
-
-- `pr list`, `pr status` and `pr update` `--help` and `docs/commands.md` now state that `description` is cut at 400 characters in `pr list --json` and branch-based `pr status --json` (not `pr status --pr-number`) and point to `azdo pr comments --pr-number <N> --json` for the full text, to avoid truncating a description when editing it with `pr update`. No behaviour change. (#148)
-
-### Added
-
-- `azdo get-item <id> --json` returns `{ id, title, description (markdown), state, tags, assignedTo, createdBy, createdDate, url, relations }` in one read. `assignedTo` / `createdBy` carry `{ displayName, uniqueName, id }`; `relations` lists every relation, including pull request ArtifactLinks as `pullRequest: { id, repositoryId, projectId }`. The `azdo` counterpart of `gh issue view --json`. (#129)
-- `comments list|add|edit --json` and `pr comments --json` now carry `authorUniqueName` (email/UPN) and `authorId` (identity GUID) next to the display-name `author`, so a caller can check an allow list or "is this my own comment" without matching a display name. Additive; `author` is unchanged. (#130)
-- A scheduled `security.yml` workflow runs Trivy every 3 days on `develop` and `master` (repository incl. devDependencies, plus the npm-published package), fails on any HIGH or CRITICAL finding including unfixed ones, and uploads JSON/SARIF reports as the `trivy-report-<ref>` artefact. Accepted risks go in `.trivyignore`. (#144)
-- A maintainer can publish a preview of an open pull request with `gh workflow run ci.yml -f pr=<n>` (or the Actions tab); the run publishes the tarball built and tested by the PR's own CI run of its head commit, and then `npm i -g azdo-cli@pr-<n>` installs it. The manual run executes no PR code. The version is derived from tags (`<next-minor>-pr.<n>.<run>`), `latest` is untouched, and a weekly `npm-tag-cleanup.yml` drops the tags of closed or merged PRs. (#140)
-- `azdo comments edit <id> <commentId> [text]` (inline or `--file <path|->`, `--markdown`, `--json`) and `azdo comments delete <id> <commentId>` (`--json`, no confirmation prompt) for work item comments. An unknown or already-deleted comment is an error (exit 1, nothing on stdout). (#131)
-- `azdo pipeline artifacts <run_id>` lists a run's build artifacts (name, type, size; `--json`), and `azdo pipeline artifact-download <run_id> [name]` downloads one (or `--all`) and extracts it straight into `--path` — the zip is never written to disk. No overwrite without `--force`, zip-slip entries rejected, silent unless `--progress`. Adds the zero-dependency `fflate`. (#135)
-- `azdo pipeline logs --head <n>` and `--no-progress` (collapse carriage-return progress redraws, opt-in); the logs listing and `--json` now carry each log's record `type` and `parent`, and the `--step` ambiguity error prints them. (#135)
-- `azdo pr open` gains `--target <branch>`, `--source <branch>` (no checkout needed), `--draft`, `--work-item <id>` and `--label <label>` (both repeatable), with `--draft` and `--label` sent in the create call and each `--work-item` linked right after (a failed link keeps the PR, names the work item and exits 1). `--json` now also carries top-level `id` and `url`. An existing active PR for the same source and target is still reused untouched. (#132)
-- `azdo list-items` lists work items filtered by `--state`, `--tag`, `--assigned-to` (`@me` supported), `--title-contains` and `--top` through one WIQL query plus batch reads of 200 items each (two requests for up to 200 matches). `--json` returns `[{ id, title, description (markdown), url, state, tags, assignedTo }]`; same `--org`/`--project` overrides as the other commands. The `azdo` counterpart of `gh issue list`. (#128)
-- `azdo pr status --branch <name>` and `--pr-number <id>` report checks for another branch or a specific pull request without checking it out; same text and `--json` output as the current-branch view. The two are mutually exclusive; an unknown PR exits 3 and a branch with no PRs exits 1, each with a clear message. (#123)
-- `azdo pr comments delete <threadId>` (alias `azdo pr comment-delete`) removes a pull request comment through the documented `DELETE .../threads/{threadId}/comments/{commentId}`. `--comment-id <N>` picks the comment and may be omitted only when the thread holds a single one; an ambiguous thread is refused with the candidate ids listed. No confirmation prompt (scripted use); `--dry-run` previews. Exit 3 for an unknown thread or comment, 4 when Azure DevOps refuses because the comment belongs to somebody else. `--json` returns `{ pullRequestId, threadId, commentId, deleted, dryRun }`. (#120)
-- `azdo pr list --work-items` returns each pull request's linked work item ids (`workItemIds` in `--json`, a `Work items:` line in text) — one `azdo` call for the whole PR ↔ work item map instead of one per PR. (#122)
-- The pull request object in `--json` (`pr list`, `pr status`, `pr open`, `pr comments`) now carries `isDraft`, `creationDate`, `closedDate`, `reviewers` (`uniqueName`, `vote`, `isRequired`) and `labels`; `pr list` marks drafts as `[active, draft]`. (#122)
-- `azdo pr reviewers list` lists a pull request's reviewers with their votes. `--json` returns, per reviewer, the stable identity (`id`, `uniqueName`) next to the display name, `isRequired`, the raw Azure DevOps `vote` and its named `voteState` (`approved`, `approved-with-suggestions`, `no-vote`, `waiting-for-author`, `rejected`, `bypassed`, or `unknown` for a value the CLI does not know) plus `hasDeclined`. Read-only, **Code (Read)** only; `--pr-number`, `--repo` and the current-branch auto-detection work as on every other `pr` subcommand. The `azdo` counterpart of `gh pr view --json reviews`. (#124)
-
-### Fixed
-
-- `azdo pipeline logs --no-progress` now also collapses progress bars Azure DevOps stores glued into one line (no `\r`/`\n` between them): the timestamp and the last bar are kept. `artifact-download` no longer holds the zip twice while downloading. (#138)
-
-### Changed
-
-- `azdo config --help` now prints a *Settings* section generated from the settings registry: for every key its meaning, type or accepted values (`credentialStore`: `keyring`, `dpapi` marked Windows only), whether it is global only or also `--org`-scoped, the `AZDO_CREDENTIAL_STORE` override, and a ready-to-paste `azdo config set` example. The credential resolution order stays below it. (#118)
-- `azdo config set|get|unset --help` list the keys from the same registry and point at `azdo config --help`. The org-scoped key list is now derived from the registry too, so validation and help cannot disagree. (#118)
+_No unreleased changes._

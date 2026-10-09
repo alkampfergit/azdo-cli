@@ -14,6 +14,17 @@ the project uses [Semantic Versioning](https://semver.org/).
 
 _No unreleased changes._
 
+## [0.22.0] - 2026-10-09
+
+Adds work-item JSON and filtering, more PR and pipeline commands, npm PR previews, and scheduled Trivy scanning; fixes a HIGH dependency vulnerability.
+→ [details](docs/changelogs/0.22.0.md)
+
+- Add `get-item --json`, `list-items`, work-item comment editing/deletion, and stable author identity in JSON (#129, #128, #131, #130).
+- Add PR targets, draft creation, work-item linking, reviewer/status queries, linked work-item JSON, and comment deletion (#132, #123, #122, #124, #120).
+- Add pipeline artifact listing/download and improved log filtering/progress handling (#135, #138).
+- Add tested npm previews for open PRs and scheduled Trivy repository/package scans (#140, #144).
+- Fix HIGH CVE-2026-93749 by updating `source-map-js` to 1.2.2; harden CI installation and clarify PR description truncation (#143, #150, #153).
+
 ## [0.21.0] - 2026-09-30
 
 Command-reference documentation is now complete, and the Context7 index excludes specs and planning files that surface removed commands.
