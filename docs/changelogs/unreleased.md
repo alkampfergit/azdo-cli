@@ -22,6 +22,7 @@
 
 ### Fixed
 
+- Security: the transitive dev dependency `source-map-js` (via `tsup` → `postcss`) is bumped 1.2.1 → 1.2.2 for CVE-2026-93749 (HIGH, DoS via malformed indexed source maps) flagged by the Trivy gate. Build-time only: not shipped, not bundled, not reachable from the CLI. (#151)
 - `azdo pipeline logs --no-progress` now also collapses progress bars Azure DevOps stores glued into one line (no `\r`/`\n` between them): the timestamp and the last bar are kept. `artifact-download` no longer holds the zip twice while downloading. (#138)
 
 ### Changed

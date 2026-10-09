@@ -1,0 +1,3 @@
+- [x] Bump transitive source-map-js 1.2.1 → 1.2.2 in package-lock.json
+- [x] Record impact analysis (spec.md)
+- [x] npm test && npm run lint
