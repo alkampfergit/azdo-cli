@@ -137,6 +137,21 @@ jobs:
 
       - run: npm ci --ignore-scripts
 
+      # Proves `npm ci --ignore-scripts` leaves the native keyring usable: the
+      # real-keyring suite is opt-in (AZDO_INTEGRATION=1) and needs a Secret
+      # Service backend, which a stock runner does not provide.
+      - name: Credential store (real Linux keyring)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends gnome-keyring libsecret-1-0 dbus-x11
+          npm run build
+          dbus-run-session -- bash -c '
+            set -e
+            eval "$(echo -n "" | gnome-keyring-daemon --unlock --components=secrets)"
+            export GNOME_KEYRING_CONTROL SSH_AUTH_SOCK
+            AZDO_INTEGRATION=1 npm exec --no -- vitest run tests/integration/auth.integration.test.ts
+          '
+
       - name: Integration tests
         if: env.AZDO_PAT != ''
         env:
