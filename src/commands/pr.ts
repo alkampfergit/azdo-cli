@@ -619,6 +619,10 @@ async function resolvePrCommandContext(
 const DESCRIPTION_TRUNCATION_NOTE =
   '\nNote: in --json, "description" is cut at 400 characters (a limit of the Azure DevOps list endpoint).\n' +
   'For the full text run: azdo pr comments --pr-number <N> --json  (pullRequest.description).\n';
+const STATUS_DESCRIPTION_TRUNCATION_NOTE =
+  '\nNote: when looking the PR up by branch (default or --branch), "description" in --json is cut at 400 characters\n' +
+  '(a limit of the Azure DevOps list endpoint); with --pr-number the full description is returned.\n' +
+  'For the full text run: azdo pr comments --pr-number <N> --json  (pullRequest.description).\n';
 const STATUS_PR_NUMBER_HELP =
   'show only the pull request with this numeric id, instead of the current branch\'s pull requests; ' +
   'mutually exclusive with --branch';
@@ -692,7 +696,7 @@ export function createPrStatusCommand(): Command {
     .option('--pr-number <id>', STATUS_PR_NUMBER_HELP)
     .option('--branch <name>', STATUS_BRANCH_HELP)
     .option('--json', 'output JSON')
-    .addHelpText('after', DESCRIPTION_TRUNCATION_NOTE)
+    .addHelpText('after', STATUS_DESCRIPTION_TRUNCATION_NOTE)
     .action(async (options: PrCommandOptions & { branch?: string }) => {
       validateOrgProjectPair(options);
 
@@ -1174,7 +1178,7 @@ export function createPrUpdateCommand(): Command {
       'after',
       '\nNote: the description is replaced literally. To edit it, start from the full text returned by\n' +
         '"azdo pr comments --pr-number <N> --json" (pullRequest.description), never from "pr list" or\n' +
-        '"pr status": those cut it at 400 characters, and writing that back deletes the rest.\n',
+        '"pr status" (by branch): those cut it at 400 characters, and writing that back deletes the rest.\n',
     )
     .action(async (_options: PrCommandOptions, command: Command) => {
       await runPrUpdate(mergedPrOptions(command));
