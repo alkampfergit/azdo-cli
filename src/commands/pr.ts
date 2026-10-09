@@ -1,4 +1,3 @@
-import { existsSync, readFileSync } from 'node:fs';
 import { Command } from 'commander';
 import type {
   ActiveCommentThread,
@@ -9,12 +8,16 @@ import type {
   PullRequestCommentsResult,
   PullRequestCheck,
   PullRequestLifecycleStatus,
+  PullRequestOpenOptions,
+  PullRequestOpenResult,
   PullRequestStatusChangeResult,
   PullRequestStatusPullRequest,
   PullRequestStatusResult,
   PullRequestUpdatableField,
   PullRequestUpdateRequest,
   PullRequestUpdateResult,
+  PullRequestWithWorkItems,
+  Reviewer,
 } from '../types/pull-request.js';
 import type { AuthCredential, AzdoContext } from '../types/work-item.js';
 import {
@@ -34,18 +37,22 @@ import {
   patchThreadStatus,
   postThreadComment,
   updateThreadComment,
+  deleteThreadComment,
   linkWorkItemToPullRequest,
   unlinkWorkItemFromPullRequest,
   resolveReviewerIdentity,
   addOrUpdatePullRequestReviewer,
   getPullRequestReviewers,
+  getPullRequestWorkItemIds,
   removePullRequestReviewer,
 } from '../services/pr-client.js';
 import { describeResolvedCredential, requireAuthCredential } from '../services/auth.js';
 import { resolveContext } from '../services/context.js';
 import {
   isSentinel,
+  readTextSource as readTextSourceOrThrow,
   reportCredentialStoreUnavailable,
+  STDIN_PATH,
   splitSentinel,
   validateOrgProjectPair,
   writeErrorDetail,
@@ -80,20 +87,22 @@ interface PrCommandOptions {
 
 // Parses `--pr-number <N>` into a positive integer. Returns null on any
 // invalid input — leading sign, whitespace, float, zero, negative,
-// non-numeric — letting the caller print a validation error.
+// non-numeric, or a value above Number.MAX_SAFE_INTEGER (parseInt would
+// silently round it to a DIFFERENT id and the request would target the
+// wrong PR) — letting the caller print a validation error.
 function parsePositivePrNumber(raw: string): number | null {
   if (!/^\d+$/.test(raw)) {
     return null;
   }
   const n = Number.parseInt(raw, 10);
-  return Number.isFinite(n) && n > 0 ? n : null;
+  return Number.isSafeInteger(n) && n > 0 ? n : null;
 }
 
 // Shared help text for the `--pr-number` option on the single-PR commands
 // (comments / comment-resolve / comment-reopen). Defined once so the wording
 // cannot drift between subcommands (FR-005 / contract C-1). `pr status` is a
-// multi-PR list command and intentionally does NOT carry this option (owner
-// decision A on PR #43).
+// multi-PR list command and does NOT carry this sentence (owner decision A on
+// PR #43); its own --pr-number (#123) uses STATUS_PR_NUMBER_HELP.
 //
 // Parameterised by the status the branch auto-detection actually searches: every
 // command but `pr reactivate` resolves the branch's *active* PR, while
@@ -191,35 +200,14 @@ function writeContractError(line: string): void {
 // two authoring commands (add / edit) and reply fail identically.
 const EMPTY_BODY_ERROR = 'Comment text must not be empty. Pass the text inline or use --file <path>.';
 
-// The POSIX "read standard input" path, accepted by every `--file` /
-// `--*-file` option in the `pr` group so a body can be piped in
-// (`gh issue view 96 | azdo pr update --description-file -`).
-const STDIN_PATH = '-';
-
 // Reads a text source named by a `--file` style option: `-` means standard
 // input, anything else is a UTF-8 file path. Returns null when the source
 // could not be read — the error is already on stderr and the exit code set.
 function readTextSource(file: string): string | null {
-  if (file === STDIN_PATH) {
-    // fd 0 is read synchronously: the CLI has nothing else to do until the
-    // body arrives, and stdin can only be drained once per process — which is
-    // also why callers reject `-` used for two options at once.
-    try {
-      return readFileSync(0, 'utf-8');
-    } catch {
-      writeError('Cannot read standard input.');
-      return null;
-    }
-  }
-
-  if (!existsSync(file)) {
-    writeError(`File not found: ${file}`);
-    return null;
-  }
   try {
-    return readFileSync(file, 'utf-8');
-  } catch {
-    writeError(`Cannot read file: ${file}`);
+    return readTextSourceOrThrow(file);
+  } catch (err) {
+    writeError((err as Error).message);
     return null;
   }
 }
@@ -623,25 +611,114 @@ async function resolvePrCommandContext(
   };
 }
 
+// Help text for `pr status --pr-number` / `--branch`. Deliberately NOT the
+// shared PR_NUMBER_HELP: `pr status` stays a multi-PR overview, so it carries
+// neither the C-1 auto-detection sentence nor the C-2/C-3 zero/multi-match
+// errors of the single-PR commands (owner decision A on PR #43). The options
+// only move WHICH pull requests the overview covers (#123).
+const DESCRIPTION_TRUNCATION_NOTE =
+  '\nNote: in --json, "description" is cut at 400 characters (a limit of the Azure DevOps list endpoint).\n' +
+  'For the full text run: azdo pr comments --pr-number <N> --json  (pullRequest.description).\n';
+const STATUS_DESCRIPTION_TRUNCATION_NOTE =
+  '\nNote: when looking the PR up by branch (default or --branch), "description" in --json is cut at 400 characters\n' +
+  '(a limit of the Azure DevOps list endpoint); with --pr-number the full description is returned.\n' +
+  'For the full text run: azdo pr comments --pr-number <N> --json  (pullRequest.description).\n';
+const STATUS_PR_NUMBER_HELP =
+  'show only the pull request with this numeric id, instead of the current branch\'s pull requests; ' +
+  'mutually exclusive with --branch';
+const STATUS_BRANCH_HELP =
+  'show the pull requests whose source branch is this one (with or without the refs/heads/ prefix), ' +
+  'instead of the current branch\'s; no checkout needed. Mutually exclusive with --pr-number';
+
+// Where `pr status` looks: the current git branch (the default), an explicit
+// branch, or one explicit pull request. Parsed before any network call so a
+// typo or a conflicting pair never costs a round trip.
+type StatusTarget =
+  | { kind: 'current' }
+  | { kind: 'branch'; branch: string }
+  | { kind: 'pr'; prId: number };
+
+// Returns null when the options are unusable — the error is already on stderr.
+function parseStatusTarget(options: PrCommandOptions & { branch?: string }): StatusTarget | null {
+  if (options.prNumber !== undefined && options.branch !== undefined) {
+    writeError('Cannot specify both --pr-number and --branch.');
+    return null;
+  }
+
+  if (options.branch !== undefined) {
+    const branch = options.branch.trim().replace(/^refs\/heads\//, '');
+    if (branch === '') {
+      writeError('--branch must not be empty.');
+      return null;
+    }
+    return { kind: 'branch', branch };
+  }
+
+  const prId = parseTargetPrNumber(options);
+  if (prId === 'invalid') {
+    return null;
+  }
+  return prId === 'none' ? { kind: 'current' } : { kind: 'pr', prId };
+}
+
+// Finds the pull requests the overview covers and the branch it reports.
+// Returns null when an EXPLICIT target matched nothing (error on stderr, exit
+// 3 for a PR number, exit 1 for a branch): the operator named something that
+// is not there, which must not read as an empty success. The current-branch
+// default keeps its "No pull requests found" success, unchanged.
+async function findStatusPullRequests(
+  resolved: ResolvedPrCommandContext,
+  target: StatusTarget,
+): Promise<{ branch: string; pullRequests: BranchPullRequestMatch[] } | null> {
+  if (target.kind === 'pr') {
+    const pullRequest = await fetchTargetById(resolved, target.prId);
+    return pullRequest === null
+      ? null
+      : { branch: formatBranchName(pullRequest.sourceRefName), pullRequests: [pullRequest] };
+  }
+
+  const branch = target.kind === 'branch' ? target.branch : resolved.branch!;
+  const pullRequests = await listPullRequests(resolved.context, resolved.repo, resolved.pat, branch);
+  if (target.kind === 'branch' && pullRequests.length === 0) {
+    writeError(
+      `No pull requests found for branch ${branch} in ${resolved.context.org}/${resolved.context.project}/${resolved.repo}.`,
+    );
+    return null;
+  }
+  return { branch, pullRequests };
+}
+
 export function createPrStatusCommand(): Command {
   const command = new Command('status');
 
-  withCommonPrOptions(command)
-    .description('Check pull requests for the current branch')
+  withCommonPrOptions(configureUnwrappedHelp(command))
+    .description('Check pull requests for the current branch, another branch, or a specific pull request')
+    .option('--pr-number <id>', STATUS_PR_NUMBER_HELP)
+    .option('--branch <name>', STATUS_BRANCH_HELP)
     .option('--json', 'output JSON')
-    .action(async (options: PrCommandOptions) => {
+    .addHelpText('after', STATUS_DESCRIPTION_TRUNCATION_NOTE)
+    .action(async (options: PrCommandOptions & { branch?: string }) => {
       validateOrgProjectPair(options);
+
+      const target = parseStatusTarget(options);
+      if (target === null) {
+        return;
+      }
 
       let context: AzdoContext | undefined;
 
       try {
-        const resolved = await resolvePrCommandContext(options);
+        // Only the default target needs the git branch; an explicit one makes
+        // the command usable from any directory (with --repo, or anywhere in
+        // a checkout of the repository) without checking anything out.
+        const resolved = await resolvePrCommandContext(options, { requireBranch: target.kind === 'current' });
         context = resolved.context;
 
-        // pr status uses the default requireBranch=true resolver, so branch
-        // is guaranteed non-null at runtime.
-        const branch = resolved.branch!;
-        const pullRequests = await listPullRequests(resolved.context, resolved.repo, resolved.pat, branch);
+        const found = await findStatusPullRequests(resolved, target);
+        if (found === null) {
+          return;
+        }
+        const { branch, pullRequests } = found;
 
         // The policy-evaluation artifactId needs the project GUID. Resolve it
         // once (best-effort): if it fails, we still show status-API checks and
@@ -681,12 +758,12 @@ export function createPrStatusCommand(): Command {
 
 // The `pr open` failures that are not API failures. Kept out of the action
 // callback so the command body stays a straight line: resolve, create, report.
-function handlePrOpenError(err: unknown, context?: AzdoContext): void {
+function handlePrOpenError(err: unknown, context?: AzdoContext, targetBranch = 'develop'): void {
   const message = err instanceof Error ? err.message : '';
 
   if (message.startsWith('AMBIGUOUS_PRS:')) {
     const ids = message.replace('AMBIGUOUS_PRS:', '').split(',').map((id) => `#${id}`).join(', ');
-    writeError(`Multiple active pull requests already exist for this branch targeting develop: ${ids}. Use pr status to review them.`);
+    writeError(`Multiple active pull requests already exist for this branch targeting ${targetBranch}: ${ids}. Use pr status to review them.`);
     return;
   }
 
@@ -703,6 +780,62 @@ function handlePrOpenError(err: unknown, context?: AzdoContext): void {
   }
 
   handlePrCommandError(err, context, 'write');
+}
+
+function collectOption(value: string, previous: string[]): string[] {
+  return [...previous, value];
+}
+
+function stripHeadsPrefix(branch: string): string {
+  return branch.trim().replace(/^refs\/heads\//, '');
+}
+
+// `pr open`'s branch / draft / label / work-item flags, validated before any
+// network call. `null` means the input was rejected and the error is already
+// on stderr.
+function resolveOpenOptions(options: {
+  target?: string;
+  source?: string;
+  draft?: boolean;
+  workItem?: string[];
+  label?: string[];
+}): (PullRequestOpenOptions & { targetBranch: string; source?: string }) | null {
+  const targetBranch = options.target === undefined ? 'develop' : stripHeadsPrefix(options.target);
+  const source = options.source === undefined ? undefined : stripHeadsPrefix(options.source);
+  if (!targetBranch) {
+    writeError('--target must not be empty.');
+    return null;
+  }
+  if (source !== undefined && !source) {
+    writeError('--source must not be empty.');
+    return null;
+  }
+
+  const workItemIds: number[] = [];
+  for (const raw of options.workItem ?? []) {
+    const id = Number(raw.trim());
+    if (!/^\d+$/.test(raw.trim()) || !Number.isSafeInteger(id) || id <= 0) {
+      writeError(`--work-item must be a positive integer, got "${raw}".`);
+      return null;
+    }
+    if (!workItemIds.includes(id)) {
+      workItemIds.push(id);
+    }
+  }
+
+  const labels: string[] = [];
+  for (const raw of options.label ?? []) {
+    const name = raw.trim();
+    if (!name) {
+      writeError('--label must not be empty.');
+      return null;
+    }
+    if (!labels.includes(name)) {
+      labels.push(name);
+    }
+  }
+
+  return { targetBranch, source, isDraft: options.draft === true, labels, workItemIds };
 }
 
 // `pr open`'s description, resolved before any network call: the template
@@ -749,7 +882,7 @@ export function createPrOpenCommand(): Command {
   const command = new Command('open');
 
   withCommonPrOptions(command)
-    .description('Open a pull request from the current branch to develop')
+    .description('Open a pull request (default: from the current branch to develop)')
     .option('--title <title>', 'pull request title')
     .option(
       '--description <description>',
@@ -759,11 +892,26 @@ export function createPrOpenCommand(): Command {
       '--description-file <path>',
       'read the description from a UTF-8 file instead of --description; "-" reads standard input',
     )
-    .option('--json', 'output JSON')
+    .option('--target <branch>', 'target branch (default: develop); refs/heads/ prefix accepted')
+    .option('--source <branch>', 'source branch (default: the current branch); no local checkout needed')
+    .option('--draft', 'open the pull request as a draft')
+    .option(
+      '--work-item <id>',
+      'link a work item to the pull request (positive integer; repeatable)',
+      collectOption,
+      [] as string[],
+    )
+    .option('--label <label>', 'add a label to the pull request (repeatable)', collectOption, [] as string[])
+    .option('--json', 'output JSON; adds top-level id and url next to pullRequest')
     .action(async (options: {
       title?: string;
       description?: string;
       descriptionFile?: string;
+      target?: string;
+      source?: string;
+      draft?: boolean;
+      workItem?: string[];
+      label?: string[];
       org?: string;
       project?: string;
       repo?: string;
@@ -782,19 +930,31 @@ export function createPrOpenCommand(): Command {
         return;
       }
 
+      const openOptions = resolveOpenOptions(options);
+      if (openOptions === null) {
+        return;
+      }
+
       let context: AzdoContext | undefined;
 
       try {
-        const resolved = await resolvePrCommandContext(options);
-        context = resolved.context;
-
-        if (resolved.branch === 'develop') {
-          writeError('Pull request creation requires a source branch other than develop.');
+        // Self-target is rejected before credential resolution, which can refresh
+        // an OAuth token over the network. An explicit --source needs no git
+        // checkout, so the branch lookup is skipped.
+        const openBranch = openOptions.source ?? getCurrentBranch();
+        const target = openOptions.targetBranch;
+        if (openBranch === target) {
+          writeError(
+            target === 'develop'
+              ? 'Pull request creation requires a source branch other than develop.'
+              : `Pull request creation requires a source branch other than the target branch (${target}).`,
+          );
           return;
         }
 
-        // pr open uses the default requireBranch=true resolver.
-        const openBranch = resolved.branch!;
+        const resolved = await resolvePrCommandContext(options, { requireBranch: false });
+        context = resolved.context;
+
         const result = await openPullRequest(
           resolved.context,
           resolved.repo,
@@ -802,27 +962,48 @@ export function createPrOpenCommand(): Command {
           openBranch,
           title,
           description,
+          openOptions,
         );
 
         if (options.json) {
-          process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+          const output = { ...result, id: result.pullRequest.id, url: result.pullRequest.url };
+          process.stdout.write(`${JSON.stringify(output, null, 2)}\n`);
+          reportWorkItemLinkFailures(result);
           return;
         }
 
         if (result.created) {
           process.stdout.write(`Created pull request #${result.pullRequest.id}: ${result.pullRequest.title}\n${result.pullRequest.url ?? '—'}\n`);
+          reportWorkItemLinkFailures(result);
           return;
         }
 
         process.stdout.write(
-          `Active pull request already exists for ${resolved.branch} -> develop: #${result.pullRequest.id}\n${result.pullRequest.url ?? '—'}\n`,
+          `Active pull request already exists for ${openBranch} -> ${result.targetBranch}: #${result.pullRequest.id}\n${result.pullRequest.url ?? '—'}\n`,
         );
+        if (openOptions.isDraft || openOptions.labels?.length || openOptions.workItemIds?.length) {
+          const hint = openOptions.workItemIds?.length ? ' Use pr work-items link to link a work item.' : '';
+          process.stdout.write(
+            `--draft, --label and --work-item were not applied; the existing pull request was left unchanged.${hint}\n`,
+          );
+        }
       } catch (err) {
-        handlePrOpenError(err, context);
+        handlePrOpenError(err, context, openOptions.targetBranch);
       }
     });
 
   return command;
+}
+
+// The PR exists but some --work-item links failed: say which, and exit 1 so a
+// script does not mistake a half-linked PR for success.
+function reportWorkItemLinkFailures(result: PullRequestOpenResult): void {
+  const failed = (result.workItems ?? []).filter((item) => !item.linked);
+  if (failed.length === 0) return;
+  const detail = failed.map((item) => `#${item.id} (${item.error ?? 'unknown error'})`).join(', ');
+  writeError(
+    `Pull request #${result.pullRequest.id} was created but could not be linked to work item ${detail}. Retry with: azdo pr work-items link <id> --pr-number ${result.pullRequest.id}`,
+  );
 }
 
 // `pr update` failures that are validation, not API failures: the composed
@@ -993,6 +1174,12 @@ export function createPrUpdateCommand(): Command {
     )
     .option('--description-file <path>', 'read the new description from a UTF-8 file; "-" reads standard input')
     .option('--json', 'output JSON')
+    .addHelpText(
+      'after',
+      '\nNote: the description is replaced literally. To edit it, start from the full text returned by\n' +
+        '"azdo pr comments --pr-number <N> --json" (pullRequest.description), never from "pr list" or\n' +
+        '"pr status" (by branch): those cut it at 400 characters, and writing that back deletes the rest.\n',
+    )
     .action(async (_options: PrCommandOptions, command: Command) => {
       await runPrUpdate(mergedPrOptions(command));
     });
@@ -1377,6 +1564,7 @@ export function createPrCommentsCommand(): Command {
   command.addCommand(createPrCommentsReplyCommand());
   command.addCommand(createPrCommentsAddCommand());
   command.addCommand(createPrCommentsEditCommand());
+  command.addCommand(createPrCommentsDeleteCommand());
   return command;
 }
 
@@ -1884,9 +2072,43 @@ interface PrCommentEditResult {
   dryRun: boolean;
 }
 
-// Fetches the thread holding the comment to edit, translating a 404 into the
-// thread-not-found message. Returns null when the error was already reported.
-async function fetchThreadForEdit(target: ResolvedThreadTarget): Promise<ActiveCommentThread | null> {
+// --comment-id, parsed once before any network call: the number itself, null
+// when the option was not supplied (the command's own default applies), or
+// 'invalid' when it was supplied but is not a positive integer — in which case
+// the error is already on stderr.
+function parseExplicitCommentId(options: PrCommandOptions): number | null | 'invalid' {
+  if (options.commentId === undefined) {
+    return null;
+  }
+
+  const parsed = parsePositivePrNumber(options.commentId);
+  if (parsed === null) {
+    writeError(`Invalid --comment-id "${options.commentId}"; expected a positive integer.`);
+    return 'invalid';
+  }
+
+  return parsed;
+}
+
+// The comment named by --comment-id, or null (exit 3, message on stderr) when
+// the thread holds no comment with that id.
+function findCommentInThread(
+  thread: ActiveCommentThread,
+  commentId: number,
+  target: ResolvedThreadTarget,
+): ActivePullRequestComment | null {
+  const match = thread.comments.find((comment) => comment.id === commentId);
+  if (match === undefined) {
+    writeError(`Comment #${commentId} not found in thread #${target.threadId} on pull request #${target.pullRequest.id}.`, EXIT_NOT_FOUND);
+    return null;
+  }
+  return match;
+}
+
+// Fetches the thread holding the comment to edit or delete, translating a 404
+// into the thread-not-found message. Returns null when the error was already
+// reported.
+async function fetchTargetThread(target: ResolvedThreadTarget): Promise<ActiveCommentThread | null> {
   try {
     return await getPullRequestThread(
       target.context,
@@ -1914,12 +2136,7 @@ function selectEditableComment(
   target: ResolvedThreadTarget,
 ): ActivePullRequestComment | null {
   if (explicitCommentId !== null) {
-    const match = thread.comments.find((comment) => comment.id === explicitCommentId);
-    if (match === undefined) {
-      writeError(`Comment #${explicitCommentId} not found in thread #${target.threadId} on pull request #${target.pullRequest.id}.`, EXIT_NOT_FOUND);
-      return null;
-    }
-    return match;
+    return findCommentInThread(thread, explicitCommentId, target);
   }
 
   const first = [...thread.comments].sort((a, b) => a.id - b.id)[0];
@@ -1967,13 +2184,9 @@ async function runCommentEdit(
       return;
     }
 
-    let explicitCommentId: number | null = null;
-    if (options.commentId !== undefined) {
-      explicitCommentId = parsePositivePrNumber(options.commentId);
-      if (explicitCommentId === null) {
-        writeError(`Invalid --comment-id "${options.commentId}"; expected a positive integer.`);
-        return;
-      }
+    const explicitCommentId = parseExplicitCommentId(options);
+    if (explicitCommentId === 'invalid') {
+      return;
     }
 
     const target = await resolveThreadTarget(threadIdRaw, options, {
@@ -1985,7 +2198,7 @@ async function runCommentEdit(
       return;
     }
 
-    const thread = await fetchThreadForEdit(target);
+    const thread = await fetchTargetThread(target);
     if (thread === null) {
       return;
     }
@@ -2064,23 +2277,235 @@ export function createPrCommentEditCommand(): Command {
   );
 }
 
+// Flat JSON shape emitted by `azdo pr comments delete --json` and its alias.
+// `deleted` is false only on a dry run, so a script can key on it alone.
+interface PrCommentDeleteResult {
+  pullRequestId: number;
+  threadId: number;
+  commentId: number;
+  deleted: boolean;
+  dryRun: boolean;
+}
+
+// Picks the comment to delete: the one named by --comment-id, or else the
+// thread's only visible comment. Unlike `edit` there is no "first comment"
+// default — a deletion cannot be undone, so an ambiguous thread is refused
+// (exit 1) with the candidate ids listed, never guessed. Returns null after
+// reporting why nothing was selected.
+function selectDeletableComment(
+  thread: ActiveCommentThread,
+  explicitCommentId: number | null,
+  target: ResolvedThreadTarget,
+): ActivePullRequestComment | null {
+  if (explicitCommentId !== null) {
+    return findCommentInThread(thread, explicitCommentId, target);
+  }
+
+  const comments = [...thread.comments].sort((a, b) => a.id - b.id);
+  if (comments.length === 1) {
+    return comments[0];
+  }
+
+  if (comments.length === 0) {
+    writeError(`Thread #${target.threadId} on pull request #${target.pullRequest.id} has no comment to delete.`, EXIT_NOT_FOUND);
+    return null;
+  }
+
+  const candidates = comments.map((comment) => `#${comment.id} (${comment.author ?? 'Unknown'})`).join(', ');
+  writeError(
+    `Thread #${target.threadId} on pull request #${target.pullRequest.id} holds ${comments.length} comments; pass --comment-id to choose one: ${candidates}.`,
+  );
+  return null;
+}
+
+// Emits a delete result as JSON or as the one-line human summary.
+function reportDeleteResult(result: PrCommentDeleteResult, json: boolean, comment: ActivePullRequestComment): void {
+  if (json) {
+    process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+    return;
+  }
+
+  if (result.dryRun) {
+    process.stdout.write(
+      `Dry run: would delete comment #${result.commentId} by ${comment.author ?? 'Unknown'} (${comment.content.length} chars) from thread #${result.threadId} on pull request #${result.pullRequestId}.\n`,
+    );
+    return;
+  }
+
+  process.stdout.write(
+    `Comment #${result.commentId} deleted from thread #${result.threadId} on pull request #${result.pullRequestId}.\n`,
+  );
+}
+
+// No confirmation prompt, under a TTY or not: the command exists for scripted
+// callers (a bot removing its own marker comment), and `--dry-run` is the
+// preview for a human. The thread is fetched first so an unknown thread or
+// comment fails as "not found" (exit 3) instead of reaching the DELETE.
+async function runCommentDelete(threadIdRaw: string, options: PrCommandOptions): Promise<void> {
+  let context: AzdoContext | undefined;
+
+  try {
+    const explicitCommentId = parseExplicitCommentId(options);
+    if (explicitCommentId === 'invalid') {
+      return;
+    }
+
+    const target = await resolveThreadTarget(threadIdRaw, options, {
+      onContextResolved: (resolved) => {
+        context = resolved;
+      },
+    });
+    if (target === null) {
+      return;
+    }
+
+    const thread = await fetchTargetThread(target);
+    if (thread === null) {
+      return;
+    }
+
+    const comment = selectDeletableComment(thread, explicitCommentId, target);
+    if (comment === null) {
+      return;
+    }
+
+    const dryRun = options.dryRun === true;
+    if (!dryRun) {
+      await deleteThreadComment(
+        target.context,
+        target.repo,
+        target.pat,
+        target.pullRequest.id,
+        target.threadId,
+        comment.id,
+      );
+    }
+
+    reportDeleteResult(
+      {
+        pullRequestId: target.pullRequest.id,
+        threadId: target.threadId,
+        commentId: comment.id,
+        deleted: !dryRun,
+        dryRun,
+      },
+      options.json === true,
+      comment,
+    );
+  } catch (err) {
+    handlePrCommandError(err, context, 'write');
+  }
+}
+
+function buildCommentDeleteCommand(name: string, description: string): Command {
+  const command = new Command(name);
+  withCommonPrOptions(configureUnwrappedHelp(command))
+    .description(description)
+    .argument('<threadId>', 'numeric id of the thread holding the comment')
+    .option('--comment-id <N>', 'numeric id of the comment to delete; may be omitted only when the thread holds a single comment')
+    .option('--dry-run', 'resolve the target comment and print what would be deleted, without deleting anything')
+    .option('--pr-number <N>', PR_NUMBER_HELP)
+    .option('--json', 'output JSON')
+    .action(async (threadIdRaw: string, _options: PrCommandOptions, command: Command) => {
+      await runCommentDelete(threadIdRaw, mergedPrOptions(command));
+    });
+  return command;
+}
+
+export function createPrCommentsDeleteCommand(): Command {
+  return buildCommentDeleteCommand('delete', 'Delete a pull request comment (no confirmation prompt; irreversible)');
+}
+
+export function createPrCommentDeleteCommand(): Command {
+  return buildCommentDeleteCommand(
+    'comment-delete',
+    'Delete a pull request comment (alias of "azdo pr comments delete"; no confirmation prompt; irreversible)',
+  );
+}
+
 const LIST_STATUS_VALUES: readonly string[] = ['active', 'completed', 'abandoned', 'all'];
 const DEFAULT_LIST_TOP = 25;
+// `--work-items` costs one request per pull request; keep a bounded number in
+// flight so `--top 200` does not open 200 sockets at once.
+const WORK_ITEM_LOOKUP_CONCURRENCY = 5;
 
 interface PrListResult {
   repository: string;
   branch: string | null;
   status: string;
-  pullRequests: BranchPullRequestMatch[];
+  pullRequests: Array<BranchPullRequestMatch | PullRequestWithWorkItems>;
 }
 
-function formatPullRequestListEntry(pullRequest: BranchPullRequestMatch): string {
-  return [
-    `#${pullRequest.id} [${pullRequest.status}] ${pullRequest.title}`,
+interface PrListOptions extends PrCommandOptions {
+  branch?: string;
+  top?: string;
+  workItems?: boolean;
+}
+
+interface ParsedListOptions {
+  status: string;
+  top: number;
+  branch: string | null;
+}
+
+function formatPullRequestListEntry(pullRequest: BranchPullRequestMatch | PullRequestWithWorkItems): string {
+  const state = pullRequest.isDraft ? `${pullRequest.status}, draft` : pullRequest.status;
+  const lines = [
+    `#${pullRequest.id} [${state}] ${pullRequest.title}`,
     `  ${formatBranchName(pullRequest.sourceRefName)} -> ${formatBranchName(pullRequest.targetRefName)}`,
     `  Author: ${pullRequest.createdBy ?? 'Unknown'}`,
-    `  ${pullRequest.url ?? '—'}`,
-  ].join('\n');
+  ];
+  if ('workItemIds' in pullRequest) {
+    const ids = pullRequest.workItemIds.map((id) => `#${id}`).join(', ');
+    lines.push(`  Work items: ${ids || 'none'}`);
+  }
+  lines.push(`  ${pullRequest.url ?? '—'}`);
+  return lines.join('\n');
+}
+
+// Returns null (after writing the error) when an option is invalid.
+function parseListOptions(options: PrListOptions): ParsedListOptions | null {
+  const status = options.status ?? 'active';
+  if (!LIST_STATUS_VALUES.includes(status)) {
+    writeError(`Invalid --status "${status}"; expected one of ${LIST_STATUS_VALUES.join(', ')}.`);
+    return null;
+  }
+
+  let top = DEFAULT_LIST_TOP;
+  if (options.top !== undefined) {
+    const parsed = parsePositivePrNumber(options.top);
+    if (parsed === null) {
+      writeError(`Invalid --top "${options.top}"; expected a positive integer.`);
+      return null;
+    }
+    top = parsed;
+  }
+
+  // The branch filter is explicit here — `pr list` never falls back to the
+  // current branch, because that is exactly what `pr status` already does.
+  const branch = options.branch?.trim().replace(/^refs\/heads\//, '') || null;
+  return { status, top, branch };
+}
+
+async function attachWorkItemIds(
+  context: AzdoContext,
+  repo: string,
+  cred: AuthCredential,
+  pullRequests: BranchPullRequestMatch[],
+): Promise<PullRequestWithWorkItems[]> {
+  const result: PullRequestWithWorkItems[] = new Array(pullRequests.length);
+  let next = 0;
+  const worker = async (): Promise<void> => {
+    while (next < pullRequests.length) {
+      const index = next;
+      next += 1;
+      const pullRequest = pullRequests[index];
+      const workItemIds = await getPullRequestWorkItemIds(context, repo, cred, pullRequest.id);
+      result[index] = { ...pullRequest, workItemIds };
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(WORK_ITEM_LOOKUP_CONCURRENCY, pullRequests.length) }, worker));
+  return result;
 }
 
 export function createPrListCommand(): Command {
@@ -2091,29 +2516,17 @@ export function createPrListCommand(): Command {
     .option('--branch <name>', 'only pull requests whose source branch is this one (with or without the refs/heads/ prefix)')
     .option('--status <status>', `pull request status filter (${LIST_STATUS_VALUES.join(' | ')})`, 'active')
     .option('--top <N>', `maximum number of pull requests to return (default ${DEFAULT_LIST_TOP})`)
+    .option('--work-items', 'also return the ids of each pull request\'s linked work items (one extra API call per pull request)')
     .option('--json', 'output JSON')
-    .action(async (options: PrCommandOptions & { branch?: string; top?: string }) => {
+    .addHelpText('after', DESCRIPTION_TRUNCATION_NOTE)
+    .action(async (options: PrListOptions) => {
       validateOrgProjectPair(options);
 
-      const status = options.status ?? 'active';
-      if (!LIST_STATUS_VALUES.includes(status)) {
-        writeError(`Invalid --status "${status}"; expected one of ${LIST_STATUS_VALUES.join(', ')}.`);
+      const parsed = parseListOptions(options);
+      if (parsed === null) {
         return;
       }
-
-      let top = DEFAULT_LIST_TOP;
-      if (options.top !== undefined) {
-        const parsed = parsePositivePrNumber(options.top);
-        if (parsed === null) {
-          writeError(`Invalid --top "${options.top}"; expected a positive integer.`);
-          return;
-        }
-        top = parsed;
-      }
-
-      // The branch filter is explicit here — `pr list` never falls back to the
-      // current branch, because that is exactly what `pr status` already does.
-      const branch = options.branch?.trim().replace(/^refs\/heads\//, '') || null;
+      const { status, top, branch } = parsed;
 
       let context: AzdoContext | undefined;
 
@@ -2121,11 +2534,14 @@ export function createPrListCommand(): Command {
         const resolved = await resolvePrCommandContext(options, { requireBranch: false });
         context = resolved.context;
 
-        const pullRequests = await listRepositoryPullRequests(resolved.context, resolved.repo, resolved.pat, {
+        const listed = await listRepositoryPullRequests(resolved.context, resolved.repo, resolved.pat, {
           sourceBranch: branch ?? undefined,
           status,
           top,
         });
+        const pullRequests = options.workItems
+          ? await attachWorkItemIds(resolved.context, resolved.repo, resolved.pat, listed)
+          : listed;
 
         const result: PrListResult = {
           repository: resolved.repo,
@@ -2375,9 +2791,69 @@ async function runReviewerRemove(reviewer: string, options: PrCommandOptions): P
   }
 }
 
+// JSON shape emitted by `pr reviewers list --json` (048). Every reviewer
+// carries the stable identity (`id`, `uniqueName`) next to the display name,
+// the raw Azure DevOps `vote` and its named `voteState`, so a consumer never
+// has to key on a display name or re-implement the vote table.
+interface PrReviewerListResult {
+  pullRequestId: number;
+  reviewers: Reviewer[];
+}
+
+function formatReviewerLine(reviewer: Reviewer): string {
+  const name = reviewer.displayName ?? reviewer.uniqueName ?? reviewer.id;
+  const unique = reviewer.uniqueName && reviewer.uniqueName !== name ? ` <${reviewer.uniqueName}>` : '';
+  const kind = reviewer.isRequired ? 'required' : 'optional';
+  const declined = reviewer.hasDeclined ? ', declined' : '';
+  return `${name}${unique} — ${reviewer.voteState} (${kind}${declined})`;
+}
+
+async function runReviewerList(options: PrCommandOptions): Promise<void> {
+  let context: AzdoContext | undefined;
+
+  try {
+    const target = await resolvePullRequestTarget(options, {
+      onContextResolved: (resolved) => {
+        context = resolved;
+      },
+    });
+    if (target === null) {
+      return;
+    }
+
+    const reviewers = await getPullRequestReviewers(target.context, target.repo, target.pat, target.pullRequest.id);
+
+    const result: PrReviewerListResult = { pullRequestId: target.pullRequest.id, reviewers };
+
+    if (options.json) {
+      process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+      return;
+    }
+
+    if (reviewers.length === 0) {
+      process.stdout.write(`No reviewers on pull request #${target.pullRequest.id}.\n`);
+      return;
+    }
+
+    process.stdout.write(`${reviewers.map(formatReviewerLine).join('\n')}\n`);
+  } catch (err) {
+    handlePrCommandError(err, context, 'read');
+  }
+}
+
 export function createPrReviewersCommand(): Command {
   const command = new Command('reviewers');
   command.description('Manage pull request reviewers');
+
+  const list = new Command('list');
+  withCommonPrOptions(configureUnwrappedHelp(list))
+    .description('List the pull request reviewers with their votes (approved, waiting-for-author, …) and required flag')
+    .option('--pr-number <N>', PR_NUMBER_HELP)
+    .option('--json', 'output JSON')
+    .action(async (_options: PrCommandOptions, command: Command) => {
+      await runReviewerList(mergedPrOptions(command));
+    });
+  command.addCommand(list);
 
   const add = new Command('add');
   withCommonPrOptions(configureUnwrappedHelp(add))
@@ -2422,5 +2898,6 @@ export function createPrCommand(): Command {
   command.addCommand(createPrWorkItemsCommand());
   command.addCommand(createPrReviewersCommand());
   command.addCommand(createPrCommentEditCommand());
+  command.addCommand(createPrCommentDeleteCommand());
   return command;
 }

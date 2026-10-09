@@ -4,6 +4,8 @@ import {
   createPrCommentResolveCommand,
   createPrCommentReopenCommand,
   createPrStatusCommand,
+  createPrListCommand,
+  createPrUpdateCommand,
 } from '../../src/commands/pr.js';
 import { createCommandRunner, getExitCode, getStderr, getStdout, setupProcessSpies } from './helpers/command-test-utils.js';
 
@@ -76,6 +78,30 @@ describe('C-1 — --pr-number help sentence (single-PR commands)', () => {
     const run = createCommandRunner(createPrStatusCommand);
     await run(['--help']);
     expect(getStdout()).not.toContain(C1_SUBSTRING);
+  });
+});
+
+describe('description truncation notes in help (#148)', () => {
+  it.each([
+    ['list', createPrListCommand],
+    ['status', createPrStatusCommand],
+  ])('pr %s --help names the 400-character cut and pr comments --json', async (_name, factory) => {
+    const run = createCommandRunner(factory);
+    await run(['--help']);
+    expect(getStdout()).toContain('400 characters');
+    expect(getStdout()).toContain('azdo pr comments --pr-number <N> --json');
+  });
+
+  it('pr status --help limits the cut to branch lookups', async () => {
+    const run = createCommandRunner(createPrStatusCommand);
+    await run(['--help']);
+    expect(getStdout()).toContain('with --pr-number the full description is returned');
+  });
+
+  it('pr update --help warns against starting from pr list', async () => {
+    const run = createCommandRunner(createPrUpdateCommand);
+    await run(['--help']);
+    expect(getStdout()).toContain('never from "pr list"');
   });
 });
 

@@ -1,7 +1,9 @@
 import { Command } from 'commander';
 import type { AuthCredential, AzdoContext } from '../types/work-item.js';
+import path from 'node:path';
 import type {
   FailedTest,
+  PipelineArtifact,
   PipelineLog,
   PipelineRunDetail,
   PipelineRunSummary,
@@ -9,6 +11,7 @@ import type {
   PipelineWaitResult,
 } from '../types/pipeline.js';
 import {
+  downloadArtifactZip,
   getBuildStatus,
   getFailedTests,
   getPipelineDefinitions,
@@ -17,8 +20,10 @@ import {
   getRunLog,
   getRunLogs,
   getTestSummary,
+  listBuildArtifacts,
   runPipeline,
 } from '../services/pipeline-client.js';
+import { extractArtifactZip } from '../services/artifact-extract.js';
 import { requireAuthCredential } from '../services/auth.js';
 import { resolveContext } from '../services/context.js';
 import {
@@ -462,6 +467,29 @@ function formatRunDetail(detail: PipelineRunDetail): string {
   ].join('\n');
 }
 
+// Shared body of the single-run commands: validates the run id and org/project
+// pair, resolves the context once and routes any failure to the common handler.
+async function withRunContext(
+  runIdRaw: string,
+  options: PipelineCommonOptions,
+  body: (runId: number, resolved: { context: AzdoContext; cred: AuthCredential }) => Promise<void>,
+): Promise<void> {
+  validateOrgProjectPair(options);
+  const runId = parsePositiveId(runIdRaw);
+  if (runId === null) {
+    writeError(`Invalid run id "${runIdRaw}"; expected a positive integer.`);
+    return;
+  }
+  let context: AzdoContext | undefined;
+  try {
+    const resolved = await resolvePipelineContext(options);
+    context = resolved.context;
+    await body(runId, resolved);
+  } catch (err) {
+    handlePipelineError(err, context);
+  }
+}
+
 function createPipelineGetRunDetailCommand(): Command {
   const command = new Command('get-run-detail');
   command
@@ -470,27 +498,16 @@ function createPipelineGetRunDetailCommand(): Command {
     .option('--org <org>', 'Azure DevOps organization')
     .option('--project <project>', 'Azure DevOps project')
     .option('--json', 'output JSON')
-    .action(async (runIdRaw: string, options: PipelineCommonOptions) => {
-      validateOrgProjectPair(options);
-      const runId = parsePositiveId(runIdRaw);
-      if (runId === null) {
-        writeError(`Invalid run id "${runIdRaw}"; expected a positive integer.`);
-        return;
-      }
-      let context: AzdoContext | undefined;
-      try {
-        const resolved = await resolvePipelineContext(options);
-        context = resolved.context;
+    .action((runIdRaw: string, options: PipelineCommonOptions) =>
+      withRunContext(runIdRaw, options, async (runId, resolved) => {
         const detail = await getRunDetail(resolved.context, resolved.cred, runId);
         if (options.json) {
           process.stdout.write(`${JSON.stringify(detail, null, 2)}\n`);
           return;
         }
         process.stdout.write(`${formatRunDetail(detail)}\n`);
-      } catch (err) {
-        handlePipelineError(err, context);
-      }
-    });
+      }),
+    );
   return command;
 }
 
@@ -523,22 +540,48 @@ function grepWithContext(lines: string[], grep: RegExp, context: number): string
 
 // Applies --grep (with optional --context) then --tail to a raw log payload.
 // Returns the lines to print; an empty array means "print nothing".
+// Progress bars redraw one line with carriage returns; keep only the final
+// state of each line (a trailing CR from CRLF endings is not a redraw).
+// Azure DevOps also stores some tools' bars glued into one line with no
+// separator at all; when a line holds two or more bars, keep the leading
+// timestamp and only the last bar.
+const PROGRESS_BAR = /(?<![\d.])\d+(?:\.\d+)? [KMGT]?i?B \/ \d+(?:\.\d+)? [KMGT]?i?B \[/g;
+const LOG_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T[\d:.]+Z /;
+
+function collapseGluedBars(line: string): string {
+  const starts = [...line.matchAll(PROGRESS_BAR)].map((m) => m.index ?? 0);
+  if (starts.length < 2) return line;
+  const prefix = LOG_TIMESTAMP.exec(line)?.[0] ?? '';
+  return prefix + line.slice(starts.at(-1));
+}
+
+function collapseProgress(line: string): string {
+  let end = line.length;
+  while (end > 0 && line[end - 1] === '\r') end--;
+  return collapseGluedBars(line.slice(line.lastIndexOf('\r', end - 1) + 1, end));
+}
+
 function filterLogLines(
   content: string,
-  grep: RegExp | undefined,
-  tail: number | undefined,
-  context: number,
+  filters: Pick<LogFilterValues, 'grep' | 'tail' | 'head' | 'contextLines' | 'noProgress'>,
 ): string[] {
+  const { grep, tail, head, contextLines: context } = filters;
   let lines = content.split('\n');
   // A trailing newline yields one empty final element — not a real line.
   if (lines.at(-1) === '') {
     lines.pop();
+  }
+  if (filters.noProgress) {
+    lines = lines.map(collapseProgress);
   }
   if (grep) {
     lines = context > 0 ? grepWithContext(lines, grep, context) : lines.filter((line) => grep.test(line));
   }
   if (tail !== undefined && lines.length > tail) {
     lines = lines.slice(-tail);
+  }
+  if (head !== undefined && lines.length > head) {
+    lines = lines.slice(0, head);
   }
   return lines;
 }
@@ -547,12 +590,17 @@ interface LogsOptions extends PipelineCommonOptions {
   logId?: string;
   step?: string;
   tail?: string;
+  head?: string;
   grep?: string;
   context?: string;
+  // Commander's `--no-progress` stores `progress: false`.
+  progress?: boolean;
 }
 
 interface LogFilterValues {
   tail?: number;
+  head?: number;
+  noProgress: boolean;
   contextLines: number;
   grep?: RegExp;
 }
@@ -564,10 +612,19 @@ function parseLogFilters(options: LogsOptions): LogFilterValues | null {
     return null;
   }
   const selectsSingleLog = options.logId !== undefined || options.step !== undefined;
+  const noProgress = options.progress === false;
   const slices =
-    options.tail !== undefined || options.grep !== undefined || options.context !== undefined;
+    options.tail !== undefined ||
+    options.head !== undefined ||
+    options.grep !== undefined ||
+    options.context !== undefined ||
+    noProgress;
   if (slices && !selectsSingleLog) {
-    writeError('--tail, --grep, and --context require --log-id or --step.');
+    writeError('--tail, --head, --grep, --context, and --no-progress require --log-id or --step.');
+    return null;
+  }
+  if (options.head !== undefined && options.tail !== undefined) {
+    writeError('Use either --head or --tail, not both.');
     return null;
   }
   if (options.context !== undefined && options.grep === undefined) {
@@ -576,6 +633,8 @@ function parseLogFilters(options: LogsOptions): LogFilterValues | null {
   }
   const tail = parseOptionalCount(options.tail, '--tail');
   if (tail === null) return null;
+  const head = parseOptionalCount(options.head, '--head');
+  if (head === null) return null;
   const contextLines = parseOptionalCount(options.context, '--context');
   if (contextLines === null) return null;
   let grep: RegExp | undefined;
@@ -587,11 +646,20 @@ function parseLogFilters(options: LogsOptions): LogFilterValues | null {
       return null;
     }
   }
-  return { tail, contextLines: contextLines ?? 0, grep };
+  return { tail, head, noProgress, contextLines: contextLines ?? 0, grep };
 }
 
 // Resolves --step to a log id via the timeline step names; writes the error
 // and returns null when no unambiguous match exists.
+// "Analysis with Trivy scanner [Task in Scan job]" — the record type and
+// parent tell apart logs that share a title.
+function describeLog(log: PipelineLog): string {
+  const kind = log.type ?? '';
+  const where = log.parent ? ` in ${log.parent}` : '';
+  const detail = `${kind}${where}`.trim();
+  return detail ? `${log.step} [${detail}]` : String(log.step);
+}
+
 function chooseStepLog(logs: PipelineLog[], step: string, runId: number): number | null {
   const needle = step.toLowerCase();
   const matches = logs.filter((l) => l.step?.toLowerCase().includes(needle));
@@ -602,7 +670,7 @@ function chooseStepLog(logs: PipelineLog[], step: string, runId: number): number
     return null;
   }
   if (chosen.length > 1) {
-    const candidates = chosen.map((l) => `${l.id} (${l.step})`).join(', ');
+    const candidates = chosen.map((l) => `${l.id} (${describeLog(l)})`).join(', ');
     writeError(`Step "${step}" matches multiple logs: ${candidates}. Be more specific or use --log-id.`);
     return null;
   }
@@ -634,8 +702,13 @@ async function resolveRequestedLogId(
 }
 
 function printSingleLog(content: string, filters: LogFilterValues): void {
-  if (filters.grep !== undefined || filters.tail !== undefined) {
-    const lines = filterLogLines(content, filters.grep, filters.tail, filters.contextLines);
+  if (
+    filters.grep !== undefined ||
+    filters.tail !== undefined ||
+    filters.head !== undefined ||
+    filters.noProgress
+  ) {
+    const lines = filterLogLines(content, filters);
     if (lines.length > 0) {
       process.stdout.write(`${lines.join('\n')}\n`);
     }
@@ -654,8 +727,10 @@ function createPipelineLogsCommand(): Command {
     .option('--log-id <id>', 'print the content of this log id')
     .option('--step <name>', 'print the log of the step/job matching this name (case-insensitive substring)')
     .option('--tail <n>', 'with --log-id/--step, print only the last N lines')
+    .option('--head <n>', 'with --log-id/--step, print only the first N lines')
     .option('--grep <pattern>', 'with --log-id/--step, print only lines matching this regular expression')
     .option('--context <n>', 'with --grep, also print N lines around each match (grep -C)')
+    .option('--no-progress', 'with --log-id/--step, collapse progress-bar redraws (carriage-return or glued into one line) to their final state')
     .option('--json', 'output JSON')
     .action(async (runIdRaw: string, options: LogsOptions) => {
       validateOrgProjectPair(options);
@@ -694,9 +769,142 @@ function createPipelineLogsCommand(): Command {
           String(l.id),
           l.createdOn ?? '—',
           l.lineCount == null ? '' : `${l.lineCount} lines`,
+          l.type ?? '',
           l.step ?? '',
+          l.parent ? `(in ${l.parent})` : '',
         ]);
         process.stdout.write(`${formatTable(rows, new Set([0]))}\n`);
+      } catch (err) {
+        handlePipelineError(err, context);
+      }
+    });
+  return command;
+}
+
+// ---------------------------------------------------------------------------
+// pipeline artifacts <run_id> / artifact-download <run_id> [name]
+// ---------------------------------------------------------------------------
+
+function formatSize(bytes: number | null): string {
+  if (bytes === null) return '';
+  if (bytes < 1024) return `${bytes} B`;
+  const units = ['KB', 'MB', 'GB', 'TB'];
+  let value = bytes / 1024;
+  let unit = 0;
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024;
+    unit++;
+  }
+  return `${value.toFixed(1)} ${units[unit]}`;
+}
+
+function createPipelineArtifactsCommand(): Command {
+  const command = new Command('artifacts');
+  command
+    .description('List the build artifacts published by a pipeline run')
+    .argument('<run_id>', 'pipeline run id')
+    .option('--org <org>', 'Azure DevOps organization')
+    .option('--project <project>', 'Azure DevOps project')
+    .option('--json', 'output JSON')
+    .action((runIdRaw: string, options: PipelineCommonOptions) =>
+      withRunContext(runIdRaw, options, async (runId, resolved) => {
+        const artifacts = await listBuildArtifacts(resolved.context, resolved.cred, runId);
+        if (options.json) {
+          process.stdout.write(`${JSON.stringify(artifacts, null, 2)}\n`);
+          return;
+        }
+        if (artifacts.length === 0) {
+          process.stdout.write(`No artifacts found for run ${runId}.\n`);
+          return;
+        }
+        const rows = artifacts.map((a) => [a.name, a.type ?? '', formatSize(a.sizeBytes)]);
+        process.stdout.write(`${formatTable(rows)}\n`);
+      }),
+    );
+  return command;
+}
+
+interface ArtifactDownloadOptions extends PipelineCommonOptions {
+  path?: string;
+  all?: boolean;
+  force?: boolean;
+  progress?: boolean;
+}
+
+// Picks the artifacts to download; writes the error and returns null when the
+// request is invalid or names an artifact the run does not have.
+function selectArtifacts(
+  artifacts: PipelineArtifact[],
+  name: string | undefined,
+  all: boolean,
+  runId: number,
+): PipelineArtifact[] | null {
+  const available = artifacts.map((a) => a.name).join(', ') || '(none)';
+  if (all) return artifacts;
+  if (name === undefined) {
+    writeError(`Give an artifact name or --all. Available artifacts in run ${runId}: ${available}.`);
+    return null;
+  }
+  const match = artifacts.find((a) => a.name === name);
+  if (!match) {
+    writeError(`Run ${runId} has no artifact "${name}". Available artifacts: ${available}.`);
+    return null;
+  }
+  return [match];
+}
+
+function createPipelineArtifactDownloadCommand(): Command {
+  const command = new Command('artifact-download');
+  command
+    .description('Download a run\'s artifact (or --all) and extract it into a folder; no zip is left behind')
+    .argument('<run_id>', 'pipeline run id')
+    .argument('[name]', 'artifact name (see `pipeline artifacts`)')
+    .option('--org <org>', 'Azure DevOps organization')
+    .option('--project <project>', 'Azure DevOps project')
+    .option('--path <dir>', 'destination folder (default ./<name>; with --all, <dir>/<name> per artifact)')
+    .option('--all', 'download every artifact of the run')
+    .option('--force', 'overwrite files that already exist')
+    .option('--progress', 'print byte-progress lines on stderr')
+    .option('--json', 'output JSON')
+    .action(async (runIdRaw: string, name: string | undefined, options: ArtifactDownloadOptions) => {
+      validateOrgProjectPair(options);
+      const runId = parsePositiveId(runIdRaw);
+      if (runId === null) {
+        writeError(`Invalid run id "${runIdRaw}"; expected a positive integer.`);
+        return;
+      }
+      if (options.all && name !== undefined) {
+        writeError('Use either an artifact name or --all, not both.');
+        return;
+      }
+      let context: AzdoContext | undefined;
+      try {
+        const resolved = await resolvePipelineContext(options);
+        context = resolved.context;
+        const artifacts = await listBuildArtifacts(resolved.context, resolved.cred, runId);
+        const selected = selectArtifacts(artifacts, name, options.all === true, runId);
+        if (selected === null) return;
+        const results = await Promise.all(
+          selected.map(async (artifact) => {
+            const destination = path.resolve(
+              options.all ? path.join(options.path ?? '.', artifact.name) : (options.path ?? artifact.name),
+            );
+            const onProgress = options.progress
+              ? (bytes: number) => process.stderr.write(`${artifact.name}: ${bytes} bytes\n`)
+              : undefined;
+            const zip = await downloadArtifactZip(resolved.cred, artifact, onProgress);
+            const files = extractArtifactZip(zip, destination, {
+              artifactName: artifact.name,
+              force: options.force === true,
+            });
+            return { name: artifact.name, path: destination, files: files.length };
+          }),
+        );
+        if (options.json) {
+          process.stdout.write(`${JSON.stringify(results, null, 2)}\n`);
+          return;
+        }
+        process.stdout.write(`${results.map((r) => r.path).join('\n')}\n`);
       } catch (err) {
         handlePipelineError(err, context);
       }
@@ -826,6 +1034,8 @@ export function createPipelineCommand(): Command {
   command.addCommand(createPipelineWaitCommand());
   command.addCommand(createPipelineGetRunDetailCommand());
   command.addCommand(createPipelineLogsCommand());
+  command.addCommand(createPipelineArtifactsCommand());
+  command.addCommand(createPipelineArtifactDownloadCommand());
   command.addCommand(createPipelineTestsCommand());
   command.addCommand(createPipelineStartCommand());
   return command;

@@ -12,6 +12,8 @@ vi.mock('../../src/services/pipeline-client.js', () => ({
   getTestSummary: vi.fn(),
   getFailedTests: vi.fn(),
   runPipeline: vi.fn(),
+  listBuildArtifacts: vi.fn(),
+  downloadArtifactZip: vi.fn(),
 }));
 
 vi.mock('../../src/services/auth.js', () => ({
@@ -32,12 +34,19 @@ import {
   getRunLog,
   getRunLogs,
   getTestSummary,
+  listBuildArtifacts,
+  downloadArtifactZip,
   runPipeline,
 } from '../../src/services/pipeline-client.js';
 import { requireAuthCredential } from '../../src/services/auth.js';
 import { resolveContext } from '../../src/services/context.js';
 
 const run = createCommandRunner(createPipelineCommand);
+
+function resetOutput(): void {
+  vi.mocked(process.stdout.write).mockClear();
+  vi.mocked(process.stderr.write).mockClear();
+}
 
 beforeEach(() => {
   setupProcessSpies();
@@ -269,12 +278,61 @@ describe('pipeline get-run-detail', () => {
 
 describe('pipeline logs / start', () => {
   it('lists logs with their step names', async () => {
-    vi.mocked(getRunLogs).mockResolvedValue([{ id: 1, createdOn: null, lineCount: 5, step: 'Run tests' }]);
+    vi.mocked(getRunLogs).mockResolvedValue([{ id: 1, createdOn: null, lineCount: 5, step: 'Run tests', type: null, parent: null }]);
     await run(['logs', '100', '--json']);
-    expect(JSON.parse(getStdout())).toEqual([{ id: 1, createdOn: null, lineCount: 5, step: 'Run tests' }]);
+    expect(JSON.parse(getStdout())).toEqual([{ id: 1, createdOn: null, lineCount: 5, step: 'Run tests', type: null, parent: null }]);
 
     await run(['logs', '100']);
     expect(getStdout()).toContain('Run tests');
+  });
+
+  it('shows the record type and parent next to each log, and in the --step ambiguity error', async () => {
+    const logs = [
+      { id: 5, createdOn: null, lineCount: 73, step: 'Analysis with Trivy scanner', type: 'Job', parent: 'Scan' },
+      { id: 9, createdOn: null, lineCount: 1707, step: 'Analysis with Trivy scanner', type: 'Task', parent: 'Scan job' },
+    ];
+    vi.mocked(getRunLogs).mockResolvedValue(logs);
+    await run(['logs', '100']);
+    expect(getStdout()).toContain('Task');
+    expect(getStdout()).toContain('(in Scan job)');
+    resetOutput();
+    await run(['logs', '100', '--json']);
+    expect(JSON.parse(getStdout())).toEqual(logs);
+    resetOutput();
+    await run(['logs', '100', '--step', 'trivy']);
+    expect(getStderr()).toContain('5 (Analysis with Trivy scanner [Job in Scan])');
+    expect(getStderr()).toContain('9 (Analysis with Trivy scanner [Task in Scan job])');
+    expect(getExitCode()).toBe(1);
+  });
+
+  it('--head prints only the first N lines and conflicts with --tail', async () => {
+    vi.mocked(getRunLog).mockResolvedValue('one\ntwo\nthree\n');
+    await run(['logs', '100', '--log-id', '7', '--head', '2']);
+    expect(getStdout()).toBe('one\ntwo\n');
+    await run(['logs', '100', '--log-id', '7', '--head', '2', '--tail', '1']);
+    expect(getStderr()).toContain('--head or --tail');
+    expect(getExitCode()).toBe(1);
+  });
+
+  it('--no-progress keeps the final state of carriage-return redraws; default leaves them', async () => {
+    vi.mocked(getRunLog).mockResolvedValue('dl 1%\rdl 50%\rdl 100%\nnext\r\n');
+    await run(['logs', '100', '--log-id', '7', '--no-progress']);
+    expect(getStdout()).toBe('dl 100%\nnext\n');
+    await run(['logs', '100', '--log-id', '7']);
+    expect(getStdout()).toContain('dl 1%\rdl 50%');
+    await run(['logs', '100', '--no-progress']);
+    expect(getStderr()).toContain('require --log-id or --step');
+  });
+
+  it('--no-progress keeps the timestamp and last bar of glued progress bars; single bars stay', async () => {
+    const bar = (a: string, pct: string) => `${a} MiB / 121.10 MiB [->____] ${pct}% ? p/s ?`;
+    const ts = '2026-10-05T02:10:46.8545782Z ';
+    const single = `${ts}${bar('1.47', '1.21')}`;
+    vi.mocked(getRunLog).mockResolvedValue(
+      `${ts}${bar('1.47', '1.21')}${bar('3.69', '3.04')}${bar('121.10', '100')}\n${single}\n`,
+    );
+    await run(['logs', '100', '--log-id', '7', '--no-progress']);
+    expect(getStdout()).toBe(`${ts}${bar('121.10', '100')}\n${single}\n`);
   });
 
   it('--tail prints only the last N lines of a log', async () => {
@@ -319,8 +377,8 @@ describe('pipeline logs / start', () => {
 
   it('--step resolves the log id by step name', async () => {
     vi.mocked(getRunLogs).mockResolvedValue([
-      { id: 24, createdOn: null, lineCount: 10, step: 'Run IN-PROCESS test for NET core' },
-      { id: 25, createdOn: null, lineCount: 5, step: 'Publish artifacts' },
+      { id: 24, createdOn: null, lineCount: 10, step: 'Run IN-PROCESS test for NET core', type: null, parent: null },
+      { id: 25, createdOn: null, lineCount: 5, step: 'Publish artifacts', type: null, parent: null },
     ]);
     vi.mocked(getRunLog).mockResolvedValue('the log content\n');
     await run(['logs', '100', '--step', 'in-process']);
@@ -330,8 +388,8 @@ describe('pipeline logs / start', () => {
 
   it('--step errors on no match and on ambiguous matches', async () => {
     vi.mocked(getRunLogs).mockResolvedValue([
-      { id: 1, createdOn: null, lineCount: 1, step: 'build' },
-      { id: 2, createdOn: null, lineCount: 1, step: 'build docs' },
+      { id: 1, createdOn: null, lineCount: 1, step: 'build', type: null, parent: null },
+      { id: 2, createdOn: null, lineCount: 1, step: 'build docs', type: null, parent: null },
     ]);
     await run(['logs', '100', '--step', 'nothing']);
     expect(getStderr()).toContain('No log matches step');
@@ -405,5 +463,45 @@ describe('pipeline tests', () => {
       failed: 1,
       failedTests: [{ name: 't', errorMessage: 'boom' }],
     });
+  });
+});
+
+describe('pipeline artifacts', () => {
+  const artifacts = [
+    { id: 1, name: 'scan-results', type: 'Container', sizeBytes: 2048, downloadUrl: 'https://x/a' },
+    { id: 2, name: 'sarif', type: 'PipelineArtifact', sizeBytes: null, downloadUrl: 'https://x/b' },
+  ];
+
+  it('lists name, type and size, and emits JSON', async () => {
+    vi.mocked(listBuildArtifacts).mockResolvedValue(artifacts);
+    await run(['artifacts', '100']);
+    expect(getStdout()).toContain('scan-results');
+    expect(getStdout()).toContain('2.0 KB');
+    expect(getStdout()).toContain('PipelineArtifact');
+    resetOutput();
+    await run(['artifacts', '100', '--json']);
+    expect(JSON.parse(getStdout())).toEqual(artifacts);
+  });
+
+  it('says so when the run has no artifacts', async () => {
+    vi.mocked(listBuildArtifacts).mockResolvedValue([]);
+    await run(['artifacts', '100']);
+    expect(getStdout()).toContain('No artifacts found for run 100');
+  });
+
+  it('artifact-download with an unknown name lists the available artifacts', async () => {
+    vi.mocked(listBuildArtifacts).mockResolvedValue(artifacts);
+    await run(['artifact-download', '100', 'nope']);
+    expect(getStderr()).toContain('scan-results, sarif');
+    expect(getExitCode()).toBe(1);
+    expect(vi.mocked(downloadArtifactZip)).not.toHaveBeenCalled();
+  });
+
+  it('artifact-download needs a name or --all, and rejects both', async () => {
+    vi.mocked(listBuildArtifacts).mockResolvedValue(artifacts);
+    await run(['artifact-download', '100']);
+    expect(getStderr()).toContain('name or --all');
+    await run(['artifact-download', '100', 'sarif', '--all']);
+    expect(getStderr()).toContain('not both');
   });
 });

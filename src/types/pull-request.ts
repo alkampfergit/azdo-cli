@@ -16,6 +16,21 @@ export interface BranchPullRequestMatch {
   // account (usually an email), `id` the Azure DevOps identity GUID.
   createdByUniqueName?: string | null;
   createdById?: string | null;
+  // Review-state fields the pull request payload already carries (#122).
+  // Optional on the type for the same reason as `description`;
+  // mapPullRequest() always sets them. `closedDate` is null while the PR is
+  // active. Azure DevOps has no "last updated" timestamp on a pull request.
+  isDraft?: boolean;
+  creationDate?: string | null;
+  closedDate?: string | null;
+  reviewers?: Reviewer[];
+  // Names of the PR's active labels (Azure DevOps "tags").
+  labels?: string[];
+}
+
+// `pr list --work-items` entry: the PR plus the ids of its linked work items.
+export interface PullRequestWithWorkItems extends BranchPullRequestMatch {
+  workItemIds: number[];
 }
 
 export interface PullRequestCheck {
@@ -64,6 +79,17 @@ export interface PullRequestOpenRequest {
   targetRefName: string;
   title: string;
   description: string;
+  isDraft?: boolean;
+  labels?: { name: string }[];
+}
+
+// Optional `pr open` inputs (050-pr-open-options). Every field defaults to the
+// pre-050 behaviour: target `develop`, not a draft, no labels, no work items.
+export interface PullRequestOpenOptions {
+  targetBranch?: string;
+  isDraft?: boolean;
+  labels?: string[];
+  workItemIds?: number[];
 }
 
 export interface PullRequestOpenResult {
@@ -71,6 +97,16 @@ export interface PullRequestOpenResult {
   targetBranch: string;
   created: boolean;
   pullRequest: BranchPullRequestMatch;
+  // Present only when --work-item was passed and the PR was created. The create
+  // endpoint takes no work item input, so each link is a separate call that can
+  // fail on its own while the PR itself already exists.
+  workItems?: PullRequestOpenWorkItemLink[];
+}
+
+export interface PullRequestOpenWorkItemLink {
+  id: number;
+  linked: boolean;
+  error?: string;
 }
 
 // The two pull request statuses this CLI writes (039-pr-abandon). The
@@ -124,6 +160,9 @@ export interface PullRequestStatusChangeResult {
 export interface ActivePullRequestComment {
   id: number;
   author: string | null;
+  // Stable identity of the author (055): the display name is not a safe key.
+  authorUniqueName?: string | null;
+  authorId?: string | null;
   content: string;
   publishedAt: string | null;
   // Azure DevOps comment kind: `text` for human comments, `system` for the
@@ -180,6 +219,11 @@ export interface AzdoPullRequest {
     uniqueName?: string;
     id?: string;
   };
+  isDraft?: boolean;
+  creationDate?: string;
+  closedDate?: string;
+  reviewers?: AzdoIdentityRefWithVote[];
+  labels?: Array<{ name: string; active?: boolean }>;
   _links?: {
     web?: {
       href?: string;
@@ -213,6 +257,8 @@ export interface AzdoComment {
   id: number;
   author?: {
     displayName?: string;
+    uniqueName?: string;
+    id?: string;
   };
   content?: string;
   isDeleted?: boolean;
@@ -246,7 +292,7 @@ export interface AzdoPullRequestStatus {
 // fields the CLI reads are declared; the ADO API returns many more.
 export interface AzdoCreatedComment {
   id: number;
-  author?: { displayName?: string };
+  author?: { displayName?: string; uniqueName?: string; id?: string };
   content?: string;
   publishedDate?: string;
 }
@@ -257,6 +303,9 @@ export interface AzdoCreatedComment {
 export interface PostedPrComment {
   id: number;
   author: string | null;
+  // Stable identity of the author (055): the display name is not a safe key.
+  authorUniqueName?: string | null;
+  authorId?: string | null;
   content: string;
   publishedAt: string | null;
 }
@@ -310,14 +359,29 @@ export interface AzdoPolicyEvaluation {
 }
 
 // A pull request reviewer, resolved and reported by `pr reviewers add|remove`.
-// `vote` mirrors Azure DevOps's read-only vote value (0 = no vote); this
-// feature never sets it to anything but 0 when adding/updating a reviewer.
+// Named form of Azure DevOps's numeric reviewer vote (048-pr-reviewers-list).
+// The raw number is kept alongside it so a value this list does not know
+// (`unknown`) is never lost.
+export type ReviewerVoteState =
+  | 'approved'
+  | 'approved-with-suggestions'
+  | 'no-vote'
+  | 'waiting-for-author'
+  | 'rejected'
+  | 'bypassed'
+  | 'unknown';
+
+// `vote` mirrors Azure DevOps's read-only vote value (0 = no vote); the
+// reviewer write commands never set it to anything but 0 when adding or
+// updating a reviewer. `voteState` is the named projection of `vote`.
 export interface Reviewer {
   id: string;
   displayName: string | null;
   uniqueName: string | null;
   isRequired: boolean;
   vote: number;
+  voteState: ReviewerVoteState;
+  hasDeclined: boolean;
 }
 
 // Result of a work item link/unlink operation. `url` is the artifact URI
@@ -372,6 +436,11 @@ export interface AzdoIdentity {
   };
 }
 
+// GET .../pullRequests/{id}/workitems — ResourceRef ids are strings.
+export interface AzdoResourceRefListResponse {
+  value: Array<{ id: string; url?: string }>;
+}
+
 // IdentityRefWithVote — the reviewers endpoint's request/response shape.
 export interface AzdoIdentityRefWithVote {
   id: string;
@@ -379,6 +448,7 @@ export interface AzdoIdentityRefWithVote {
   uniqueName?: string;
   isRequired?: boolean;
   vote?: number;
+  hasDeclined?: boolean;
 }
 
 // Minimal work item shape needed to read/patch its `relations` array.

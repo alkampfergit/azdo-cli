@@ -1,8 +1,19 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import type { CliConfig, ConfigValue, ScopedSettings } from '../types/work-item.js';
-import { parseCredentialStore } from './credential-store-kind.js';
+import type {
+  CliConfig,
+  ConfigValue,
+  CredentialStoreKind,
+  ScopedSettings,
+} from '../types/work-item.js';
+import { CREDENTIAL_STORES, parseCredentialStore } from './credential-store-kind.js';
+
+export interface SettingValueDefinition {
+  value: string;
+  /** Short caveat shown next to the value in `azdo config --help`. */
+  note?: string;
+}
 
 export interface SettingDefinition {
   key: keyof CliConfig;
@@ -10,7 +21,20 @@ export interface SettingDefinition {
   type: 'string' | 'string[]' | 'boolean';
   example: string;
   required: boolean;
+  /** Also accepted inside an org scope (`--org <org>`); false means global only. */
+  scoped: boolean;
+  /** Closed set of accepted values, when the type alone does not say enough. */
+  values?: readonly SettingValueDefinition[];
+  /** Environment variable that overrides the stored value for one process. */
+  env?: string;
 }
+
+// Keyed by the kind so adding a store to CREDENTIAL_STORES without a note is a
+// compile error, and the help text can never list a value the parser rejects.
+const CREDENTIAL_STORE_NOTES: Record<CredentialStoreKind, string> = {
+  keyring: 'OS vault, default',
+  dpapi: 'Windows only; DPAPI-encrypted files under ~/.azdo/credentials',
+};
 
 export const SETTINGS: readonly SettingDefinition[] = [
   {
@@ -19,6 +43,7 @@ export const SETTINGS: readonly SettingDefinition[] = [
     type: 'string',
     example: 'mycompany',
     required: true,
+    scoped: false,
   },
   {
     key: 'project',
@@ -26,6 +51,7 @@ export const SETTINGS: readonly SettingDefinition[] = [
     type: 'string',
     example: 'MyProject',
     required: true,
+    scoped: true,
   },
   {
     key: 'fields',
@@ -33,6 +59,7 @@ export const SETTINGS: readonly SettingDefinition[] = [
     type: 'string[]',
     example: 'System.Tags,Custom.Priority',
     required: false,
+    scoped: true,
   },
   {
     key: 'markdown',
@@ -40,20 +67,25 @@ export const SETTINGS: readonly SettingDefinition[] = [
     type: 'boolean',
     example: 'true',
     required: false,
+    scoped: true,
   },
   {
     key: 'credentialStore',
-    description: 'Where credentials are stored: "keyring" (OS vault, default) or "dpapi" (Windows only, ~/.azdo/credentials)',
+    description: 'Where credentials are stored (keyring or dpapi)',
     type: 'string',
     example: 'dpapi',
     required: false,
+    scoped: false,
+    values: CREDENTIAL_STORES.map((value) => ({ value, note: CREDENTIAL_STORE_NOTES[value] })),
+    env: 'AZDO_CREDENTIAL_STORE',
   },
 ] as const;
 
 const VALID_KEYS: readonly string[] = SETTINGS.map((s) => s.key);
 
-// Keys valid inside an org-scoped entry: everything except 'org' (which is top-level only).
-const SCOPED_KEYS: readonly string[] = ['project', 'fields', 'markdown'];
+// Keys valid inside an org-scoped entry — derived from the registry so the help
+// text and the validation cannot disagree about what `--org` accepts.
+const SCOPED_KEYS: readonly string[] = SETTINGS.filter((s) => s.scoped).map((s) => s.key);
 
 export function getConfigPath(): string {
   return path.join(os.homedir(), '.azdo', 'config.json');

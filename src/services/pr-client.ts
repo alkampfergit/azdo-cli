@@ -17,6 +17,7 @@ import type {
   AzdoPullRequest,
   AzdoPullRequestStatus,
   AzdoRepository,
+  AzdoResourceRefListResponse,
   AzdoThread,
   AzdoThreadListResponse,
   AzdoWorkItem,
@@ -25,6 +26,7 @@ import type {
   CreatableThreadStatus,
   PostedPrComment,
   PullRequestCheck,
+  PullRequestOpenOptions,
   PullRequestOpenRequest,
   PullRequestOpenResult,
   PullRequestTemplate,
@@ -32,6 +34,7 @@ import type {
   PullRequestThreadCreateRequest,
   PullRequestUpdateRequest,
   Reviewer,
+  ReviewerVoteState,
   WorkItemLink,
 } from '../types/pull-request.js';
 
@@ -129,6 +132,11 @@ function mapPullRequest(
     description: pullRequest.description?.trim() || null,
     createdByUniqueName: pullRequest.createdBy?.uniqueName ?? null,
     createdById: pullRequest.createdBy?.id ?? null,
+    isDraft: pullRequest.isDraft ?? false,
+    creationDate: pullRequest.creationDate ?? null,
+    closedDate: pullRequest.closedDate ?? null,
+    reviewers: (pullRequest.reviewers ?? []).map(mapReviewer),
+    labels: (pullRequest.labels ?? []).filter((label) => label.active !== false).map((label) => label.name),
   };
 }
 
@@ -247,6 +255,8 @@ function mapComment(comment: AzdoThread['comments'][number]): ActivePullRequestC
   return {
     id: comment.id,
     author: comment.author?.displayName ?? null,
+    authorUniqueName: comment.author?.uniqueName ?? null,
+    authorId: comment.author?.id ?? null,
     content,
     publishedAt: comment.publishedDate ?? null,
     commentType: comment.commentType ?? null,
@@ -405,6 +415,28 @@ export async function listRepositoryPullRequests(
   return data.value.map((pullRequest) => mapPullRequest(context, repo, pullRequest));
 }
 
+// Ids of the work items linked to a pull request. The list endpoint never
+// carries `workItemRefs`, so `pr list --work-items` makes one of these calls
+// per pull request.
+export async function getPullRequestWorkItemIds(
+  context: AzdoContext,
+  repo: string,
+  cred: AuthCredential,
+  prId: number,
+): Promise<number[]> {
+  const url = new URL(
+    `https://dev.azure.com/${encodeURIComponent(context.org)}/${encodeURIComponent(context.project)}/_apis/git/repositories/${encodeURIComponent(repo)}/pullRequests/${prId}/workitems`,
+  );
+  url.searchParams.set('api-version', '7.1');
+
+  const response = await fetchWithErrors(url.toString(), { headers: authHeaders(cred) });
+  const data = await readJsonResponse<AzdoResourceRefListResponse>(response);
+  return data.value
+    .map((ref) => Number.parseInt(ref.id, 10))
+    .filter((id) => Number.isInteger(id) && id > 0)
+    .sort((a, b) => a - b);
+}
+
 export async function getPullRequestChecks(
   context: AzdoContext,
   repo: string,
@@ -544,6 +576,80 @@ function describeDescriptionBudget(composed: ComposedDescription): string {
   return `description: ${composed.providedChars} provided + ${composed.separatorChars} separator + ${composed.templateChars} template = ${composed.totalChars} characters (client limit ${MAX_PR_DESCRIPTION_CHARS})`;
 }
 
+// Only optional keys present when requested, so a default invocation sends the pre-050 body.
+function buildOpenPayload(
+  sourceBranch: string,
+  targetBranch: string,
+  title: string,
+  description: string,
+  options: PullRequestOpenOptions,
+): PullRequestOpenRequest {
+  const payload: PullRequestOpenRequest = {
+    sourceRefName: `refs/heads/${sourceBranch}`,
+    targetRefName: `refs/heads/${targetBranch}`,
+    title,
+    description,
+  };
+  if (options.isDraft) {
+    payload.isDraft = true;
+  }
+  if (options.labels && options.labels.length > 0) {
+    payload.labels = options.labels.map((name) => ({ name }));
+  }
+  return payload;
+}
+
+async function createPullRequest(
+  context: AzdoContext,
+  repo: string,
+  cred: AuthCredential,
+  payload: PullRequestOpenRequest,
+  composed: ComposedDescription,
+): Promise<AzdoPullRequest> {
+  const url = new URL(
+    `https://dev.azure.com/${encodeURIComponent(context.org)}/${encodeURIComponent(context.project)}/_apis/git/repositories/${encodeURIComponent(repo)}/pullrequests`,
+  );
+  url.searchParams.set('api-version', '7.1');
+
+  try {
+    const response = await fetchWithErrors(url.toString(), {
+      method: 'POST',
+      headers: {
+        ...authHeaders(cred),
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+    });
+    return await readJsonResponse<AzdoPullRequest>(response);
+  } catch (err) {
+    // Backstop for a 400 the pre-flight did not predict: whatever the server
+    // objected to, the operator still gets the description arithmetic next to
+    // the server's own message rather than having to guess at it.
+    if (err instanceof Error && err.message.startsWith('HTTP_400')) {
+      throw new Error(`${err.message} | ${describeDescriptionBudget(composed)}`, { cause: err });
+    }
+    throw err;
+  }
+}
+
+// A failure must not hide the PR that now exists: each outcome is reported per item.
+function linkWorkItems(
+  context: AzdoContext,
+  repo: string,
+  cred: AuthCredential,
+  prId: number,
+  workItemIds: number[],
+): Promise<NonNullable<PullRequestOpenResult['workItems']>> {
+  return Promise.all(
+    workItemIds.map((id) =>
+      linkWorkItemToPullRequest(context, repo, cred, prId, id).then(
+        () => ({ id, linked: true }),
+        (err: unknown) => ({ id, linked: false, error: err instanceof Error ? err.message : String(err) }),
+      ),
+    ),
+  );
+}
+
 export async function openPullRequest(
   context: AzdoContext,
   repo: string,
@@ -551,16 +657,18 @@ export async function openPullRequest(
   sourceBranch: string,
   title: string,
   description?: string,
+  options: PullRequestOpenOptions = {},
 ): Promise<PullRequestOpenResult> {
+  const targetBranch = options.targetBranch ?? 'develop';
   const existing = await listPullRequests(context, repo, cred, sourceBranch, {
     status: 'active',
-    targetBranch: 'develop',
+    targetBranch,
   });
 
   if (existing.length === 1) {
     return {
       branch: sourceBranch,
-      targetBranch: 'develop',
+      targetBranch,
       created: false,
       pullRequest: existing[0],
     };
@@ -574,7 +682,7 @@ export async function openPullRequest(
   const defaultBranch = repository.defaultBranch
     ? repository.defaultBranch.replace(/^refs\/heads\//, '')
     : 'develop';
-  const template = await resolvePullRequestTemplate(context, repo, cred, defaultBranch, 'develop');
+  const template = await resolvePullRequestTemplate(context, repo, cred, defaultBranch, targetBranch);
   const composed = composeDescription(description, template);
   if (composed === null) {
     throw new Error('DESCRIPTION_REQUIRED');
@@ -586,45 +694,26 @@ export async function openPullRequest(
     throw new Error(`DESCRIPTION_TOO_LONG: ${formatDescriptionOverflow(composed)}`);
   }
 
-  const payload: PullRequestOpenRequest = {
-    sourceRefName: `refs/heads/${sourceBranch}`,
-    targetRefName: 'refs/heads/develop',
-    title,
-    description: composed.text,
-  };
-
-  const url = new URL(
-    `https://dev.azure.com/${encodeURIComponent(context.org)}/${encodeURIComponent(context.project)}/_apis/git/repositories/${encodeURIComponent(repo)}/pullrequests`,
+  const data = await createPullRequest(
+    context,
+    repo,
+    cred,
+    buildOpenPayload(sourceBranch, targetBranch, title, composed.text, options),
+    composed,
   );
-  url.searchParams.set('api-version', '7.1');
 
-  let data: AzdoPullRequest;
-  try {
-    const response = await fetchWithErrors(url.toString(), {
-      method: 'POST',
-      headers: {
-        ...authHeaders(cred),
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(payload),
-    });
-    data = await readJsonResponse<AzdoPullRequest>(response);
-  } catch (err) {
-    // Backstop for a 400 the pre-flight did not predict: whatever the server
-    // objected to, the operator still gets the description arithmetic next to
-    // the server's own message rather than having to guess at it.
-    if (err instanceof Error && err.message.startsWith('HTTP_400')) {
-      throw new Error(`${err.message} | ${describeDescriptionBudget(composed)}`, { cause: err });
-    }
-    throw err;
-  }
-
-  return {
+  const pullRequest = mapPullRequest(context, repo, data);
+  const result: PullRequestOpenResult = {
     branch: sourceBranch,
-    targetBranch: 'develop',
+    targetBranch,
     created: true,
-    pullRequest: mapPullRequest(context, repo, data),
+    pullRequest,
   };
+  // The create endpoint has no work item input, so link afterwards.
+  if (options.workItemIds && options.workItemIds.length > 0) {
+    result.workItems = await linkWorkItems(context, repo, cred, pullRequest.id, options.workItemIds);
+  }
+  return result;
 }
 
 // Updates a pull request's title, description and/or status (038-pr-update,
@@ -793,9 +882,41 @@ export async function updateThreadComment(
   return {
     id: data.id,
     author: data.author?.displayName ?? null,
+    authorUniqueName: data.author?.uniqueName ?? null,
+    authorId: data.author?.id ?? null,
     content: data.content ?? content,
     publishedAt: data.publishedDate ?? null,
   };
+}
+
+// Deletes one comment from a pull request thread via the documented
+// DELETE .../threads/{threadId}/comments/{commentId} (Pull Request Thread
+// Comments - Delete, api-version 7.1). The endpoint answers with a bare 200/204
+// and no useful body, so nothing is parsed: a non-ok status becomes the usual
+// httpError and the 401/403/404 sentinels come from fetchWithErrors. Azure
+// DevOps only lets a comment's own author delete it, so another identity gets
+// PERMISSION_DENIED here. Deleting a thread's last visible comment leaves an
+// empty thread that the list mapper already drops (mapComment skips isDeleted).
+export async function deleteThreadComment(
+  context: AzdoContext,
+  repo: string,
+  cred: AuthCredential,
+  prId: number,
+  threadId: number,
+  commentId: number,
+): Promise<void> {
+  const url = new URL(
+    `https://dev.azure.com/${encodeURIComponent(context.org)}/${encodeURIComponent(context.project)}/_apis/git/repositories/${encodeURIComponent(repo)}/pullRequests/${prId}/threads/${threadId}/comments/${commentId}`,
+  );
+  url.searchParams.set('api-version', '7.1');
+
+  const response = await fetchWithErrors(url.toString(), {
+    method: 'DELETE',
+    headers: authHeaders(cred),
+  });
+  if (!response.ok) {
+    throw httpError(response);
+  }
 }
 
 export async function postThreadComment(
@@ -818,6 +939,8 @@ export async function postThreadComment(
   return {
     id: data.id,
     author: data.author?.displayName ?? null,
+    authorUniqueName: data.author?.uniqueName ?? null,
+    authorId: data.author?.id ?? null,
     content: data.content ?? content,
     publishedAt: data.publishedDate ?? null,
   };
@@ -1019,18 +1142,47 @@ function buildPullRequestReviewerUrl(context: AzdoContext, repo: string, prId: n
   return url;
 }
 
+// Azure DevOps documents the reviewer vote as a small integer: 10 approved,
+// 5 approved with suggestions, 0 no vote, -5 waiting for author, -10
+// rejected; 15 is the "bypassed / not applicable" value the extension API
+// documents for a required reviewer whose requirement was satisfied without
+// counting as an approval. Anything else maps to `unknown` and the raw number
+// stays on the `vote` field, so a future value is surfaced rather than hidden.
+export function reviewerVoteState(vote: number): ReviewerVoteState {
+  switch (vote) {
+    case 10:
+      return 'approved';
+    case 5:
+      return 'approved-with-suggestions';
+    case 0:
+      return 'no-vote';
+    case -5:
+      return 'waiting-for-author';
+    case -10:
+      return 'rejected';
+    case 15:
+      return 'bypassed';
+    default:
+      return 'unknown';
+  }
+}
+
 function mapReviewer(data: AzdoIdentityRefWithVote): Reviewer {
+  const vote = data.vote ?? 0;
   return {
     id: data.id,
     displayName: data.displayName ?? null,
     uniqueName: data.uniqueName ?? null,
     isRequired: data.isRequired ?? false,
-    vote: data.vote ?? 0,
+    vote,
+    voteState: reviewerVoteState(vote),
+    hasDeclined: data.hasDeclined ?? false,
   };
 }
 
-// Lists a pull request's current reviewers — used to detect no-ops for
-// `pr reviewers remove` (FR-010) without relying on a DELETE's error shape.
+// Lists a pull request's current reviewers with their votes — the read behind
+// `pr reviewers list` (048), also used to detect no-ops for `pr reviewers
+// add|remove` without relying on a PUT/DELETE's error shape.
 export async function getPullRequestReviewers(
   context: AzdoContext,
   repo: string,

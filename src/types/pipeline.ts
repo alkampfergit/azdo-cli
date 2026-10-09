@@ -92,6 +92,18 @@ export interface PipelineLog {
   lineCount: number | null;
   // Timeline record (step/job) this log belongs to, when resolvable.
   step: string | null;
+  // Timeline record type (Stage | Job | Task | ...) and the name of its parent
+  // record (the job of a task, the stage of a job), when resolvable.
+  type: string | null;
+  parent: string | null;
+}
+
+export interface PipelineArtifact {
+  id: number;
+  name: string;
+  type: string | null; // Container | PipelineArtifact | FilePath | ...
+  sizeBytes: number | null;
+  downloadUrl: string | null;
 }
 
 export interface PipelineStartResult {
@@ -154,6 +166,8 @@ export interface AzdoTimelineIssue {
 }
 
 export interface AzdoTimelineRecord {
+  id?: string;
+  parentId?: string | null;
   type?: string; // Stage | Phase | Job | Task | ...
   name?: string;
   state?: string;
@@ -203,4 +217,20 @@ export interface AzdoBuildLog {
 export interface AzdoBuildLogListResponse {
   count?: number;
   value: AzdoBuildLog[];
+}
+
+export interface AzdoBuildArtifact {
+  id: number;
+  name: string;
+  resource?: {
+    type?: string;
+    data?: string;
+    properties?: Record<string, string>;
+    downloadUrl?: string;
+  };
+}
+
+export interface AzdoBuildArtifactListResponse {
+  count?: number;
+  value: AzdoBuildArtifact[];
 }

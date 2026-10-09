@@ -124,3 +124,53 @@ stored verbatim and comes back with a trailing `\r` on every value.
 The dev container installs the Azure CLI via the
 `ghcr.io/devcontainers/features/azure-cli` feature, so `az` is available there
 out of the box.
+
+## Testing a branch build from npm
+
+Every push to any branch (not only `master`/`develop`) runs the `publish` job in
+`ci.yml` once `build` and `integration-tests` pass. A feature branch publishes
+`<next-minor>-<branch>.<run>` (e.g. `0.22.0-feature-052-pipeline-logs-glued-progress.812`)
+under the shared `dev` dist-tag; `develop` publishes `-develop.<run>` under `dev` too,
+`release/*` under `next`, and `master` under `latest`.
+
+```
+npm install -g azdo-cli@dev                    # newest build from any branch
+npm install -g azdo-cli@<exact-version>        # a specific branch build
+```
+
+Because `dev` is shared, use the exact version from the `Publish to npm` step of the
+CI run when several branches are in flight. To republish without a new commit, re-run
+the workflow's `publish` job from the Actions tab. A manual `workflow_dispatch` run
+without a pull request number builds and tests but does not publish.
+
+## Testing a pull request from npm
+
+A maintainer can publish a preview of one open pull request and anyone can then install it:
+
+```
+npm i -g azdo-cli@pr-134
+```
+
+Start it from **Actions > CI > Run workflow** (use the default branch and type the PR number), or:
+
+```
+gh workflow run ci.yml -f pr=134
+```
+
+The PR's own `pull_request` CI run builds the preview: after lint, typecheck, build and unit tests pass, its `build` job packs a tarball and uploads it as the `preview-tarball` artifact (kept 30 days). The manual run validates the number, requires the PR to be open, and looks up the successful `pull_request` run of the PR's current head commit. It stops if there is none, so wait for the PR's CI to go green or re-run it. It then publishes that run's tarball as `<next-minor>-pr.<number>.<run>` (e.g. `0.22.0-pr.134.57`) under the dist-tag `pr-<number>`. `latest` is never touched. The version and install command appear in the run's job summary. The version comes from git tags via `scripts/compute-version.sh --pr <number> <run>`, run from the dispatched ref, never from the PR. A `pull_request` run builds the PR merged into its base branch, so the preview is exactly what CI tested.
+
+The manual run executes no PR code at all. `build` and `integration-tests` are skipped. `publish-preview`, the only job with the npm publish permission, downloads the tarball and checks that it holds only plain files and directories under `package/`. It extracts the tarball to a temp directory. With node, it checks the package name, sets the version and drops any `publishConfig`. Then it re-packs the tarball with `tar`. It publishes with `--ignore-scripts` and a pinned `--registry`. Because no PR code runs in the default branch's context, a preview cannot poison its cache or reach its secrets. This is why CodeQL's `actions/cache-poisoning/poisonable-step` no longer fires.
+
+**Fork PRs:** a fork's `pull_request` run has no secrets, so integration tests are skipped there and the preview rests on lint, typecheck and unit tests. The published package is still the PR's code, so read every change in a fork PR before publishing it for others to install.
+
+`npm-tag-cleanup.yml` runs weekly (and on demand) and removes the `pr-<number>` dist-tag of every closed or merged PR; a tag is kept when the PR is open or its state cannot be read. Preview versions stay on npm. It authenticates with an `NPM_TOKEN` repository secret (a granular npm token with read and write access to `azdo-cli` only), because the trusted publisher cannot remove tags. The `ci.yml` trusted publisher is unchanged. The schedule only fires once the workflow is on the default branch.
+
+## Security scanning
+
+`.github/workflows/security.yml` runs [Trivy](https://github.com/aquasecurity/trivy) every 3 days (and on demand from the Actions tab) against `develop` and `master`. It is deliberately not part of `ci.yml`: vulnerabilities are discovered in code that already exists, so it does not run per push or pull request, and it is not a required PR check.
+
+- **Gate:** any HIGH or CRITICAL finding fails the run — fixed or not (`ignore-unfixed` is off). Scanners: `vuln`, `secret`, `misconfig`, `license`; npm devDependencies are included. The package published on npm (`azdo-cli@latest`, fetched with `npm pack`) is scanned too, for vulnerabilities and secrets, in its own job.
+- **Report:** each branch job uploads `trivy-report-<ref>` (`trivy-repo.json`, `trivy-repo.sarif`) and the package job uploads `trivy-report-package` (`trivy-package.json`), even when the gate fails; download it from the run's *Artifacts* section.
+- **Accepted risks:** add the id to `.trivyignore` with a reason and a review date in the comment above it.
+- **No code execution on the scanned branches:** the branch jobs only check out and scan; nothing from the checkout is built or run, so a scheduled run cannot write to the default branch's Actions cache from branch code (CodeQL `actions/cache-poisoning/poisonable-step`).
+- **Manual run:** `gh workflow run security.yml`.

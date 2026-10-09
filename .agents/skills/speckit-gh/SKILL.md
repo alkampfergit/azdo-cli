@@ -287,6 +287,13 @@ After the PR is marked ready in step 11, `speckit-gh` keeps ownership:
 - Polls PR reviewer comments every 5 min (delegate each cycle to a
   laconic subagent that ignores its own comments); applies owner-requested
   changes, re-runs CI, comments back with the commit hash.
+- Fixes Copilot line-level comments the same way and, after the push is
+  accepted, **replies in each fixed thread with the commit SHA and resolves
+  the thread itself** via the GraphQL `resolveReviewThread` mutation
+  (procedure in `github-pr-fixer/SKILL.md` → *After fixing a Copilot
+  comment — resolve its thread yourself*). Copilot does not close its own
+  threads; the owner has asked not to be left doing it by hand. Threads
+  not fully addressed stay open with an explanation.
 - Exits on `MERGED` / `CLOSED` / owner-directed stand-down.
 
 `github-pr-fixer` is NOT auto-invoked from here.

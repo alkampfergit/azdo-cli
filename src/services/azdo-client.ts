@@ -1,8 +1,14 @@
 import type {
   AddWorkItemCommentResult,
+  DeleteWorkItemCommentResult,
+  UpdateWorkItemCommentResult,
   AuthCredential,
   WorkItem,
   WorkItemAttachment,
+  WorkItemIdentity,
+  WorkItemRelationEntry,
+  WorkItemListFilter,
+  WorkItemSummary,
   AzdoContext,
   JsonPatchOperation,
   UpdateResult,
@@ -20,6 +26,9 @@ const DEFAULT_FIELDS: readonly string[] = [
   'System.State',
   'System.WorkItemType',
   'System.AssignedTo',
+  'System.CreatedBy',
+  'System.CreatedDate',
+  'System.Tags',
   'System.Description',
   'Microsoft.VSTS.Common.AcceptanceCriteria',
   'Microsoft.VSTS.TCM.ReproSteps',
@@ -298,7 +307,9 @@ interface AzdoWorkItemResponse {
     'System.Title': string;
     'System.State': string;
     'System.WorkItemType': string;
-    'System.AssignedTo'?: { displayName: string };
+    'System.AssignedTo'?: AzdoIdentityRef;
+    'System.CreatedBy'?: AzdoIdentityRef;
+    'System.CreatedDate'?: string;
     'System.Description'?: string;
     'Microsoft.VSTS.Common.AcceptanceCriteria'?: string;
     'Microsoft.VSTS.TCM.ReproSteps'?: string;
@@ -315,6 +326,8 @@ interface AzdoWorkItemResponse {
 
 interface AzdoIdentityRef {
   displayName?: string;
+  uniqueName?: string;
+  id?: string;
 }
 
 interface AzdoCommentResponse {
@@ -401,12 +414,20 @@ function buildWorkItemCommentsUrl(context: AzdoContext, id: number): URL {
   return url;
 }
 
+function buildWorkItemCommentUrl(context: AzdoContext, id: number, commentId: number): URL {
+  const url = buildWorkItemCommentsUrl(context, id);
+  url.pathname = `${url.pathname}/${commentId}`;
+  return url;
+}
+
 function mapWorkItemComment(comment: AzdoCommentResponse, fallbackWorkItemId: number): WorkItemComment {
   return {
     id: comment.id ?? comment.commentId ?? 0,
     workItemId: comment.workItemId ?? fallbackWorkItemId,
     text: typeof comment.text === 'string' ? comment.text : '',
     author: comment.createdBy?.displayName ?? null,
+    authorUniqueName: comment.createdBy?.uniqueName ?? null,
+    authorId: comment.createdBy?.id ?? null,
     createdAt: comment.createdDate ?? null,
     modifiedAt: comment.modifiedDate ?? null,
     isDeleted: comment.isDeleted === true,
@@ -586,6 +607,34 @@ export async function getOrgFieldNames(
   return (data.value ?? []).map((f) => f.referenceName);
 }
 
+function toIdentity(ref: AzdoIdentityRef | undefined): WorkItemIdentity | null {
+  if (!ref) return null;
+  return {
+    displayName: ref.displayName ?? null,
+    uniqueName: ref.uniqueName ?? null,
+    id: ref.id ?? null,
+  };
+}
+
+const PULL_REQUEST_ARTIFACT = /^vstfs:\/\/\/Git\/PullRequestId\/(.+)$/i;
+
+export function mapRelations(relations?: AzdoRelation[]): WorkItemRelationEntry[] {
+  return (relations ?? []).map((r) => {
+    const entry: WorkItemRelationEntry = { rel: r.rel, name: r.attributes?.name ?? null, url: r.url };
+    const workItemMatch = /\/workItems\/(\d+)$/i.exec(r.url);
+    if (workItemMatch) entry.workItemId = Number(workItemMatch[1]);
+    const prMatch = PULL_REQUEST_ARTIFACT.exec(r.url);
+    if (prMatch) {
+      // Segments are joined with %2F by Azure DevOps; tolerate literal slashes too (see 035).
+      const [projectId, repositoryId, prId] = prMatch[1].split(/%2F|\//i);
+      if (projectId && repositoryId && /^\d+$/.test(prId ?? '')) {
+        entry.pullRequest = { id: Number(prId), repositoryId, projectId };
+      }
+    }
+    return entry;
+  });
+}
+
 function buildCombinedDescription(fields: AzdoWorkItemResponse['fields']): string | null {
   const parts: { label: string; value: string }[] = [];
   if (fields['System.Description']) {
@@ -653,6 +702,11 @@ export async function getWorkItem(context: AzdoContext, id: number, cred: AuthCr
     state: data.fields['System.State'],
     type: data.fields['System.WorkItemType'],
     assignedTo: data.fields['System.AssignedTo']?.displayName ?? null,
+    assignedToIdentity: toIdentity(data.fields['System.AssignedTo']),
+    createdBy: toIdentity(data.fields['System.CreatedBy']),
+    createdDate: data.fields['System.CreatedDate'] ?? null,
+    tags: parseTags(data.fields['System.Tags']),
+    relations: mapRelations(relationsData.relations),
     description: buildCombinedDescription(data.fields),
     areaPath: data.fields['System.AreaPath'],
     iterationPath: data.fields['System.IterationPath'],
@@ -733,22 +787,11 @@ export async function listWorkItemComments(
   };
 }
 
-export async function addWorkItemComment(
-  context: AzdoContext,
-  id: number,
-  cred: AuthCredential,
-  text: string,
-  format: 'html' | 'markdown' = 'html',
-): Promise<AddWorkItemCommentResult> {
-  const url = buildWorkItemCommentsUrl(context, id);
-  url.searchParams.set('format', format);
+async function sendCommentRequest(url: URL, cred: AuthCredential, method: string, body?: object): Promise<Response> {
   const response = await fetchWithErrors(url.toString(), {
-    method: 'POST',
-    headers: {
-      ...authHeaders(cred),
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({ text }),
+    method,
+    headers: body === undefined ? authHeaders(cred) : { ...authHeaders(cred), 'Content-Type': 'application/json' },
+    body: body === undefined ? undefined : JSON.stringify(body),
   });
 
   if (response.status === 400) {
@@ -760,16 +803,83 @@ export async function addWorkItemComment(
     throw httpError(response);
   }
 
+  return response;
+}
+
+async function writeCommentText(
+  url: URL,
+  cred: AuthCredential,
+  method: 'POST' | 'PATCH',
+  text: string,
+  format: 'html' | 'markdown',
+  fallback: { workItemId: number; commentId: number },
+): Promise<UpdateWorkItemCommentResult> {
+  url.searchParams.set('format', format);
+  const response = await sendCommentRequest(url, cred, method, { text });
   const data = (await response.json()) as AzdoCommentResponse;
 
   return {
-    workItemId: data.workItemId ?? id,
-    commentId: data.commentId ?? data.id ?? 0,
+    workItemId: data.workItemId ?? fallback.workItemId,
+    commentId: data.commentId ?? data.id ?? fallback.commentId,
     text: typeof data.text === 'string' ? data.text : text,
     author: data.createdBy?.displayName ?? null,
+    authorUniqueName: data.createdBy?.uniqueName ?? null,
+    authorId: data.createdBy?.id ?? null,
     createdAt: data.createdDate ?? null,
+    modifiedAt: data.modifiedDate ?? null,
     url: data.url ?? null,
   };
+}
+
+export async function addWorkItemComment(
+  context: AzdoContext,
+  id: number,
+  cred: AuthCredential,
+  text: string,
+  format: 'html' | 'markdown' = 'html',
+): Promise<AddWorkItemCommentResult> {
+  const written = await writeCommentText(
+    buildWorkItemCommentsUrl(context, id),
+    cred,
+    'POST',
+    text,
+    format,
+    { workItemId: id, commentId: 0 },
+  );
+  return {
+    workItemId: written.workItemId,
+    commentId: written.commentId,
+    text: written.text,
+    author: written.author,
+    authorUniqueName: written.authorUniqueName,
+    authorId: written.authorId,
+    createdAt: written.createdAt,
+    url: written.url,
+  };
+}
+
+export async function updateWorkItemComment(
+  context: AzdoContext,
+  id: number,
+  commentId: number,
+  cred: AuthCredential,
+  text: string,
+  format: 'html' | 'markdown' = 'html',
+): Promise<UpdateWorkItemCommentResult> {
+  return writeCommentText(buildWorkItemCommentUrl(context, id, commentId), cred, 'PATCH', text, format, {
+    workItemId: id,
+    commentId,
+  });
+}
+
+export async function deleteWorkItemComment(
+  context: AzdoContext,
+  id: number,
+  commentId: number,
+  cred: AuthCredential,
+): Promise<DeleteWorkItemCommentResult> {
+  await sendCommentRequest(buildWorkItemCommentUrl(context, id, commentId), cred, 'DELETE');
+  return { workItemId: id, commentId, deleted: true };
 }
 
 export async function updateWorkItem(
@@ -876,4 +986,140 @@ export async function createAttachment(
   }
 
   return (await response.json()) as { id: string; url: string };
+}
+
+const LIST_SYSTEM_FIELDS: readonly string[] = [
+  'System.Title',
+  'System.State',
+  'System.WorkItemType',
+  'System.AssignedTo',
+  'System.Description',
+  'System.Tags',
+  'System.TeamProject',
+];
+// Present only in some process templates; dropped when the batch read rejects them.
+const LIST_PROCESS_FIELDS: readonly string[] = [
+  'Microsoft.VSTS.Common.AcceptanceCriteria',
+  'Microsoft.VSTS.TCM.ReproSteps',
+];
+const WORKITEMS_BATCH_LIMIT = 200;
+
+function wiqlLiteral(value: string): string {
+  return `'${value.replaceAll("'", "''")}'`;
+}
+
+/**
+ * Builds the WIQL for `list-items`. Every user-supplied value goes through
+ * `wiqlLiteral` (single quotes doubled), so a filter cannot alter the query.
+ * `@me` (any case) is passed through unquoted as WIQL's own macro.
+ */
+export function buildListWiql(filter: Omit<WorkItemListFilter, 'top'>): string {
+  const clauses = ['[System.TeamProject] = @project'];
+  if (filter.state) clauses.push(`[System.State] = ${wiqlLiteral(filter.state)}`);
+  if (filter.tag) clauses.push(`[System.Tags] CONTAINS ${wiqlLiteral(filter.tag)}`);
+  if (filter.assignedTo) {
+    clauses.push(
+      filter.assignedTo.toLowerCase() === '@me'
+        ? '[System.AssignedTo] = @Me'
+        : `[System.AssignedTo] = ${wiqlLiteral(filter.assignedTo)}`,
+    );
+  }
+  if (filter.titleContains) clauses.push(`[System.Title] CONTAINS ${wiqlLiteral(filter.titleContains)}`);
+  return `SELECT [System.Id] FROM WorkItems WHERE ${clauses.join(' AND ')} ORDER BY [System.ChangedDate] DESC`;
+}
+
+function parseTags(raw: unknown): string[] {
+  if (typeof raw !== 'string') return [];
+  return raw.split(';').map((t) => t.trim()).filter((t) => t.length > 0);
+}
+
+async function runWiql(context: AzdoContext, cred: AuthCredential, wiql: string, top: number): Promise<number[]> {
+  const url = new URL(
+    `https://dev.azure.com/${encodeURIComponent(context.org)}/${encodeURIComponent(context.project)}/_apis/wit/wiql`,
+  );
+  url.searchParams.set('api-version', '7.1');
+  url.searchParams.set('$top', String(top));
+  const response = await fetchWithErrors(url.toString(), {
+    method: 'POST',
+    headers: { ...authHeaders(cred), 'Content-Type': 'application/json' },
+    body: JSON.stringify({ query: wiql }),
+  });
+  if (response.status === 400) {
+    const serverMessage = await readResponseMessage(response);
+    if (serverMessage) throw new Error(`BAD_REQUEST: ${serverMessage}`);
+  }
+  if (!response.ok) throw httpError(response);
+  const data = (await response.json()) as { workItems?: { id: number }[] };
+  return (data.workItems ?? []).map((w) => w.id);
+}
+
+async function postWorkItemsBatch(
+  context: AzdoContext,
+  cred: AuthCredential,
+  ids: number[],
+  fields: readonly string[],
+): Promise<Response> {
+  const url = new URL(
+    `https://dev.azure.com/${encodeURIComponent(context.org)}/${encodeURIComponent(context.project)}/_apis/wit/workitemsbatch`,
+  );
+  url.searchParams.set('api-version', '7.1');
+  return fetchWithErrors(url.toString(), {
+    method: 'POST',
+    headers: { ...authHeaders(cred), 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ids, fields }),
+  });
+}
+
+async function readWorkItemsBatch(
+  context: AzdoContext,
+  cred: AuthCredential,
+  ids: number[],
+): Promise<AzdoWorkItemResponse[]> {
+  let response = await postWorkItemsBatch(context, cred, ids, [...LIST_SYSTEM_FIELDS, ...LIST_PROCESS_FIELDS]);
+  if (response.status === 400) {
+    const serverMessage = await readResponseMessage(response);
+    if (!serverMessage?.includes('TF51535')) {
+      throw serverMessage ? new Error(`BAD_REQUEST: ${serverMessage}`) : httpError(response);
+    }
+    // A process-template field does not exist in this org; retry with system fields only.
+    response = await postWorkItemsBatch(context, cred, ids, LIST_SYSTEM_FIELDS);
+  }
+  if (!response.ok) throw httpError(response);
+  return ((await response.json()) as { value?: AzdoWorkItemResponse[] }).value ?? [];
+}
+
+/**
+ * WIQL query (ids, newest change first) followed by batch reads of the
+ * matching items: one WIQL request plus one batch request per 200 ids (so
+ * 201 items cost three requests), never one request per item.
+ */
+export async function queryWorkItems(
+  context: AzdoContext,
+  cred: AuthCredential,
+  filter: WorkItemListFilter,
+): Promise<WorkItemSummary[]> {
+  const ids = await runWiql(context, cred, buildListWiql(filter), filter.top);
+  const byId = new Map<number, WorkItemSummary>();
+  const chunks: number[][] = [];
+  for (let i = 0; i < ids.length; i += WORKITEMS_BATCH_LIMIT) {
+    chunks.push(ids.slice(i, i + WORKITEMS_BATCH_LIMIT));
+  }
+  const batches = await Promise.all(chunks.map((chunk) => readWorkItemsBatch(context, cred, chunk)));
+  for (const batch of batches) {
+    for (const item of batch) {
+      const teamProject = item.fields['System.TeamProject'];
+      const project = typeof teamProject === 'string' ? teamProject : context.project;
+      byId.set(item.id, {
+        id: item.id,
+        title: item.fields['System.Title'],
+        description: buildCombinedDescription(item.fields),
+        url: `https://dev.azure.com/${encodeURIComponent(context.org)}/${encodeURIComponent(project)}/_workitems/edit/${item.id}`,
+        state: item.fields['System.State'],
+        type: item.fields['System.WorkItemType'],
+        tags: parseTags(item.fields['System.Tags']),
+        assignedTo: item.fields['System.AssignedTo']?.displayName ?? null,
+      });
+    }
+  }
+  return ids.flatMap((id) => byId.get(id) ?? []);
 }

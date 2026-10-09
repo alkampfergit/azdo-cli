@@ -6,11 +6,71 @@ on:
   pull_request:
     branches: [master, develop]
   workflow_dispatch:
+    inputs:
+      pr:
+        description: "Pull request number to publish as a preview (leave empty for a normal run)"
+        required: false
+        type: string
 
 jobs:
-  build:
+  # Trusted gate for a manual preview run. Runs only code from the dispatched
+  # ref (never the PR): validates the PR, finds the successful `pull_request`
+  # CI run of its head commit (whose tarball gets published), and derives the
+  # version from tags. The manual run never executes PR code.
+  prepare:
+    if: github.event_name == 'workflow_dispatch' && inputs.pr != ''
     runs-on: ubuntu-latest
     permissions:
+      contents: read
+      pull-requests: read
+      actions: read
+    outputs:
+      run_id: ${{ steps.pr.outputs.run_id }}
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+
+    steps:
+      - name: Check PR is open and tested
+        id: pr
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ inputs.pr }}
+        run: |
+          if ! [[ "$PR" =~ ^[0-9]+$ ]]; then
+            echo "Invalid PR number: $PR"; exit 1
+          fi
+          state=$(gh pr view "$PR" -R "$GITHUB_REPOSITORY" --json state -q .state)
+          if [ "$state" != "OPEN" ]; then
+            echo "PR #$PR is $state, nothing to publish"; exit 1
+          fi
+          sha=$(gh pr view "$PR" -R "$GITHUB_REPOSITORY" --json headRefOid -q .headRefOid)
+          run_id=$(gh run list -R "$GITHUB_REPOSITORY" --workflow ci.yml --event pull_request \
+            --commit "$sha" --status success --limit 1 --json databaseId -q '.[0].databaseId')
+          if [ -z "$run_id" ]; then
+            echo "No successful pull_request CI run for PR #$PR head $sha; wait for it or re-run it"; exit 1
+          fi
+          echo "Publishing the tarball of CI run $run_id (PR #$PR, $sha)"
+          echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Compute preview version
+        id: version
+        env:
+          PR: ${{ inputs.pr }}
+        run: |
+          out=$(bash scripts/compute-version.sh --pr "$PR" "$GITHUB_RUN_NUMBER")
+          echo "$out" | grep -Eq '^version=[0-9]+\.[0-9]+\.[0-9]+-pr\.[0-9]+\.[0-9]+$'
+          echo "$out" | tee -a "$GITHUB_OUTPUT"
+
+  build:
+    if: inputs.pr == ''
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
       checks: write
 
     steps:
@@ -24,7 +84,7 @@ jobs:
           node-version: lts/*
           cache: npm
 
-      - run: npm ci
+      - run: npm ci --ignore-scripts
 
       - run: npm run lint
 
@@ -33,7 +93,7 @@ jobs:
       - run: npm run build
 
       - name: Unit tests
-        run: npx vitest run tests/unit --reporter=default --reporter=junit --outputFile.junit=test-results/unit.xml
+        run: npm exec --no -- vitest run tests/unit --reporter=default --reporter=junit --outputFile.junit=test-results/unit.xml
 
       - name: Upload unit test report
         if: always()
@@ -43,11 +103,26 @@ jobs:
           path: test-results/unit.xml
           reporter: java-junit
 
+      # The tarball a later manual preview run publishes. Built here, in the
+      # unprivileged pull_request run, so the manual run never executes PR code.
+      - name: Pack preview tarball
+        if: github.event_name == 'pull_request'
+        run: mkdir -p preview && npm pack --ignore-scripts --pack-destination preview
+
+      - uses: actions/upload-artifact@v4
+        if: github.event_name == 'pull_request'
+        with:
+          name: preview-tarball
+          path: preview/*.tgz
+          if-no-files-found: error
+          retention-days: 30
+
   integration-tests:
     runs-on: ubuntu-latest
     permissions:
+      contents: read
       checks: write
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    if: inputs.pr == '' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
 
     steps:
       - uses: actions/checkout@v4
@@ -60,7 +135,24 @@ jobs:
           node-version: lts/*
           cache: npm
 
-      - run: npm ci
+      - run: npm ci --ignore-scripts
+
+      # Proves `npm ci --ignore-scripts` leaves the native keyring usable: the
+      # real-keyring suite is opt-in (AZDO_INTEGRATION=1) and needs a Secret
+      # Service backend, which a stock runner does not provide. The unlock
+      # password must be non-empty: an empty one never creates the `login`
+      # collection, and the store fails with "Secret Service: no result found".
+      - name: Credential store (real Linux keyring)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends gnome-keyring libsecret-1-0 dbus-x11
+          npm run build
+          dbus-run-session -- bash -c '
+            set -e
+            eval "$(echo -n "ci" | gnome-keyring-daemon --unlock --components=secrets)"
+            export GNOME_KEYRING_CONTROL SSH_AUTH_SOCK
+            AZDO_INTEGRATION=1 npm exec --no -- vitest run tests/integration/auth.integration.test.ts
+          '
 
       - name: Integration tests
         if: env.AZDO_PAT != ''
@@ -75,7 +167,7 @@ jobs:
           # the pull-requests.test.ts suite will also run end-to-end; when
           # it isn't, those tests skip cleanly via SKIP_PR.
           AZDO_PR_ID: ${{ vars.AZDO_PR_ID || '64' }}
-        run: npm run build && npx vitest run tests/integration --reporter=default --reporter=junit --outputFile.junit=test-results/integration.xml
+        run: npm run build && npm exec --no -- vitest run tests/integration --reporter=default --reporter=junit --outputFile.junit=test-results/integration.xml
 
       - name: Upload integration test report
         if: always()
@@ -104,7 +196,7 @@ jobs:
           cache: npm
           registry-url: https://registry.npmjs.org
 
-      - run: npm ci
+      - run: npm ci --ignore-scripts
 
       - run: npm run build
 
@@ -120,6 +212,72 @@ jobs:
 
       - name: Publish to npm
         run: npm publish --tag "${{ steps.version.outputs.tag }}" --provenance --access public
+
+  # Preview of a pull request, started by hand (workflow_dispatch with `pr`).
+  # Publishes the tarball that the PR's own `pull_request` run built and
+  # tested; no PR code runs here. The tarball is only listed, extracted to a
+  # temp dir, re-versioned and re-packed with tar and node, then published.
+  publish-preview:
+    needs: prepare
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      id-token: write
+
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: preview-tarball
+          path: ${{ runner.temp }}/preview
+          run-id: ${{ needs.prepare.outputs.run_id }}
+          github-token: ${{ github.token }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          registry-url: https://registry.npmjs.org
+
+      - name: Re-version tarball
+        working-directory: ${{ runner.temp }}/preview
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          shopt -s nullglob
+          tarballs=(./*.tgz)
+          [ "${#tarballs[@]}" = 1 ]
+          src="${tarballs[0]}"
+          # Only plain files and directories under package/: no links, no "..".
+          tar -tvzf "$src" | awk '$1 !~ /^[-d]/ { print; bad=1 } END { exit bad }'
+          tar -tzf "$src" | grep -Ev '^package/' && exit 1
+          tar -tzf "$src" | grep -E '(^|/)\.\.(/|$)' && exit 1
+          mkdir out && tar -xzf "$src" -C out --no-same-owner --no-same-permissions
+          node -e '
+            const fs = require("fs"); const f = "out/package/package.json";
+            const p = JSON.parse(fs.readFileSync(f));
+            if (p.name !== "azdo-cli") throw new Error("unexpected package name " + p.name);
+            p.version = process.env.VERSION; delete p.publishConfig;
+            fs.writeFileSync(f, JSON.stringify(p, null, 2) + "\n");'
+          tar -czf "azdo-cli-$VERSION.tgz" -C out package
+
+      - name: Publish preview to npm
+        working-directory: ${{ runner.temp }}/preview
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+        run: npm publish "azdo-cli-$VERSION.tgz" --ignore-scripts --registry https://registry.npmjs.org/ --tag "$TAG" --provenance --access public
+
+      - name: Summary
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+        run: |
+          {
+            echo "### Preview published: \`$VERSION\`"
+            echo
+            echo '```'
+            echo "npm i -g azdo-cli@$TAG"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
 
   release:
     needs: publish

@@ -4,8 +4,10 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   createPrCommentAddCommand,
+  createPrCommentDeleteCommand,
   createPrCommentEditCommand,
   createPrCommentsAddCommand,
+  createPrCommentsDeleteCommand,
   createPrCommentsEditCommand,
 } from '../../src/commands/pr.js';
 import {
@@ -25,6 +27,7 @@ vi.mock('../../src/services/pr-client.js', async (importOriginal) => {
     getPullRequestThread: vi.fn(),
     createPullRequestThread: vi.fn(),
     updateThreadComment: vi.fn(),
+    deleteThreadComment: vi.fn(),
   };
 });
 
@@ -60,6 +63,7 @@ import {
   getPullRequestThread,
   listPullRequests,
   updateThreadComment,
+  deleteThreadComment,
 } from '../../src/services/pr-client.js';
 import { detectRepoName, getCurrentBranch } from '../../src/services/git-remote.js';
 import { describeResolvedCredential, requireAuthCredential } from '../../src/services/auth.js';
@@ -69,6 +73,8 @@ const runAdd = createCommandRunner(createPrCommentsAddCommand);
 const runAddAlias = createCommandRunner(createPrCommentAddCommand);
 const runEdit = createCommandRunner(createPrCommentsEditCommand);
 const runEditAlias = createCommandRunner(createPrCommentEditCommand);
+const runDelete = createCommandRunner(createPrCommentsDeleteCommand);
+const runDeleteAlias = createCommandRunner(createPrCommentDeleteCommand);
 
 const referencePr = {
   id: 64,
@@ -122,6 +128,7 @@ beforeEach(() => {
     content,
     publishedAt: null,
   }));
+  vi.mocked(deleteThreadComment).mockResolvedValue(undefined);
 });
 
 afterEach(() => {
@@ -452,5 +459,178 @@ describe('pr comments edit', () => {
 
     expect(vi.mocked(updateThreadComment)).toHaveBeenCalled();
     expect(getStdout()).toContain('Comment #3 updated in thread #148 on pull request #64.');
+  });
+});
+
+describe('pr comments delete', () => {
+  const singleCommentThread = {
+    ...existingThread,
+    comments: [{ id: 3, author: 'Alice', content: 'marker', publishedAt: null, commentType: 'text' }],
+  };
+
+  it('deletes the thread\'s only comment when --comment-id is omitted', async () => {
+    vi.mocked(getPullRequestThread).mockResolvedValue(singleCommentThread);
+
+    await runDelete(['148', '--pr-number', '64']);
+
+    expect(vi.mocked(deleteThreadComment)).toHaveBeenCalledWith(
+      expect.any(Object),
+      'repo-name',
+      expect.objectContaining({ pat: 'test-pat' }),
+      64,
+      148,
+      3,
+    );
+    expect(getStdout()).toContain('Comment #3 deleted from thread #148 on pull request #64.');
+    expect(getExitCode()).toBe(0);
+  });
+
+  it('refuses a multi-comment thread without --comment-id and lists the candidates', async () => {
+    await runDelete(['148', '--pr-number', '64']);
+
+    expect(vi.mocked(deleteThreadComment)).not.toHaveBeenCalled();
+    expect(getStderr()).toContain(
+      'Thread #148 on pull request #64 holds 2 comments; pass --comment-id to choose one: #3 (Alice), #7 (Bob).',
+    );
+    expect(getExitCode()).toBe(1);
+  });
+
+  it('targets a specific comment with --comment-id', async () => {
+    await runDelete(['148', '--pr-number', '64', '--comment-id', '7']);
+
+    expect(vi.mocked(deleteThreadComment)).toHaveBeenCalledWith(
+      expect.any(Object), 'repo-name', expect.any(Object), 64, 148, 7,
+    );
+    expect(getStdout()).toContain('Comment #7 deleted from thread #148 on pull request #64.');
+    expect(getExitCode()).toBe(0);
+  });
+
+  it('rejects an invalid --comment-id before any network call', async () => {
+    await runDelete(['148', '--pr-number', '64', '--comment-id', 'abc']);
+
+    expect(vi.mocked(getPullRequestThread)).not.toHaveBeenCalled();
+    expect(vi.mocked(deleteThreadComment)).not.toHaveBeenCalled();
+    expect(getStderr()).toContain('Invalid --comment-id "abc"');
+    expect(getExitCode()).toBe(1);
+  });
+
+  it('reports a comment id that is not in the thread', async () => {
+    await runDelete(['148', '--pr-number', '64', '--comment-id', '999']);
+
+    expect(vi.mocked(deleteThreadComment)).not.toHaveBeenCalled();
+    expect(getStderr()).toContain('Comment #999 not found in thread #148 on pull request #64.');
+    expect(getExitCode()).toBe(3);
+  });
+
+  it('reports a thread that does not exist on the PR', async () => {
+    vi.mocked(getPullRequestThread).mockRejectedValue(new Error('NOT_FOUND: thread'));
+
+    await runDelete(['999', '--pr-number', '64']);
+
+    expect(vi.mocked(deleteThreadComment)).not.toHaveBeenCalled();
+    expect(getStderr()).toContain('Thread #999 not found on pull request #64.');
+    expect(getExitCode()).toBe(3);
+  });
+
+  it('reports a thread with nothing left to delete', async () => {
+    vi.mocked(getPullRequestThread).mockResolvedValue({ ...existingThread, comments: [] });
+
+    await runDelete(['148', '--pr-number', '64']);
+
+    expect(vi.mocked(deleteThreadComment)).not.toHaveBeenCalled();
+    expect(getStderr()).toContain('Thread #148 on pull request #64 has no comment to delete.');
+    expect(getExitCode()).toBe(3);
+  });
+
+  it('rejects an invalid thread id before any network call', async () => {
+    await runDelete(['abc', '--pr-number', '64']);
+
+    expect(vi.mocked(getPullRequestThread)).not.toHaveBeenCalled();
+    expect(getStderr()).toContain('Invalid thread id "abc"');
+    expect(getExitCode()).toBe(1);
+  });
+
+  it('--dry-run names the comment and never deletes', async () => {
+    await runDelete(['148', '--pr-number', '64', '--comment-id', '7', '--dry-run']);
+
+    expect(vi.mocked(deleteThreadComment)).not.toHaveBeenCalled();
+    expect(getStdout()).toContain(
+      'Dry run: would delete comment #7 by Bob (7 chars) from thread #148 on pull request #64.',
+    );
+    expect(getExitCode()).toBe(0);
+  });
+
+  it('--dry-run --json reports deleted false and dryRun true', async () => {
+    await runDelete(['148', '--pr-number', '64', '--comment-id', '7', '--dry-run', '--json']);
+
+    expect(vi.mocked(deleteThreadComment)).not.toHaveBeenCalled();
+    expect(JSON.parse(getStdout())).toEqual({
+      pullRequestId: 64,
+      threadId: 148,
+      commentId: 7,
+      deleted: false,
+      dryRun: true,
+    });
+  });
+
+  it('--json reports the deleted comment', async () => {
+    await runDelete(['148', '--pr-number', '64', '--comment-id', '3', '--json']);
+
+    expect(JSON.parse(getStdout())).toEqual({
+      pullRequestId: 64,
+      threadId: 148,
+      commentId: 3,
+      deleted: true,
+      dryRun: false,
+    });
+    expect(getExitCode()).toBe(0);
+  });
+
+  it('auto-detects the branch PR when --pr-number is absent', async () => {
+    vi.mocked(getPullRequestThread).mockResolvedValue(singleCommentThread);
+
+    await runDelete(['148']);
+
+    expect(vi.mocked(listPullRequests)).toHaveBeenCalled();
+    expect(vi.mocked(deleteThreadComment)).toHaveBeenCalledWith(
+      expect.any(Object), 'repo-name', expect.any(Object), 64, 148, 3,
+    );
+  });
+
+  it('maps a 403 (someone else\'s comment) to a permission error with exit 4', async () => {
+    vi.mocked(deleteThreadComment).mockRejectedValue(new Error('PERMISSION_DENIED: only the author may delete'));
+
+    await runDelete(['148', '--pr-number', '64', '--comment-id', '7']);
+
+    expect(getStderr()).toContain('Access denied.');
+    expect(getStderr()).toContain('only the author may delete');
+    expect(getExitCode()).toBe(4);
+  });
+
+  it('surfaces a server rejection with its own message', async () => {
+    vi.mocked(deleteThreadComment).mockRejectedValue(new Error('HTTP_400: TF401179: The pull request is completed.'));
+
+    await runDelete(['148', '--pr-number', '64', '--comment-id', '7']);
+
+    expect(getStderr()).toContain('HTTP_400');
+    expect(getStderr()).toContain('The pull request is completed.');
+    expect(getExitCode()).toBe(1);
+  });
+
+  it('never writes a confirmation prompt', async () => {
+    await runDelete(['148', '--pr-number', '64', '--comment-id', '7']);
+
+    expect(getStdout()).not.toMatch(/\?/);
+    expect(getStderr()).toBe('');
+    expect(vi.mocked(deleteThreadComment)).toHaveBeenCalledTimes(1);
+  });
+
+  it('the comment-delete alias behaves identically', async () => {
+    await runDeleteAlias(['148', '--pr-number', '64', '--comment-id', '7']);
+
+    expect(vi.mocked(deleteThreadComment)).toHaveBeenCalledWith(
+      expect.any(Object), 'repo-name', expect.any(Object), 64, 148, 7,
+    );
+    expect(getStdout()).toContain('Comment #7 deleted from thread #148 on pull request #64.');
   });
 });

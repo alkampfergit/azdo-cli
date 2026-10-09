@@ -13,6 +13,7 @@ vi.mock('../../src/services/pr-client.js', async (importOriginal) => {
   return {
     ...actual,
     listRepositoryPullRequests: vi.fn(),
+    getPullRequestWorkItemIds: vi.fn(),
   };
 });
 
@@ -30,7 +31,7 @@ vi.mock('../../src/services/context.js', () => ({
   resolveContext: vi.fn(),
 }));
 
-import { listRepositoryPullRequests } from '../../src/services/pr-client.js';
+import { getPullRequestWorkItemIds, listRepositoryPullRequests } from '../../src/services/pr-client.js';
 import { detectRepoName, getCurrentBranch } from '../../src/services/git-remote.js';
 import { requireAuthCredential } from '../../src/services/auth.js';
 import { resolveContext } from '../../src/services/context.js';
@@ -159,5 +160,78 @@ describe('pr list command', () => {
 
     expect(getStderr()).toContain('Code (Read)');
     expect(getExitCode()).toBe(4);
+  });
+
+  describe('--work-items (#122)', () => {
+    const second = { ...pullRequest, id: 4805, title: 'Second', isDraft: true };
+
+    beforeEach(() => {
+      vi.mocked(listRepositoryPullRequests).mockResolvedValue([pullRequest, second]);
+      vi.mocked(getPullRequestWorkItemIds).mockImplementation(async (_c, _r, _p, prId) => (prId === 4804 ? [11, 12] : []));
+    });
+
+    it('does not look up work items without the flag', async () => {
+      await run(['--json']);
+
+      expect(vi.mocked(getPullRequestWorkItemIds)).not.toHaveBeenCalled();
+      expect(JSON.parse(getStdout()).pullRequests[0]).not.toHaveProperty('workItemIds');
+    });
+
+    it('adds workItemIds to every pull request in --json, preserving order', async () => {
+      await run(['--work-items', '--json']);
+
+      expect(vi.mocked(getPullRequestWorkItemIds)).toHaveBeenCalledTimes(2);
+      expect(vi.mocked(getPullRequestWorkItemIds)).toHaveBeenCalledWith(
+        expect.any(Object),
+        'repo-name',
+        expect.objectContaining({ pat: 'test-pat' }),
+        4804,
+      );
+      const parsed = JSON.parse(getStdout());
+      expect(parsed.pullRequests).toEqual([
+        { ...pullRequest, workItemIds: [11, 12] },
+        { ...second, workItemIds: [] },
+      ]);
+    });
+
+    it('prints the linked work items and the draft marker in text output', async () => {
+      await run(['--work-items']);
+
+      const output = getStdout();
+      expect(output).toContain('Work items: #11, #12');
+      expect(output).toContain('Work items: none');
+      expect(output).toContain('#4805 [active, draft] Second');
+      expect(output).toContain('#4804 [active] Multiple orders');
+    });
+
+    it('caps concurrent work item lookups', async () => {
+      const many = Array.from({ length: 12 }, (_, index) => ({ ...pullRequest, id: 5000 + index }));
+      vi.mocked(listRepositoryPullRequests).mockResolvedValue(many);
+      let inFlight = 0;
+      let peak = 0;
+      vi.mocked(getPullRequestWorkItemIds).mockImplementation(async () => {
+        inFlight += 1;
+        peak = Math.max(peak, inFlight);
+        await new Promise((resolve) => setTimeout(resolve, 1));
+        inFlight -= 1;
+        return [];
+      });
+
+      await run(['--work-items', '--json']);
+
+      expect(vi.mocked(getPullRequestWorkItemIds)).toHaveBeenCalledTimes(12);
+      expect(peak).toBeLessThanOrEqual(5);
+      expect(JSON.parse(getStdout()).pullRequests.map((pr: { id: number }) => pr.id)).toEqual(many.map((pr) => pr.id));
+    });
+
+    it('maps a work item lookup auth failure to the Code (Read) scope hint', async () => {
+      vi.mocked(getPullRequestWorkItemIds).mockRejectedValue(new Error('AUTH_FAILED'));
+
+      await run(['--work-items', '--json']);
+
+      expect(getStdout()).toBe('');
+      expect(getStderr()).toContain('Code (Read)');
+      expect(getExitCode()).toBe(4);
+    });
   });
 });

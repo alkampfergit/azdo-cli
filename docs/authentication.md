@@ -181,6 +181,10 @@ azdo auth login --org myorg             # only for orgs you did not copy
 $env:AZDO_CREDENTIAL_STORE = 'dpapi'
 ```
 
+`azdo config --help` lists this setting alongside the others, with its accepted values, scope and
+the environment override, and `azdo config set --help` points there (see
+[commands.md](commands.md#settings)).
+
 | | |
 | --- | --- |
 | Values | `keyring` (default — the OS vault) · `dpapi` (Windows only) |

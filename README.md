@@ -9,13 +9,14 @@ Azure DevOps CLI focused on work item read/write workflows.
 ## Features
 
 - Retrieve work items with readable output (`get-item`)
+- List work items by state, tag, assignee or title (`list-items`)
 - Update work item state, assignee, or any field (`set-state`, `assign`, `set-field`)
 - Create or update work items from markdown documents (`upsert`)
 - Read and post work item comments (`comments`)
 - Attach a local file to a work item, or remove a named attachment (`add-attachment`, `delete-attachment`)
 - Read/write rich-text fields as markdown (`get-md-field`, `set-md-field`)
 - Download images embedded in rich-text fields, optionally resized for LLM use (`get-item`/`get-md-field` `--download-images`, `--resize-images`)
-- Check branch pull request status, open PRs to `develop` (optionally pre-filled from a repository-defined template), update an existing PR's title or description (`pr update`), abandon or reactivate one (`pr abandon` / `pr reactivate`), list PR comment threads for any PR (`--pr-number`), resolve/reopen threads, link/unlink work items, and add/remove required or optional reviewers — all from the CLI (`pr`)
+- List pull requests with their draft state, dates, reviewers, labels and linked work item ids (`pr list --work-items`), check branch pull request status, open PRs to `develop` (optionally pre-filled from a repository-defined template), update an existing PR's title or description (`pr update`), abandon or reactivate one (`pr abandon` / `pr reactivate`), list PR comment threads for any PR (`--pr-number`), resolve/reopen threads, link/unlink work items, and add/remove required or optional reviewers — all from the CLI (`pr`)
 - Feed long PR titles, descriptions and comment bodies from a file or a pipe instead of the shell (`--title-file`, `--description-file`, `--file`; `-` reads standard input)
 - Persist org/project/default fields in local config (`config`)
 - List all fields of a work item (`list-fields`)
@@ -44,10 +45,14 @@ azdo config set credentialStore dpapi --copy-credentials
 
 # Read a work item
 azdo get-item 12345
+azdo get-item 12345 --json   # machine-readable: identities, tags and all relations incl. pull requests
 
 # Download images embedded in a work item's rich-text fields (opt-in)
 azdo get-item 12345 --download-images                       # saved to the system temp dir
 azdo get-item 12345 --resize-images 1024 --images-path ./img # cap width at 1024px, save as PNG
+
+# List work items (--state, --tag, --assigned-to [@me], --title-contains, --top, --json)
+azdo list-items --state Active --tag ready --json
 azdo get-md-field 12345 System.Description --download-images # same flags on get-md-field
 
 # Update state
@@ -67,9 +72,11 @@ azdo delete-attachment 12345 screenshot.png --yes         # skip the prompt (scr
 azdo delete-attachment 12345 screenshot.png --id <guid>   # disambiguate when the name is shared
 
 # Find a pull request — one API call, any branch
-azdo pr list                            # active PRs in the repository
-azdo pr list --branch feature/x --json  # id, title, source/target, author, url, description
+azdo pr list                            # active PRs in the repository ([active, draft] marks a draft)
+azdo pr list --branch feature/x --json  # id, title, source/target, author, url, description, isDraft,
+                                        # creationDate, closedDate, reviewers (uniqueName, vote), labels
 azdo pr list --status all --top 50
+azdo pr list --work-items --json        # + workItemIds per PR: the whole PR ↔ work item map in one call
 
 # PR comment threads — list, filter, target by number, resolve or reopen
 azdo pr comments                        # active-branch PR; code-anchored threads show file:line
@@ -80,13 +87,16 @@ azdo pr comments --exclude-system --max-chars 500    # human comments only, trun
 azdo pr comments --thread 148           # a single thread, by id (selector: exit 1 if absent)
 azdo pr comments --contains '"kind":"review-plan"'   # threads holding a literal substring
 azdo pr status                          # PR checks (status + branch policies + pipeline builds) + code-comment counts
+azdo pr status --branch feature/x --json   # same view for another branch, nothing checked out
+azdo pr status --pr-number 64           # same view for one PR by number, any status
 azdo pr comment-resolve 17 --pr-number 64   # idempotent: exit 0 even when already resolved
 azdo pr comment-reopen 17  --pr-number 64
 
-# Write to a PR — new thread, in-place edit, reply
+# Write to a PR — new thread, in-place edit, delete, reply
 azdo pr comments add --file plan.md --pr-number 64 --dry-run   # preview, writes nothing
 azdo pr comments add --file plan.md --pr-number 64             # NEW thread on the overview
 azdo pr comments edit 148 --file plan.md --pr-number 64        # rewrite it in place
+azdo pr comments delete 148 --comment-id 3 --pr-number 64     # delete a comment (irreversible; no prompt)
 azdo pr comments reply 148 "Great suggestion, I'll address it."          # human-readable output
 azdo pr comments reply 148 "Done." --pr-number 64 --json                 # JSON: { pullRequestId, threadId, commentId, content }
 azdo pr comment-reply 148 "Done."  --pr-number 64                        # flat alias, identical behaviour
@@ -96,6 +106,7 @@ git log -1 --format=%B | azdo pr comments add --file - --pr-number 64      # "-"
 azdo pr open --title "Fix the thing" --description "Because X was broken"
 azdo pr open --title "Fix the thing"   # uses docs/pull_request_template[/branches/<branch>].md if present
 azdo pr open --title "Fix the thing" --description-file body.md   # or --description-file - to pipe it in
+azdo pr open --title "Fix the thing" --target master --source feature/x --draft --work-item 1234 --label bug   # --work-item/--label repeat; --json adds top-level id and url
 # The description plus the template must stay within Azure DevOps' 4000-character cap; over it,
 # the command says by how much and creates nothing. See docs/commands.md.
 
@@ -118,6 +129,8 @@ azdo pr work-items unlink 1234 --pr-number 64
 azdo pr reviewers add jane@example.com --pr-number 64             # optional by default
 azdo pr reviewers add jane@example.com --pr-number 64 --required  # required (or promotes in place)
 azdo pr reviewers remove jane@example.com --pr-number 64
+azdo pr reviewers list --pr-number 64                             # who must review, and how each voted
+azdo pr reviewers list --pr-number 64 --json                      # { pullRequestId, reviewers: [{ id, uniqueName, isRequired, vote, voteState, ... }] }
 
 # Any pr subcommand can target another repository
 azdo pr comments --repo other-repo --pr-number 12
@@ -128,6 +141,9 @@ azdo pipeline get-runs 12 --branch develop --limit 1
 azdo pipeline wait 3456                     # blocks; exit 0 success / non-zero failure / 124 timeout
 azdo pipeline get-run-detail 3456           # errors, failing tests, per-stage status
 azdo pipeline start 12 --branch develop --parameter env=staging
+azdo pipeline artifacts 3456                # list a run's build artifacts (name, type, size)
+azdo pipeline artifact-download 3456 reports --path ./out   # extract into ./out (--all for every artifact, --force to overwrite)
+azdo pipeline logs 3456 --step "Trivy" --head 50 --no-progress   # also --tail/--grep; --no-progress drops CR redraws
 
 # Work item relations — types, add, remove, list
 azdo relations types                        # list all relation types (Child, Parent, Related, ...)

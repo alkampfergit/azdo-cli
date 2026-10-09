@@ -5,16 +5,17 @@
 | Command | Purpose | Common Flags |
 | --- | --- | --- |
 | `azdo get-item <id>` | Read a work item | `--short`, `--fields`, `--markdown`, `--download-images`, `--resize-images <px>`, `--images-path <dir>`, `--org`, `--project` |
+| `azdo list-items` | List work items by state, tag, assignee, title | `--state`, `--tag`, `--assigned-to`, `--title-contains`, `--top`, `--json`, `--org`, `--project` |
 | `azdo set-state <id> <state>` | Change work item state | `--json`, `--org`, `--project` |
 | `azdo assign <id> [name]` | Assign or unassign owner | `--unassign`, `--json`, `--org`, `--project` |
 | `azdo set-field <id> <field> <value>` | Update any field | `--json`, `--org`, `--project` |
 | `azdo upsert [id]` | Create or update from markdown | `--content`, `--file`, `--type`, `--json`, `--org`, `--project` |
-| `azdo comments <subcommand>` | Read or add work item comments | `list`, `add`, `--json`, `--org`, `--project` |
+| `azdo comments <subcommand>` | Read, add, edit or delete work item comments | `list`, `add`, `edit`, `delete`, `--file`, `--json`, `--org`, `--project` |
 | `azdo get-md-field <id> <field>` | Get rich-text field as markdown | `--download-images`, `--resize-images <px>`, `--images-path <dir>`, `--org`, `--project` |
 | `azdo set-md-field <id> <field> [content]` | Set markdown field | `--file`, `--json`, `--org`, `--project` |
 | `azdo list-fields <id>` | List all fields of a work item | `--json`, `--org`, `--project` |
-| `azdo pr <subcommand>` | Manage pull requests (current branch or by `--pr-number`) — see [Pull request commands](#pull-request-commands) | `list`, `status`, `open`, `update` (`edit`), `abandon` (`close`), `reactivate`, `comments`, `comments add\|edit\|reply` (`comment-add`, `comment-edit`, `comment-reply`), `comment-resolve`, `comment-reopen`, `work-items link\|unlink`, `reviewers add\|remove`, `--pr-number`, `--repo`, `--json`, `--org`, `--project` |
-| `azdo pipeline <subcommand>` | Inspect and operate Azure DevOps pipelines | `list`, `get-runs`, `wait`, `get-run-detail`, `logs`, `tests`, `start`, `--filter`, `--limit`, `--branch`, `--commit`, `--pr`, `--timeout`, `--poll-interval`, `--log-id`, `--parameter`, `--json`, `--org`, `--project` |
+| `azdo pr <subcommand>` | Manage pull requests (current branch or by `--pr-number`) — see [Pull request commands](#pull-request-commands) | `list`, `status`, `open`, `update` (`edit`), `abandon` (`close`), `reactivate`, `comments`, `comments add\|edit\|reply` (`comment-add`, `comment-edit`, `comment-reply`), `comment-resolve`, `comment-reopen`, `work-items link\|unlink`, `reviewers list\|add\|remove`, `--pr-number`, `--repo`, `--json`, `--org`, `--project` |
+| `azdo pipeline <subcommand>` | Inspect and operate Azure DevOps pipelines | `list`, `get-runs`, `wait`, `get-run-detail`, `logs`, `artifacts`, `artifact-download`, `tests`, `start`, `--filter`, `--limit`, `--branch`, `--commit`, `--pr`, `--timeout`, `--poll-interval`, `--log-id`, `--head`, `--no-progress`, `--path`, `--progress`, `--parameter`, `--json`, `--org`, `--project` |
 | `azdo download-attachment <id> <filename>` | Download a work item attachment | `--output <dir>`, `--org`, `--project` |
 | `azdo add-attachment <id> <file>` | Attach a local file to a work item | `--comment <text>`, `--org`, `--project` |
 | `azdo delete-attachment <id> <filename>` | Remove a work item attachment (prompts unless `--yes`) | `--id <guid>`, `--yes`, `--org`, `--project` |
@@ -40,7 +41,30 @@ azdo get-item 12345 --fields "System.Tags,Microsoft.VSTS.Common.Priority"
 
 # Convert rich-text fields to markdown
 azdo get-item 12345 --markdown
+
+# One machine-readable read (the `gh issue view --json` counterpart)
+azdo get-item 12345 --json
 ```
+
+### `get-item --json`
+
+Prints one JSON object and nothing else:
+
+```json
+{ "id": 12345, "title": "...", "description": "markdown", "state": "Active", "tags": ["ready"],
+  "assignedTo": { "displayName": "Alice", "uniqueName": "alice@x.com", "id": "<guid>" },
+  "createdBy":  { "displayName": "Bob",   "uniqueName": "bob@x.com",   "id": "<guid>" },
+  "createdDate": "2026-01-01T00:00:00Z", "url": "https://dev.azure.com/...",
+  "relations": [
+    { "rel": "ArtifactLink", "name": "Pull Request", "url": "vstfs:///Git/PullRequestId/...",
+      "pullRequest": { "id": 77, "repositoryId": "<guid>", "projectId": "<guid>" } },
+    { "rel": "System.LinkTypes.Hierarchy-Forward", "name": "Child", "url": "...", "workItemId": 12 }
+  ] }
+```
+
+- `description` is markdown (`""` when empty; Acceptance Criteria / Repro Steps are appended as in the text view). `assignedTo` / `createdBy` are `null` when unset; compare on `id` (or `uniqueName`, case-insensitively), never on `displayName`.
+- `relations` lists **every** relation — work item links (`workItemId`), pull request ArtifactLinks (`pullRequest`), commits/builds, attachments and hyperlinks — unlike `azdo relations list`. The repository is given by its GUID (`repositoryId`); the link itself carries no name.
+- Combining `--json` with `--short`/`--markdown` is accepted (they only affect the text view); combining it with the image download options is an error. Same `--org`/`--project` overrides and **Work Items (Read)** scope as the text view.
 
 ### Downloading embedded images
 
@@ -80,6 +104,27 @@ azdo assign 12345 --unassign
 # Set any field by reference name
 azdo set-field 12345 System.Title "Updated title"
 ```
+
+## List work items
+
+```bash
+azdo list-items --state Active --tag ready                 # one line per item: id, state, assignee, title [tags]
+azdo list-items --assigned-to @me --title-contains login --top 20
+azdo list-items --tag ready --json                         # machine-readable
+```
+
+One WIQL query (scoped to the project, newest change first) followed by batch reads of up to 200 items each — one request per 200 matches, never one per item. The default `--top 50` costs two requests; 201 matches cost three (1 WIQL + 2 batch). If the org lacks a process-template field, a batch read is retried once with system fields only. The filters combine with AND; omit all of them to list the latest `--top` items.
+
+| Option | Meaning |
+| --- | --- |
+| `--state <state>` | exact state, e.g. `Active` |
+| `--tag <tag>` | items carrying this tag |
+| `--assigned-to <user>` | display name or email; `@me` is the caller |
+| `--title-contains <text>` | substring of the title |
+| `--top <n>` | at most `n` items (default 50, max 1000) |
+| `--json` | array of `{ id, title, description, url, state, tags, assignedTo }` |
+
+`description` is markdown (`""` when empty; Acceptance Criteria / Repro Steps are appended as in `get-item`), `tags` is an array, `assignedTo` is the display name or `null`. No match prints `[]` with `--json` and `No work items found.` otherwise. Filter values are quoted for WIQL, so quotes in a title or tag are safe. Needs **Work Items (Read)**. `--org` and `--project` must be given together.
 
 ## List fields
 
@@ -126,8 +171,12 @@ Requires a credential (OAuth or PAT) with **Code (Read)** scope for reads and **
 azdo pr list                               # active PRs in the repository (one API call)
 azdo pr list --branch feature/x --json     # which PR belongs to this branch?
 azdo pr status                             # list PRs for current branch + checks
+azdo pr status --branch feature/x --json   # checks for another branch, no checkout
+azdo pr status --pr-number 96              # checks for one PR by number
 azdo pr open --title "…" --description "…"      # open PR targeting develop
 azdo pr open --title "…"                   # description from a repo-defined PR template, if one exists
+azdo pr open --title "…" --target master --draft --work-item 123 --label automata   # other target, draft, linked, labelled
+azdo pr open --title "…" --source feature/x --target master   # from any pushed branch, no checkout needed
 azdo pr open --title "…" --description-file body.md   # description from a file ("-" = stdin)
 azdo pr update --pr-number 96 --title "Real title"    # fix a title after the fact
 azdo pr update --pr-number 96 --description-file body.md  # replace the description literally
@@ -135,6 +184,8 @@ azdo pr abandon --pr-number 97             # abandon a PR (alias: azdo pr close)
 azdo pr reactivate --pr-number 97          # restore an abandoned PR to active
 azdo pr work-items link 1234 --pr-number 64    # link a work item to a PR
 azdo pr work-items unlink 1234 --pr-number 64  # unlink it
+azdo pr reviewers list --pr-number 64                             # reviewers with votes (approved, waiting-for-author, …)
+azdo pr reviewers list --pr-number 64 --json                      # same, with id/uniqueName/vote/voteState/isRequired per reviewer
 azdo pr reviewers add jane@example.com --pr-number 64             # add optional reviewer
 azdo pr reviewers add jane@example.com --pr-number 64 --required # add/promote to required
 azdo pr reviewers remove jane@example.com --pr-number 64          # remove a reviewer
@@ -148,6 +199,7 @@ azdo pr comments --thread 148              # just one thread (e.g. re-read after
 azdo pr comments --contains '"kind":"plan"' # threads holding a literal substring
 azdo pr comments add --file plan.md        # NEW thread on the PR overview
 azdo pr comments edit 148 --file plan.md   # rewrite a comment in place
+azdo pr comments delete 148 --comment-id 3 # delete a comment (irreversible; no prompt)
 azdo pr comments reply 148 "Done."         # reply inside an existing thread
 azdo pr comment-resolve  17 --pr-number 64 # mark thread as resolved (idempotent)
 azdo pr comment-reopen   17 --pr-number 64 # reopen a previously resolved thread
@@ -161,14 +213,20 @@ work from outside a checkout of the target repository.
 - Lists the repository's pull requests in a **single** API call — no checks, policies, or builds, unlike `pr status`
 - `--branch <name>` filters by source branch (a leading `refs/heads/` is accepted and stripped); without it, every PR in the repository is listed. `pr list` never falls back to the current branch — that is what `pr status` is for
 - `--status active|completed|abandoned|all` (default `active`), `--top <N>` (default 25)
-- Prints id, state, title, source → target, author and URL; `--json` adds the PR `description`
+- Prints id, state (`[active, draft]` for a draft), title, source → target, author and URL; `--json` adds the PR `description`, `isDraft`, `creationDate`, `closedDate`, `reviewers` (with `uniqueName`, `vote`, `isRequired`) and `labels`
+- `--work-items` adds each PR's linked work item ids (`workItemIds` in `--json`, a `Work items:` line in text). The list endpoint never returns them, so this costs **one extra call per PR** (at most 5 in flight) — still one `azdo` invocation instead of one per PR
+- **`description` is truncated at 400 characters** in `--json` (and in `pr status --json` when the PR is found by branch; `--pr-number` returns the full text) — that is the Azure DevOps list endpoint's behaviour. For the full text use `azdo pr comments --pr-number <N> --json` (`pullRequest.description`)
+- Azure DevOps keeps no "last updated" timestamp on a pull request, so there is none to report; `closedDate` is `null` while the PR is active
 
 **`azdo pr status`**
 - Lists PRs for the current branch, including Azure DevOps checks
+- `--branch <name>` reports another branch's PRs instead (a leading `refs/heads/` is accepted and stripped) and `--pr-number <id>` reports exactly one PR, whatever its status — neither reads the local git branch, so nothing needs to be checked out. The output, text and `--json`, is the same shape as the default view; with `--pr-number` the `branch` field is that PR's source branch
+- The two options are mutually exclusive (exit 1, before any network call). An explicit target that matches nothing is an error, not an empty success: an unknown `--pr-number` exits **3** (`Pull request #N not found in …`), a `--branch` with no PRs exits **1** (`No pull requests found for branch … in …`), both with empty stdout. Without either option an empty result stays exit 0, as before
 - **Checks merge two sources**: the Pull Request Status API *and* branch **policy evaluations** (build validation, required reviewers, etc.). Branch-policy checks are the green checks the Azure DevOps UI shows and are not returned by the status endpoint, so both are combined. Each check carries a `source` of `status` or `policy` in `--json`.
 - `Checks: none reported by Azure DevOps` is shown only when both sources are genuinely empty; a retrieval failure shows `Checks: unable to retrieve (…)` instead (never silently "none")
 - Shows `Detail: …` for failed/errored checks when description is available
 - Shows a `Code comments: N open, M closed` line counting only **code-anchored** (file/line) threads; general discussion threads are excluded
+- `--json` `description` is truncated at 400 characters (list endpoint) unless `--pr-number` is given (single-PR endpoint, full text); the full text is `pullRequest.description` of `azdo pr comments --pr-number <N> --json`
 - `--json` includes a `checks` array (with `source`) and a `codeCommentCounts` object per PR
 
 **`azdo pr open`**
@@ -185,14 +243,20 @@ work from outside a checkout of the target repository.
 
   Exit code `1` — nothing was sent, so no pull request was created. There is no `--truncate`: silently clipping a description is the failure mode this replaces. If Azure DevOps rejects the create anyway, the same arithmetic is appended to the server's own message.
 - `--description-file <path>` reads the description from a UTF-8 file instead of `--description`; the two are mutually exclusive. `-` means **standard input**, so `cat body.md | azdo pr open --title "…" --description-file -` works. The file's content is composed with the repository template exactly as inline text is — `--description-file` changes where the text comes from, nothing else. An empty file is an error (unlike an empty `--description`, which has always meant "use the template")
-- **Always targets `develop`** — there is no flag to choose another target branch; running it from `develop` itself fails
-- Reuses an existing active PR if one already matches the branch and target
-- Fails when run from `develop` or when multiple active PRs exist
+- `--target <branch>` picks the target branch (default `develop`; a leading `refs/heads/` is accepted). It drives the existing-PR lookup, the template lookup and the create call
+- `--source <branch>` picks the source branch (default: the current branch). When given, no local checkout is needed, so it works outside a repo with `--org/--project/--repo`
+- `--draft` opens the PR as a draft
+- `--work-item <id>` links a work item to the PR (positive integer, repeatable); `--label <label>` adds a label (repeatable, trimmed, de-duplicated)
+- `--draft` and `--label` go in the create call. Azure DevOps' create endpoint has no work item input, so each `--work-item` is linked **after** the PR exists (the same ArtifactLink `pr work-items link` writes). If a link fails the PR is kept, the failing ids are named on stderr with the retry command, and the exit code is `1`; `--json` lists every outcome under `workItems` (`id`, `linked`, `error`). `AB#<id>` is not added to the description
+- Validation runs before any call: `--source` equal to `--target`, a non-positive or non-numeric `--work-item`, and an empty `--label` are rejected (exit 1). An unpushed source branch is reported by Azure DevOps itself
+- Reuses an existing active PR if one already matches the source and target; nothing is written, so `--draft`, `--label` and `--work-item` are **not** applied to it and it is left unchanged (use `pr work-items link` to link a work item; the CLI cannot change draft state or labels afterwards)
+- Fails when the source equals the target (by default: run from `develop`) or when multiple active PRs exist
 
 **`azdo pr update`** (alias: `azdo pr edit`)
 - Updates the title and/or the description of an existing pull request — the counterpart to `pr open`, which cannot change a PR it did not create. Re-running `pr open` on a branch that already has an active PR reports `created: false` and changes nothing, by design
 - `--title <s>` / `--title-file <path>` and `--description <s>` / `--description-file <path>`; each pair is mutually exclusive and at least one of the four is required. `-` means standard input for either file flag — but only one of them per invocation, since stdin can be drained only once
 - **Only the fields you pass are sent.** `azdo pr update --title X` issues `PATCH` with `{"title": "X"}`, so the description is provably untouched — Azure DevOps leaves omitted properties alone
+- **Never round-trip a description through `pr list` / branch-based `pr status`**: they cut it at 400 characters, so writing it back deletes the rest (e.g. a template checklist). Start from `azdo pr comments --pr-number <N> --json` → `pullRequest.description`, which is complete
 - **`--description` replaces the description literally.** No repository pull request template is looked up or prepended, unlike `pr open` — prepending it on update would re-prepend it on every subsequent edit. If you want the template, paste it into your file
 - Values are trimmed, and an empty title or description is rejected rather than clearing the field
 - Idempotent: when every field you passed already holds that value, the command reports a no-op, issues **no** `PATCH`, and exits 0 (`noop: true` in `--json`)
@@ -234,8 +298,16 @@ work from outside a checkout of the target repository.
 - A nonexistent work item id fails (exit `3`) naming the id
 - Shares `--pr-number`, `--org`, `--project`, `--repo`, and `--json` with the rest of `pr`; `--json` returns `{ pullRequestId, workItemId, noop }`
 
+**`azdo pr reviewers list`**
+- Lists every reviewer on the target PR with their current vote — the `azdo` counterpart of `gh pr view --json reviews`. Read-only; needs **Code (Read)** only and never calls the Identities API
+- Each line reads `<displayName> <uniqueName> — <voteState> (required|optional[, declined])`; an empty list prints `No reviewers on pull request #N.` with exit 0
+- `--json` returns `{ pullRequestId, reviewers: [Reviewer] }` where every `Reviewer` carries the stable identity next to the display name: `{ id, displayName, uniqueName, isRequired, vote, voteState, hasDeclined }`. Key on `id` or `uniqueName`, not on `displayName`
+- `vote` is Azure DevOps' raw number and `voteState` its named form: `10` → `approved`, `5` → `approved-with-suggestions`, `0` → `no-vote`, `-5` → `waiting-for-author`, `-10` → `rejected`, `15` → `bypassed` (a required reviewer whose requirement was satisfied without counting as an approval). Any other number maps to `unknown` and is still reported verbatim in `vote`
+- Groups and teams can be reviewers but cannot vote directly; Azure DevOps rolls a member's vote up into the group's entry, which is what this command reports
+- Shares `--pr-number`, `--org`, `--project`, `--repo` and `--json` with the rest of `pr`, including the current-branch auto-detection when `--pr-number` is omitted
+
 **`azdo pr reviewers add <reviewer>`** / **`azdo pr reviewers remove <reviewer>`**
-- `azdo pr reviewers` on its own is only a group: it lists `add` and `remove` and changes nothing
+- `azdo pr reviewers` on its own is only a group: it lists `list`, `add` and `remove` and changes nothing
 - `<reviewer>` is an email or Azure DevOps unique name, resolved to an identity via the Identities API
 - `add` defaults to an **optional** reviewer; `--required` marks them required instead. Re-adding an existing reviewer with a different `--required` value updates their required/optional flag in place — no duplicate entry. Re-adding with the *same* flag is a no-op (exit 0, `noop: true` in `--json`, no write issued)
 - `remove` is idempotent: removing someone who isn't currently a reviewer is a no-op (exit 0, `noop: true` in `--json`)
@@ -269,6 +341,14 @@ work from outside a checkout of the target repository.
 - Same `--file` and `--dry-run` behaviour as `add`; the dry run prints the replacement body plus a `13191 chars -> 4 chars` delta rather than dumping the current body, and `--json` reports `previousContent` for a real diff
 - Azure DevOps only lets a comment's own author edit it — another identity gets a permission error
 
+**`azdo pr comments delete <threadId>`** (alias: `azdo pr comment-delete`)
+- Deletes one comment from a thread via the documented `DELETE .../threads/{threadId}/comments/{commentId}` — the way to remove a marker comment a bot posted earlier, instead of editing it to an empty body
+- `--comment-id <N>` names the comment. It may be omitted **only** when the thread holds a single visible comment; a thread with several is refused (exit 1) with the candidate ids and authors listed, because a deletion cannot be undone and the "first comment" default `edit` uses would be a guess
+- **No confirmation prompt**, under a TTY or not — the command exists for scripted callers. `--dry-run` is the preview: it resolves the comment, prints who wrote it and how long it is, and exits 0 without deleting
+- Unknown thread or comment → exit 3 before any write; a comment authored by somebody else → exit 4 (Azure DevOps only lets the author delete); any other server rejection prints the server's own message under an `HTTP_<status>` line with exit 1
+- Deleting a thread's last comment leaves an empty thread, which `azdo pr comments` no longer lists
+- `--json` returns `{ pullRequestId, threadId, commentId, deleted, dryRun }` — `deleted` is `true` on a real deletion and `false` on a dry run
+
 **`azdo pr comments reply <threadId> [text]`** (alias: `azdo pr comment-reply`)
 - Appends a reply to an existing thread
 - The body can now come from `--file <path>` instead of the inline argument (`-` reads standard input)
@@ -300,7 +380,7 @@ caller can tell "not permitted" from "not found" without scraping stderr:
 | `0` | Success, including a `--dry-run` and an idempotent no-op (`comment-resolve` on an already-resolved thread) |
 | `1` | Validation failure (bad `--pr-number`, `--thread`, `--status`, empty body, both inline text and `--file`, invalid work item id, an unresolvable reviewer identity), network error, or any other unexpected failure |
 | `3` | An addressed resource does not exist: the pull request behind `--pr-number`, the thread behind `--thread` / `<threadId>`, or the comment behind `--comment-id` |
-| `4` | Not permitted: authentication failure or permission denied (for example editing a comment authored by somebody else, which Azure DevOps rejects) |
+| `4` | Not permitted: authentication failure or permission denied (for example editing or deleting a comment authored by somebody else, which Azure DevOps rejects) |
 
 Branch **auto-detection** failures (no open PR for the current branch, or several) keep exit `1`:
 that is a resolution failure rather than a named resource that could not be found, and the code is
@@ -344,8 +424,8 @@ layer and have their own reporting: `azdo auth diagnose` prints the server's `me
 `HTTP <status>` when the body names none, with no `typeKey` / `errorCode` suffix), and the PAT
 validation in `azdo auth login` reports the status only.
 
-Note the two scopes: reads (`pr list`, `pr status`, `pr comments`) need **Code (Read)**, while
-`comments add` / `edit` / `reply` / `comment-resolve` / `comment-reopen`, `pr open`, and
+Note the two scopes: reads (`pr list`, `pr status`, `pr comments`, `pr reviewers list`) need **Code (Read)**, while
+`comments add` / `edit` / `delete` / `reply` / `comment-resolve` / `comment-reopen`, `pr open`, and
 `pr reviewers add` / `remove` need **Code (Read & Write)**. `pr work-items link` / `unlink` also
 need **Work Items (Read & Write)**, since the link is written on the work item, not the pull
 request. A PAT scoped for Work Items only makes every other `pr` command fail while
@@ -360,7 +440,8 @@ azdo auth diagnose --json     # { authType, credentialSource, org, project, conn
 
 `identity` comes from the Azure DevOps `connectionData` endpoint and is the way to check that the
 token about to post a comment belongs to the pull request author: compare `identity.uniqueName`
-with `createdByUniqueName` from `azdo pr list --json` / `azdo pr comments --json`. It is `null`
+with `createdByUniqueName` from `azdo pr list --json`. To tell whether a *comment* is your own, compare
+`identity.id` with `authorId` from `azdo pr comments --json` / `azdo comments list --json`. It is `null`
 when there is no credential, when connectivity already failed, or when the lookup itself failed —
 the diagnosis never breaks because of it.
 
@@ -384,6 +465,11 @@ azdo pipeline logs 3456 --step "Run tests" # print a log by step/job name
 azdo pipeline logs 3456 --log-id 7 --tail 50          # only the last 50 lines
 azdo pipeline logs 3456 --log-id 7 --grep 'error CS'  # only matching lines
 azdo pipeline logs 3456 --log-id 7 --grep Exception --context 5  # ±5 lines around matches
+azdo pipeline logs 3456 --log-id 7 --head 40          # only the first 40 lines
+azdo pipeline logs 3456 --step "Trivy" --no-progress  # collapse carriage-return progress redraws
+azdo pipeline artifacts 3456               # list the run's build artifacts
+azdo pipeline artifact-download 3456 scan-results --path ./out  # download + extract into ./out
+azdo pipeline artifact-download 3456 --all # every artifact into ./<name>
 azdo pipeline tests 3456                   # test summary + failing tests by name
 azdo pipeline tests 3456 --failed          # only the failing tests
 azdo pipeline start 12 --branch develop --parameter env=staging
@@ -413,6 +499,20 @@ azdo pipeline start 12 --branch develop --parameter env=staging
 - `--step <name>` selects the log by step/job name (case-insensitive substring, exact match wins) — stable across runs even when skipped jobs shift the numeric log ids
 - With `--log-id`/`--step`: `--tail <n>` prints only the last N lines, `--grep <pattern>` prints only lines matching a regular expression, and `--grep … --context <n>` adds ±N surrounding lines per match (grep `-C` semantics, chunks separated by `--`) — multi-line stack traces come out whole
 
+- The listing also shows each log's **record type** (`Stage` / `Job` / `Task`) and its **parent** (`(in <job>)`), so two logs sharing a title (a job log and its task log) are told apart; `--json` carries `type` and `parent`, and the `--step` ambiguity error prints them for every candidate
+- `--head <n>` prints only the first N lines (mutually exclusive with `--tail`). `--no-progress` keeps only the final state of each carriage-return progress redraw, and, for a line where Azure DevOps stored several progress bars glued together (e.g. a Trivy DB download), its timestamp plus the last bar (a line with a single bar is left alone) — opt-in, never applied automatically, even off a TTY
+
+**`azdo pipeline artifacts <run_id>`**
+- Lists the run's build artifacts (name, type — `Container` / `PipelineArtifact` — and size) from `GET build/builds/{id}/artifacts`; `--json` emits `[{ id, name, type, sizeBytes, downloadUrl }]`. Uses the CLI's own credential, so no separate `az login`
+
+**`azdo pipeline artifact-download <run_id> [name]`**
+- Downloads one artifact and **extracts it straight into the destination folder** — the zip is held in memory and never written to disk, so none is left behind, even on failure
+- `--path <dir>` is the destination (default `./<name>`); `--all` downloads every artifact, each into `<dir>/<name>` (a name together with `--all` is rejected; neither is an error that lists the available artifacts); an unknown name also lists them
+- Never overwrites an existing file unless `--force` is given; entries that would escape the destination (zip-slip), pass through a symbolic link in the destination, or collide with another entry abort the extraction before anything is written
+- Memory: the zip is held in memory and extraction inflates every entry at once, so peak memory is a multiple of the artifact size (roughly the zip plus its full uncompressed size) — budget accordingly in memory-limited containers
+- Silent by default: stdout carries only the destination path(s) (`--json`: `[{ name, path, files }]`); `--progress` adds byte-progress lines on stderr
+- Both artifact types are fetched through the artifact's `downloadUrl` requested as `$format=zip`
+
 **`azdo pipeline tests <run_id>`**
 - Prints the run's test summary plus the failing tests **by name with their error messages** (Test Runs API, capped at 50) — replaces log grepping for "which tests failed"
 - `--failed` prints only the failing tests; `--json` emits `{present, total, failed, failedTests}`
@@ -428,11 +528,22 @@ azdo comments list 12345
 azdo comments list 12345 --json
 azdo comments add 12345 "Investigation complete. Working on the fix next."
 azdo comments add 12345 "Queued validation run." --json
+azdo comments edit 12345 987 "Working on this in PR #42."
+azdo comments edit 12345 987 --file note.md --markdown
+echo "Done." | azdo comments edit 12345 987 --file - --json
+azdo comments delete 12345 987
+azdo comments delete 12345 987 --json
 ```
 
-**`azdo comments list`** — prints comments newest-first (ID, author, timestamp, body)
+**`azdo comments list`** — prints comments newest-first (ID, author, timestamp, body). `--json` also carries `authorUniqueName` (the email/UPN; a non-email value for service identities) and `authorId` (the identity GUID) next to the display-name `author`. Match **"is this my own comment"** on `authorId` against `azdo auth diagnose --json` → `identity.id` — exact and unaffected by renames. For a hand-maintained allow list use `authorUniqueName`, compared case-insensitively. Both are `null` when Azure DevOps omits them
 
-**`azdo comments add`** — requires non-empty text; fails locally before any API call when blank
+**`azdo comments add`** — requires non-empty text; fails locally before any API call when blank. `--json` returns `commentId` and `createdAt`, so the comment can be edited or deleted later.
+
+**`azdo comments edit <id> <commentId> [text]`** — rewrites a comment in place (`PATCH .../workItems/{id}/comments/{commentId}`). The text is inline or from `--file <path>` (`-` reads stdin), never both; blank text fails locally before any API call. `--markdown` posts it as markdown (default html), as with `add`. Prints `Updated comment #N on work item #M`.
+
+**`azdo comments delete <id> <commentId>`** — deletes a comment (`DELETE .../workItems/{id}/comments/{commentId}`). Azure DevOps soft-deletes, and `comments list` already hides deleted comments. **No confirmation prompt**, so it is safe in scripts; it is not idempotent — an unknown or already-deleted comment is an error. Prints `Deleted comment #N from work item #M`.
+
+Both fail with exit 1 and nothing on stdout when the comment does not exist (`Comment N not found on work item M in org/project.`) or on 401/403/400 (server message included).
 
 ## Work item attachments
 
@@ -481,7 +592,7 @@ azdo relations list 1000 --json
 - Idempotent: adding an existing relation reports `already_exists`, removing a missing one reports `not_found`; both exit 0
 
 **`azdo relations list <id>`**
-- Lists only **work item link** relations. `ArtifactLink` (pull requests, commits, builds), `Hyperlink` and `AttachedFile` relations are omitted — use `azdo get-item` for attachments and `azdo pr work-items` to manage pull request links
+- Lists only **work item link** relations. `ArtifactLink` (pull requests, commits, builds), `Hyperlink` and `AttachedFile` relations are omitted — use `azdo get-item --json` to read every relation (including linked pull requests) and `azdo pr work-items` to manage pull request links
 - Target titles are fetched in one batch call; if that call fails the titles are `null` and the listing still succeeds
 
 ## azdo upsert
@@ -569,6 +680,19 @@ azdo config org-move acme globex        # move (removes source)
 azdo config org-delete acme             # delete org scope
 azdo config org-copy default acme --force   # overwrite on collision
 ```
+
+### Settings
+
+`azdo config --help` prints this table (generated from the CLI's own settings registry, so it
+cannot drift), and `azdo config set|get|unset --help` point at it.
+
+| Key | Meaning | Accepted values | Scope | Environment override |
+| --- | --- | --- | --- | --- |
+| `org` | Azure DevOps organization name (required) | string | global only | — |
+| `project` | Azure DevOps project name (required) | string | global, or per organization with `--org` | — |
+| `fields` | Extra work item fields to include | comma-separated reference names | global, or per organization with `--org` | — |
+| `markdown` | Convert rich text fields to markdown on display | `true` / `false` | global, or per organization with `--org` | — |
+| `credentialStore` | Where credentials are stored | `keyring` (OS vault, default) / `dpapi` (Windows only; DPAPI-encrypted files under `~/.azdo/credentials`) | global only | `AZDO_CREDENTIAL_STORE` |
 
 Resolution order for `get-item`, `set-state`, and other work item commands:
 1. `--org` / `--project` CLI flags
@@ -658,15 +782,23 @@ The pull request object shared by `pr list`, `pr status`, `pr open` and `pr comm
   "createdByUniqueName": "jane@contoso.com",
   "createdById": "<identity GUID>",
   "url": "https://dev.azure.com/<org>/<project>/_git/<repo>/pullrequest/64",
-  "description": "Because X was broken"  // null when empty
+  "description": "Because X was broken", // null when empty
+  "isDraft": false,
+  "creationDate": "2026-09-01T10:00:00Z",
+  "closedDate": null,                    // set once completed or abandoned
+  "reviewers": [
+    { "id": "<identity GUID>", "displayName": "Bob", "uniqueName": "bob@contoso.com",
+      "isRequired": true, "vote": 10 }    // 10 approved, 5 with suggestions, 0 none, -5 waiting, -10 rejected
+  ],
+  "labels": ["needs-review"]             // active label names
 }
 ```
 
 | Command | `--json` shape |
 | --- | --- |
-| `pr list` | `{ repository, branch, status, pullRequests: [PullRequest] }` — `branch` is `null` without `--branch`; `status` echoes the filter |
+| `pr list` | `{ repository, branch, status, pullRequests: [PullRequest] }` — `branch` is `null` without `--branch`; `status` echoes the filter; with `--work-items` each PR also carries `workItemIds: [number]` (sorted, `[]` when none) |
 | `pr status` | `{ branch, repository, pullRequests: [PullRequest & { checks: [Check], codeCommentCounts: { open, closed }, checksError? }] }` |
-| `pr open` | `{ branch, targetBranch, created, pullRequest: PullRequest }` — `created: false` when an active PR already existed |
+| `pr open` | `{ id, url, branch, targetBranch, created, pullRequest: PullRequest }` — `id`/`url` repeat `pullRequest.id`/`url`; `created: false` when an active PR already existed |
 | `pr update` / `pr edit` | `{ pullRequestId, title, description, url, noop, updatedFields }` — `updatedFields` ⊆ `["title","description"]`, `[]` on a no-op |
 | `pr abandon` / `pr close` / `pr reactivate` | `{ pullRequestId, title, status, previousStatus, url, noop }` |
 | `pr comments` | `{ branch, pullRequest: PullRequest, threads: [Thread] }` |
@@ -675,6 +807,7 @@ The pull request object shared by `pr list`, `pr status`, `pr open` and `pr comm
 | `pr comments reply` / `pr comment-reply` | `{ pullRequestId, threadId, commentId, content }` |
 | `pr comment-resolve` / `pr comment-reopen` | `{ pullRequestId, threadId, status, noop }` — on a no-op `status` is the thread's actual backend status |
 | `pr work-items link` / `unlink` | `{ pullRequestId, workItemId, noop }` |
+| `pr reviewers list` | `{ pullRequestId, reviewers: [{ id, displayName, uniqueName, isRequired, vote, voteState, hasDeclined }] }` — `voteState` ∈ `approved` \| `approved-with-suggestions` \| `no-vote` \| `waiting-for-author` \| `rejected` \| `bypassed` \| `unknown` |
 | `pr reviewers add` / `remove` | `{ pullRequestId, reviewer: { id, displayName, uniqueName, isRequired } \| null, noop }` |
 
 `Check` (in `pr status`):
@@ -700,6 +833,8 @@ The pull request object shared by `pr list`, `pr status`, `pr open` and `pr comm
     {
       "id": 1,
       "author": "Jane Doe",
+      "authorUniqueName": "jane@contoso.com", // email/UPN; null when absent
+      "authorId": "6f1c…",                    // identity GUID; stable across renames
       "content": "Please rename this.",
       "publishedAt": "2026-09-30T09:00:00Z",
       "commentType": "text",    // text | system
@@ -717,8 +852,12 @@ The pull request object shared by `pr list`, `pr status`, `pr open` and `pr comm
 | `set-state`, `assign`, `set-field` | `{ id, rev, title, field, value }` (one line) |
 | `set-md-field` | `{ id, rev, field, value }` (one line) |
 | `upsert` | `{ action, id, workItemType, fields }` — see [JSON output shape](#json-output-shape) |
+| `list-items` | `[{ id, title, description, url, state, tags, assignedTo }]` — `description` markdown, `tags` array |
 | `list-fields` | `{ id, fields: { "<reference name>": <value> } }` |
-| `comments list` | `{ workItemId, count, comments: [{ id, workItemId, text, author, createdAt, modifiedAt, isDeleted }] }` |
+| `comments add` | `{ workItemId, commentId, text, author, authorUniqueName, authorId, createdAt, url }` |
+| `comments edit` | `{ workItemId, commentId, text, author, authorUniqueName, authorId, createdAt, modifiedAt, url }` |
+| `comments delete` | `{ workItemId, commentId, deleted: true }` |
+| `comments list` | `{ workItemId, count, comments: [{ id, workItemId, text, author, authorUniqueName, authorId, createdAt, modifiedAt, isDeleted }] }` |
 | `comments add` | `{ workItemId, commentId, text, author, createdAt, url }` |
 | `relations types` | `[{ referenceName, name, usage, enabled, directional }]` |
 | `relations add` | `{ status, type, referenceName, id1, id2 }` — `status` is `added` or `already_exists` |
@@ -733,8 +872,10 @@ The pull request object shared by `pr list`, `pr status`, `pr open` and `pr comm
 | `pipeline get-runs` | `[Run]` where `Run` is `{ id, name, state, result, createdDate, finishedDate, sourceBranch, sourceCommit }` — `state` is `inProgress`, `completed` or `unknown`; `result` is `succeeded`, `failed`, `canceled` or `null` |
 | `pipeline wait` | `{ id, state, result, timedOut }` — the exit code still reflects the result |
 | `pipeline get-run-detail` | `Run & { startedDate, durationSeconds, reason, requestedFor, webUrl, errors: [{ message, source }], errorsAvailable, stages: [Stage], jobs: [Stage], tests: { present, total, failed, failedTests }, testsAvailable }` where `Stage` is `{ name, state, result }` |
-| `pipeline logs` | `[{ id, createdOn, lineCount, step }]` — with `--log-id` / `--step` the log text is printed as-is and `--json` has no effect |
+| `pipeline logs` | `[{ id, createdOn, lineCount, step, type, parent }]` — with `--log-id` / `--step` the log text is printed as-is and `--json` has no effect |
 | `pipeline tests` | `{ present, total, failed, failedTests: [{ name, errorMessage }] }` |
+| `pipeline artifacts` | `[{ id, name, type, sizeBytes, downloadUrl }]` |
+| `pipeline artifact-download` | `[{ name, path, files }]` |
 | `pipeline start` | `{ id, state, webUrl }` — `RID=$(azdo pipeline start 12 --json \| jq .id)` |
 
 ### Authentication and configuration

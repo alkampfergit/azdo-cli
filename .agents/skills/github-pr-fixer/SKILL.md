@@ -98,25 +98,37 @@ Then enforce it for the entire PR lifecycle:
   fixes" on the PR or says so in chat). Report exactly what is still failing
   and which rounds were attempted.
 
-## When Copilot confirms fixes in natural language — resolve the threads yourself
+## After fixing a Copilot comment — resolve its thread yourself
 
-When the repo owner re-triggers Copilot and Copilot replies with a
-natural-language confirmation that the fixes are correct (e.g. "All four
-fixes look correct and complete", check-marks per bullet, "Nothing
-missed"), Copilot typically does **not** mark the original line-level
-review threads as resolved. The agent must do that explicitly via the
-GraphQL API, so the PR UI reflects the state Copilot described.
+Copilot never closes its own line-level review threads, and the repo owner
+does not want to do it by hand. **Once a fix for a Copilot comment has been
+pushed, the agent resolves that thread itself via the GraphQL API** — in the
+same round, right after the push is accepted — so the PR's "unresolved
+conversations" count reflects the real state of the branch. The same applies
+when Copilot later confirms a fix in natural language ("All four fixes look
+correct", check-marks per bullet) without resolving anything: resolve what it
+confirmed.
+
+Rules (owner decision, PR #126):
+
+- Resolve a thread only when the pushed commit actually addresses what the
+  comment asked for, or when the thread is a documented "won't fix" that the
+  owner has accepted. Reply in the thread first with the commit SHA and a
+  one-line description of the change, then resolve it.
+- Do **not** resolve a thread whose comment you left unaddressed, disagreed
+  with without owner sign-off, or only partially fixed — leave it open and
+  explain in the thread.
+- Never resolve threads authored by a human reviewer unless they asked you
+  to, or the owner instructed it.
 
 Steps:
 
-1. Parse Copilot's confirmation: identify which of the original
-   line-level comments it has explicitly approved (by commit SHA,
-   line number, file path, or the content of the bullet). Only resolve
-   threads Copilot confirmed — do not resolve threads it flagged as
-   still-open, nor threads it stayed silent on.
+1. Pin each Copilot comment to the change that addressed it (commit SHA,
+   file, line) — this is also what the thread reply and the resolution
+   summary (next section) will cite.
 
-2. Map each confirmed comment to its *thread* GraphQL ID. The REST
-   `comment_id` is not the thread ID. Query:
+2. Map each comment to its *thread* GraphQL ID. The REST `comment_id` is
+   not the thread ID. Query:
 
    ```bash
    gh api graphql -f query='
@@ -137,7 +149,8 @@ Steps:
      }' -F owner=<owner> -F repo=<repo> -F pr=<N>
    ```
 
-3. Resolve each confirmed thread:
+3. Reply in the thread (`gh api repos/<owner>/<repo>/pulls/<N>/comments/<comment-databaseId>/replies -f body='Fixed in <sha>: …'`),
+   then resolve it:
 
    ```bash
    gh api graphql -f query='
@@ -148,15 +161,18 @@ Steps:
      }' -f id=<thread-id>
    ```
 
-4. **Announce the resolution** in the same `gstack:status` comment that
-   records Copilot's confirmation, e.g. *"Marked the four threads
-   Copilot confirmed as resolved via GraphQL (thread ids listed
-   below)"*. This keeps the audit trail self-contained — the reader
-   sees both the confirmation and the action taken in one comment.
+4. **Announce the resolution** in the resolution-summary comment of the
+   same round (next section), e.g. *"Fixed and resolved the three Copilot
+   threads (ids listed below)"*. This keeps the audit trail self-contained —
+   the reader sees the fix and the action taken in one comment.
 
-5. Never resolve threads Copilot did not explicitly confirm. If Copilot
-   said something is *partially* fixed or introduced a new concern,
-   leave the thread open and treat the new concern as round N+1.
+5. Verify with the `reviewThreads` query that `isResolved` is now `true`
+   for every thread you meant to close. A thread that is still open after
+   the round is a bug in the round, not something to leave for the owner.
+
+6. If Copilot's re-review says something is *partially* fixed or raises a
+   new concern, leave that thread open (or let Copilot's new thread stand)
+   and treat it as round N+1.
 
 ## After fixing Copilot comments — post a resolution summary
 
@@ -177,9 +193,9 @@ Comment body requirements:
 2. One line per addressed concern, mapping each Copilot comment to the
    concrete change that addressed it (and, where useful, to the test
    that proves the fix).
-3. End with an invitation for the reviewer (human or bot) to mark any
-   comments they consider fixed as resolved and to flag anything
-   missed.
+3. State which review threads you resolved (see the previous section —
+   you resolve the Copilot threads you fixed; do not ask the owner to),
+   and end with an invitation for the reviewer to flag anything missed.
 
 Example body:
 
@@ -360,10 +376,12 @@ When stopping, report:
   per concern). **Do NOT `@`-mention Copilot** — the agent typically
   lacks permission to invoke the reviewer and the mention is ignored /
   errored. The repo owner re-triggers Copilot if they want a re-review.
-- When Copilot's re-review comes back as a natural-language
-  confirmation, **resolve the confirmed threads yourself via the
-  GraphQL `resolveReviewThread` mutation** and state what you resolved
-  in the same status comment. Copilot does not close its own threads.
+- After pushing a fix for a Copilot line-level comment, **reply in the
+  thread with the commit SHA and resolve the thread yourself via the
+  GraphQL `resolveReviewThread` mutation**, then state what you resolved
+  in the same status comment. Copilot does not close its own threads and
+  the owner does not want to close them by hand (PR #126). The same
+  applies when a Copilot re-review confirms a fix in prose only.
 - Do not overwrite unrelated user changes on the branch.
 - Do not open a PR from a dirty branch without making that state explicit.
 - Do not guess the base branch for a new PR; verify it first.

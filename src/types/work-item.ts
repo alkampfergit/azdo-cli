@@ -7,6 +7,24 @@ export interface WorkItemAttachment {
   url: string;
 }
 
+/** Stable identity of a user on a work item (`displayName` alone is not a safe key). */
+export interface WorkItemIdentity {
+  displayName: string | null;
+  uniqueName: string | null;
+  id: string | null;
+}
+
+/** One entry of a work item's `relations` — work item links, pull requests, attachments, hyperlinks. */
+export interface WorkItemRelationEntry {
+  rel: string;
+  name: string | null;
+  url: string;
+  /** Set for work item links (`.../workItems/<id>`). */
+  workItemId?: number;
+  /** Set for pull request ArtifactLinks (`vstfs:///Git/PullRequestId/<project>%2F<repo>%2F<pr>`). */
+  pullRequest?: { id: number; repositoryId: string; projectId: string };
+}
+
 export interface WorkItem {
   id: number;
   rev: number;
@@ -20,6 +38,32 @@ export interface WorkItem {
   url: string;
   extraFields: Record<string, string> | null;
   attachments: WorkItemAttachment[] | null;
+  // `get-item --json` (056); optional so other producers of WorkItem stay valid.
+  tags?: string[];
+  assignedToIdentity?: WorkItemIdentity | null;
+  createdBy?: WorkItemIdentity | null;
+  createdDate?: string | null;
+  relations?: WorkItemRelationEntry[];
+}
+
+export interface WorkItemListFilter {
+  state?: string;
+  tag?: string;
+  assignedTo?: string;
+  titleContains?: string;
+  top: number;
+}
+
+/** One row of `azdo list-items`. `description` is Azure DevOps' HTML until the command converts it. */
+export interface WorkItemSummary {
+  id: number;
+  title: string;
+  description: string | null;
+  url: string;
+  state: string;
+  type: string;
+  tags: string[];
+  assignedTo: string | null;
 }
 
 export interface AzdoContext {
@@ -83,6 +127,9 @@ export interface WorkItemComment {
   workItemId: number;
   text: string;
   author: string | null;
+  // Stable identity of the author (055): the display name is not a safe key.
+  authorUniqueName?: string | null;
+  authorId?: string | null;
   createdAt: string | null;
   modifiedAt: string | null;
   isDeleted: boolean;
@@ -99,8 +146,30 @@ export interface AddWorkItemCommentResult {
   commentId: number;
   text: string;
   author: string | null;
+  // Stable identity of the author (055): the display name is not a safe key.
+  authorUniqueName?: string | null;
+  authorId?: string | null;
   createdAt: string | null;
   url: string | null;
+}
+
+export interface UpdateWorkItemCommentResult {
+  workItemId: number;
+  commentId: number;
+  text: string;
+  author: string | null;
+  // Stable identity of the author (055): the display name is not a safe key.
+  authorUniqueName?: string | null;
+  authorId?: string | null;
+  createdAt: string | null;
+  modifiedAt: string | null;
+  url: string | null;
+}
+
+export interface DeleteWorkItemCommentResult {
+  workItemId: number;
+  commentId: number;
+  deleted: true;
 }
 
 export interface ParsedField {

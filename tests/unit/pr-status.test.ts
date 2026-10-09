@@ -4,6 +4,7 @@ import { createCommandRunner, getExitCode, getStderr, getStdout, setupProcessSpi
 
 vi.mock('../../src/services/pr-client.js', () => ({
   listPullRequests: vi.fn(),
+  getPullRequestById: vi.fn(),
   getPullRequestChecks: vi.fn(),
   getPullRequestPolicyEvaluations: vi.fn(),
   getPullRequestBuilds: vi.fn(),
@@ -29,6 +30,7 @@ vi.mock('../../src/services/context.js', () => ({
 
 import {
   getPullRequestBuilds,
+  getPullRequestById,
   getPullRequestChecks,
   getPullRequestPolicyEvaluations,
   getPullRequestThreads,
@@ -258,5 +260,143 @@ describe('pr status command', () => {
     await run([]);
 
     expect(getStdout()).toContain('Code comments: 0 open, 0 closed');
+  });
+});
+
+describe('pr status --pr-number / --branch (#123)', () => {
+  beforeEach(() => {
+    // The file-level hooks never reset call history; these tests assert on it.
+    vi.mocked(getCurrentBranch).mockClear();
+    vi.mocked(listPullRequests).mockClear();
+    vi.mocked(getPullRequestById).mockReset();
+    vi.mocked(getPullRequestChecks).mockClear();
+    vi.mocked(requireAuthCredential).mockClear();
+  });
+
+  it('--pr-number shows that pull request without reading the git branch', async () => {
+    vi.mocked(getPullRequestById).mockResolvedValue(
+      makePullRequest({ id: 77, title: 'Other PR', status: 'active', sourceRefName: 'refs/heads/feature/other' }),
+    );
+    vi.mocked(getPullRequestChecks).mockResolvedValue([makeCheck()]);
+
+    await run(['--pr-number', '77', '--json']);
+
+    expect(getCurrentBranch).not.toHaveBeenCalled();
+    expect(listPullRequests).not.toHaveBeenCalled();
+    expect(getPullRequestById).toHaveBeenCalledWith(
+      { org: 'test-org', project: 'test-project' }, 'repo-name', expect.anything(), 77,
+    );
+    expect(getPullRequestChecks).toHaveBeenCalledWith(expect.anything(), 'repo-name', expect.anything(), 77);
+    const parsed = JSON.parse(getStdout());
+    expect(parsed.branch).toBe('feature/other');
+    expect(parsed.repository).toBe('repo-name');
+    expect(parsed.pullRequests).toHaveLength(1);
+    expect(parsed.pullRequests[0].id).toBe(77);
+    expect(parsed.pullRequests[0].checks[0].name).toBe('security/sca');
+    expect(parsed.pullRequests[0].codeCommentCounts).toEqual({ open: 0, closed: 0 });
+  });
+
+  it('--pr-number prints the same text block as the default view', async () => {
+    vi.mocked(getPullRequestById).mockResolvedValue(makePullRequest({ title: 'Test PR', status: 'completed' }));
+
+    await run(['--pr-number', '12']);
+
+    const output = getStdout();
+    expect(output).toContain('#12 [completed] Test PR');
+    expect(output).toContain('feature/test -> develop');
+    expect(output).toContain('Checks: none reported by Azure DevOps');
+  });
+
+  it('--pr-number for an unknown PR exits 3 with a clear message and empty stdout', async () => {
+    vi.mocked(getPullRequestById).mockRejectedValue(new Error('NOT_FOUND'));
+
+    await run(['--pr-number', '999', '--json']);
+
+    expect(getStderr()).toContain('Pull request #999 not found in test-org/test-project/repo-name.');
+    expect(getExitCode()).toBe(3);
+    expect(getStdout()).toBe('');
+    expect(getPullRequestChecks).not.toHaveBeenCalled();
+  });
+
+  it.each(['0', '-1', 'abc', '1.5', '9007199254740993'])('--pr-number %s is rejected before any network call', async (raw) => {
+    await run(['--pr-number', raw]);
+
+    expect(getStderr()).toContain(`Invalid --pr-number "${raw}"; expected a positive integer.`);
+    expect(getExitCode()).toBe(1);
+    expect(requireAuthCredential).not.toHaveBeenCalled();
+    expect(getPullRequestById).not.toHaveBeenCalled();
+  });
+
+  it('--branch lists that branch\'s pull requests without reading the git branch', async () => {
+    vi.mocked(listPullRequests).mockResolvedValue([
+      makePullRequest({ id: 5, title: 'A', status: 'active', sourceRefName: 'refs/heads/feature/other' }),
+      makePullRequest({ id: 6, title: 'B', status: 'active', sourceRefName: 'refs/heads/feature/other' }),
+    ]);
+
+    await run(['--branch', 'feature/other', '--json']);
+
+    expect(getCurrentBranch).not.toHaveBeenCalled();
+    expect(listPullRequests).toHaveBeenCalledWith(
+      { org: 'test-org', project: 'test-project' }, 'repo-name', expect.anything(), 'feature/other',
+    );
+    const parsed = JSON.parse(getStdout());
+    expect(parsed.branch).toBe('feature/other');
+    expect(parsed.pullRequests.map((pr: { id: number }) => pr.id)).toEqual([5, 6]);
+  });
+
+  it('--branch accepts and strips a refs/heads/ prefix', async () => {
+    vi.mocked(listPullRequests).mockResolvedValue([makePullRequest({ title: 'T', status: 'active' })]);
+
+    await run(['--branch', 'refs/heads/feature/test']);
+
+    expect(listPullRequests).toHaveBeenCalledWith(expect.anything(), 'repo-name', expect.anything(), 'feature/test');
+    expect(getStdout()).toContain('#12 [active] T');
+  });
+
+  it('--branch with no pull requests exits 1 with a clear message and empty stdout', async () => {
+    vi.mocked(listPullRequests).mockResolvedValue([]);
+
+    await run(['--branch', 'nope', '--json']);
+
+    expect(getStderr()).toContain('No pull requests found for branch nope in test-org/test-project/repo-name.');
+    expect(getExitCode()).toBe(1);
+    expect(getStdout()).toBe('');
+  });
+
+  it('an empty --branch is rejected before any network call', async () => {
+    await run(['--branch', '  ']);
+
+    expect(getStderr()).toContain('--branch must not be empty.');
+    expect(getExitCode()).toBe(1);
+    expect(requireAuthCredential).not.toHaveBeenCalled();
+  });
+
+  it('--pr-number and --branch together are rejected before any network call', async () => {
+    await run(['--pr-number', '12', '--branch', 'feature/test']);
+
+    expect(getStderr()).toContain('Cannot specify both --pr-number and --branch.');
+    expect(getExitCode()).toBe(1);
+    expect(getStdout()).toBe('');
+    expect(requireAuthCredential).not.toHaveBeenCalled();
+    expect(listPullRequests).not.toHaveBeenCalled();
+    expect(getPullRequestById).not.toHaveBeenCalled();
+  });
+
+  it('without either option the current-branch view is unchanged (empty is still a success)', async () => {
+    await run([]);
+
+    expect(getCurrentBranch).toHaveBeenCalled();
+    expect(getStdout()).toContain('No pull requests found for branch feature/test.');
+    expect(getExitCode()).not.toBe(1);
+  });
+
+  it('--help documents both options and their exclusivity', async () => {
+    await run(['--help']);
+
+    const help = getStdout();
+    expect(help).toContain('--pr-number <id>');
+    expect(help).toContain('--branch <name>');
+    expect(help).toContain('mutually exclusive with --branch');
+    expect(help).toContain('Mutually exclusive with --pr-number');
   });
 });
