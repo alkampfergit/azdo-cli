@@ -1,3 +1,5 @@
+import { redactText } from '../services/trace-writer.js';
+
 export type CredentialBackend =
   | 'windows-credential-manager'
   | 'windows-dpapi'
@@ -32,8 +34,27 @@ export type UsableCredential =
   | { kind: 'pat'; token: string }
   | { kind: 'oauth'; bearerToken: string; accountId: string };
 
-function defaultUnavailableMessage(backend: string): string {
-  const base = `OS secret backend unavailable (${backend}). Install the platform's credential service and try again.`;
+function underlyingDetail(cause: unknown): string | null {
+  if (!(cause instanceof Error)) return null;
+  const text = redactText(cause.message).replace(/\s+/g, ' ').trim();
+  if (!text) return null;
+  const name = cause.name && cause.name !== 'Error' ? `${cause.name}: ` : '';
+  return `${name}${text}`;
+}
+
+function defaultUnavailableMessage(backend: string, cause?: unknown): string {
+  const detail = underlyingDetail(cause);
+  const suffix = detail ? `\nUnderlying error: ${detail}` : '';
+  if (backend === 'linux-libsecret') {
+    // The library reports an unreachable D-Bus socket (sandbox, container, no session bus) the same way as a missing service.
+    return (
+      'OS secret backend unavailable (linux-libsecret). The Secret Service may be missing or unreachable ' +
+      '(for example a sandbox or container blocking the user D-Bus socket, or no session bus).' +
+      `${suffix}\n` +
+      'Install/start a Secret Service (see docs/linux-credential-store.md), run azdo outside the sandbox, or set AZDO_PAT to bypass the keyring.'
+    );
+  }
+  const base = `OS secret backend unavailable (${backend}). Install the platform's credential service and try again.${suffix}`;
   if (backend !== 'windows-credential-manager') return base;
   // The usual cause on Windows is an OpenSSH session, which has no credential vault.
   return (
@@ -47,7 +68,7 @@ export class CredentialStoreUnavailableError extends Error {
   readonly backend: string;
 
   constructor(backend: string, cause?: unknown, message?: string) {
-    super(message ?? defaultUnavailableMessage(backend));
+    super(message ?? defaultUnavailableMessage(backend, cause));
     this.name = 'CredentialStoreUnavailableError';
     this.backend = backend;
     if (cause instanceof Error) {

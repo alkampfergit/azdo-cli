@@ -275,7 +275,7 @@ Token material — access tokens, refresh tokens, raw PATs — is **never** writ
 | Windows | Credential Manager |
 | Linux | libsecret / Secret Service (GNOME Keyring / KWallet) |
 
-If the backend is unavailable (e.g. a Linux container without `libsecret` installed), `azdo auth login` exits with a clear diagnostic and **does not** fall back to plaintext file storage (FR-003 hard rule). Linux users may need to install and start a Secret Service daemon — see [`linux-credential-store.md`](linux-credential-store.md).
+If the backend is unavailable (e.g. a Linux container without `libsecret` installed), `azdo auth login` exits with a clear diagnostic and **does not** fall back to plaintext file storage (FR-003 hard rule). Linux users may need to install and start a Secret Service daemon — see [`linux-credential-store.md`](linux-credential-store.md). The error includes an `Underlying error:` line with the keyring library's own message so the real cause (e.g. a sandbox blocking D-Bus) is visible.
 
 ## CI / headless environments
 
