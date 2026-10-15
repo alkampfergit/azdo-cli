@@ -14,6 +14,13 @@ the project uses [Semantic Versioning](https://semver.org/).
 
 _No unreleased changes._
 
+## [0.23.0] - 2026-10-15
+
+Credential-store failures now expose the underlying error, with clearer Linux guidance when Secret Service is unreachable.
+→ [details](docs/changelogs/0.23.0.md)
+
+- Show the redacted underlying keyring error and, on Linux, explain that Secret Service may be missing or unreachable; point users to `AZDO_PAT` as a bypass (#155).
+
 ## [0.22.0] - 2026-10-09
 
 Adds work-item JSON and filtering, more PR and pipeline commands, npm PR previews, and scheduled Trivy scanning; fixes a HIGH dependency vulnerability.

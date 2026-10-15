@@ -182,9 +182,9 @@ describe('Credential Manager unavailable message', () => {
   });
 
   it('keeps the other backends message unchanged', () => {
-    const err = new CredentialStoreUnavailableError('linux-libsecret');
+    const err = new CredentialStoreUnavailableError('darwin-x');
     expect(err.message).toBe(
-      "OS secret backend unavailable (linux-libsecret). Install the platform's credential service and try again.",
+      "OS secret backend unavailable (darwin-x). Install the platform's credential service and try again.",
     );
   });
 });

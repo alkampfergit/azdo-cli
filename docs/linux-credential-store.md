@@ -66,6 +66,8 @@ azdo get-item 12345
 
 ## Troubleshooting
 
+When the keyring cannot be used, azdo prints the library's own error on an `Underlying error:` line (token-shaped text is redacted). Notably, a sandbox or container that blocks the user D-Bus socket (`Operation not permitted`) is reported by the library as `KeyRevoked`; the fix is to run azdo outside the sandbox or set `AZDO_PAT`, not to reinstall the keyring.
+
 | Symptom | Likely cause | Fix |
 |---------|-------------|-----|
 | `Error: org.freedesktop.DBus.Error.ServiceUnknown` | No Secret Service daemon running | Start `gnome-keyring-daemon` (see Option A) |
