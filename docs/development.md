@@ -24,6 +24,8 @@ npm install
 | `npm run lint` | Lint source files with ESLint |
 | `npm run typecheck` | Type-check with tsc (no emit) |
 | `npm run format` | Check formatting with Prettier |
+| `npm run sonar:local` | Run the SonarCloud rules and the duplication check locally (see [sonar-local.md](sonar-local.md)) |
+| `npm run sonar:sync` | Download the SonarCloud quality profile again (needs network) |
 
 ## Dev container tooling
 

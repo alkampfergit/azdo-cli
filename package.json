@@ -12,6 +12,8 @@
   "scripts": {
     "build": "tsup",
     "lint": "eslint src/",
+    "sonar:local": "bash scripts/sonar-local.sh",
+    "sonar:sync": "node scripts/sonar-profile-sync.mjs",
     "typecheck": "tsc --noEmit",
     "format": "prettier --check src/",
     "test": "npm run typecheck && npm run lint && npm run build && vitest run tests/unit tests/integration",
@@ -39,6 +41,9 @@
     "@eslint/js": "^10.0.1",
     "@types/node": "^25.9.8",
     "eslint": "^10.11.0",
+    "eslint-plugin-sonarjs": "^4.2.2",
+    "eslint-plugin-unicorn": "^78.0.0",
+    "jscpd": "^5.4.1",
     "prettier": "^3.9.9",
     "tsup": "^8.5.1",
     "typescript": "^5.9.3",

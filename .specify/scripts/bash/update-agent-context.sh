@@ -551,6 +551,12 @@ update_agent_file() {
         return 1
     fi
     
+    # A file that only imports AGENTS.md (e.g. CLAUDE.md: "@AGENTS.md") has nothing to update.
+    if [[ -f "$target_file" ]] && [[ "$(tr -d '[:space:]' < "$target_file")" == "@AGENTS.md" ]]; then
+        log_info "Skipping $agent_name context file (imports AGENTS.md): $target_file"
+        return 0
+    fi
+
     log_info "Updating $agent_name context file: $target_file"
     
     local project_name
