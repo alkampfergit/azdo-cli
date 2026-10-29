@@ -1,6 +1,7 @@
 import type {
   AddWorkItemCommentResult,
   DeleteWorkItemCommentResult,
+  DeleteWorkItemResult,
   UpdateWorkItemCommentResult,
   AuthCredential,
   WorkItem,
@@ -941,6 +942,35 @@ export async function applyWorkItemPatch(
   });
 
   return readWriteResponse(response, 'UPDATE_REJECTED');
+}
+
+export async function deleteWorkItem(
+  context: AzdoContext,
+  id: number,
+  cred: AuthCredential,
+  permanent = false,
+): Promise<DeleteWorkItemResult> {
+  const url = new URL(
+    `https://dev.azure.com/${encodeURIComponent(context.org)}/${encodeURIComponent(context.project)}/_apis/wit/workitems/${id}`,
+  );
+  if (permanent) url.searchParams.set('destroy', 'true');
+  url.searchParams.set('api-version', '7.1');
+
+  const response = await fetchWithErrors(url.toString(), {
+    method: 'DELETE',
+    headers: authHeaders(cred),
+  });
+
+  if (response.status === 400) {
+    const serverMessage = (await readResponseMessage(response)) ?? 'Unknown error';
+    throw new Error(`BAD_REQUEST: ${serverMessage}`);
+  }
+
+  if (!response.ok) {
+    throw httpError(response);
+  }
+
+  return { id, permanent };
 }
 
 export async function downloadAttachment(url: string, cred: AuthCredential): Promise<ArrayBuffer> {

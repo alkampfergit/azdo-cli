@@ -18,6 +18,7 @@ import { createCommentsCommand } from "./commands/comments.js";
 import { createDownloadAttachmentCommand } from "./commands/download-attachment.js";
 import { createAddAttachmentCommand } from "./commands/add-attachment.js";
 import { createDeleteAttachmentCommand } from "./commands/delete-attachment.js";
+import { createDeleteItemCommand } from "./commands/delete-item.js";
 import { createRelationsCommand } from "./commands/relations.js";
 import { commandPathOf, getUpdateNotice, skipsUpdateCheck } from "./services/update-check.js";
 import { initTraceWriter } from "./services/trace-writer.js";
@@ -53,6 +54,7 @@ export function createProgram(): Command {
   program.addCommand(createDownloadAttachmentCommand());
   program.addCommand(createAddAttachmentCommand());
   program.addCommand(createDeleteAttachmentCommand());
+  program.addCommand(createDeleteItemCommand());
   program.addCommand(createRelationsCommand());
 
   program.showHelpAfterError();

@@ -166,6 +166,11 @@ export interface UpdateWorkItemCommentResult {
   url: string | null;
 }
 
+export interface DeleteWorkItemResult {
+  id: number;
+  permanent: boolean;
+}
+
 export interface DeleteWorkItemCommentResult {
   workItemId: number;
   commentId: number;

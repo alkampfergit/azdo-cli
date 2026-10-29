@@ -19,6 +19,7 @@
 | `azdo download-attachment <id> <filename>` | Download a work item attachment | `--output <dir>`, `--org`, `--project` |
 | `azdo add-attachment <id> <file>` | Attach a local file to a work item | `--comment <text>`, `--org`, `--project` |
 | `azdo delete-attachment <id> <filename>` | Remove a work item attachment (prompts unless `--yes`) | `--id <guid>`, `--yes`, `--org`, `--project` |
+| `azdo delete-item <id>` | Delete a work item (Recycle Bin; prompts unless `--yes`) | `--permanent`, `--yes`, `--json`, `--org`, `--project` |
 | `azdo relations <subcommand>` | Work item link relations — see [Work item relations](#work-item-relations) | `types`, `add <type> <id1> <id2>`, `remove <type> <id1> <id2>`, `list <id>`, `--json`, `--org`, `--project` |
 | `azdo config <subcommand>` | Manage saved settings | `set [--org]`, `get [--org]`, `unset [--org]`, `list`, `org-copy`, `org-move`, `org-delete`, `wizard`, `--json` |
 | `azdo auth login` | Authenticate against an org — OAuth (Microsoft Entra) by default, or a PAT with `--use-pat` | `--org`, `--use-pat`, `--device-code`, `--client-id`, `--tenant-id`, `--scopes`, `--from-stdin`, `--no-browser` |
@@ -571,6 +572,20 @@ azdo delete-attachment 12345 screenshot.png --id <guid>        # pick one when s
 - When several attachments share the name, the command lists them and exits 1; re-run with `--id <guid>` to choose one
 
 None of the three commands has `--json`.
+
+## Delete a work item
+
+```bash
+azdo delete-item 12345                 # prompts; moves the item to the Recycle Bin
+azdo delete-item 12345 --yes           # no prompt (required when stdin is not a TTY)
+azdo delete-item 12345 --permanent --yes   # destroy it for good
+azdo delete-item 12345 --yes --json    # { "id": 12345, "permanent": false, "deleted": true }
+```
+
+- By default the work item goes to the Recycle Bin and can be restored from the Azure DevOps UI; `--permanent` sends `destroy=true` and cannot be undone
+- Asks `[y/N]` on a TTY; without `--yes` in a non-interactive shell the command exits 1 and deletes nothing
+- One ID per call
+- Needs a PAT with the Work Items (Read & write) scope and the project permission "Delete work items" (`--permanent` needs "Permanently delete work items"); a 401/403 exits 1 with a message about it
 
 ## Work item relations
 
