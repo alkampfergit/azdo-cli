@@ -70,14 +70,14 @@ Each round of reviewer-comment fixes follows the same shape as `fix-loop`:
    ```
 4. **Commit and push** one commit per round. Conventional prefix:
    `fix(review): address Copilot review comments (round N)` or similar.
-5. **Post a PR comment** mirroring the `fix-loop` audit trail, but labeled
+5. **Prepare a PR comment** mirroring the `fix-loop` audit trail, but labeled
    as reviewer-comment work — list each addressed comment with a 1-line
    summary and the fix location. Example:
 
    ```
    ## Reviewer-comment round 1
 
-   Addressing feedback from @Copilot on review <review-id>:
+   Addressing feedback from Copilot on review <review-id>:
 
    - `register_execute_routes.ts:181` — free the pending-store slot as soon
      as the approval decision lands, so DUPLICATE_IN_FLIGHT only gates
@@ -91,13 +91,16 @@ Each round of reviewer-comment fixes follows the same shape as `fix-loop`:
 6. **Resolve the Copilot threads you fixed.** For every Copilot line-level
    comment the pushed commit addresses, reply in that thread with the commit
    SHA and a one-line description, then resolve the thread with the GraphQL
-   `resolveReviewThread` mutation (procedure in `SKILL.md` → *After fixing a
-   Copilot comment — resolve its thread yourself*). Copilot does not resolve
+   `resolveReviewThread` mutation (procedure in
+   [copilot-resolution.md](copilot-resolution.md)). Copilot does not resolve
    its own threads, and the owner has asked not to be left doing it by hand.
    Leave open any thread you did not fully address, and any human
    reviewer's thread unless they or the owner asked you to resolve it.
 
-7. **Re-watch checks**. Pushing a new commit re-triggers CI and may cause a
+7. **Post the prepared summary** after inline replies and thread resolution.
+   Follow [copilot-resolution.md](copilot-resolution.md) for Copilot feedback.
+
+8. **Re-watch checks**. Pushing a new commit re-triggers CI and may cause a
    re-review.
 
 ## Stop conditions
