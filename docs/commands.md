@@ -339,8 +339,8 @@ work from outside a checkout of the target repository.
 - **Anchored threads.** `--file-path <path> --line <n>` attaches the thread to a file and line, as a reviewer does in the Files tab, instead of the overview:
   - `--file-path` is repo-relative; backslashes become `/`, a leading `./` is dropped and a leading `/` is added (`src\Foo.cs` → `/src/Foo.cs`)
   - `--line` / `--end-line` are 1-based and inclusive; `--end-line` defaults to `--line`. The whole of every line in the range is highlighted
-  - `--side right` (default) comments on the pull request's new version; `--side left` on the old version, for deleted lines (a renamed file's old path is matched too)
-  - the thread is placed on the **latest iteration** (compared with iteration 1, the "all changes" view), with the file's `changeTrackingId`, so Azure DevOps moves it with the line across later pushes
+  - `--side right` (default) comments on the pull request's new version; `--side left` on the old version, for deleted lines (a renamed file's old path is matched first, then the current path)
+  - the thread is placed on the **latest iteration**, compared with itself so the left side is the common-commit base the changes are computed against, with the file's `changeTrackingId`, so Azure DevOps moves it with the line across later pushes
   - a path the pull request does not change fails with exit `3` before anything is posted. `--allow-unchanged-file` posts it anyway, without a `changeTrackingId`: a `Note:` on stderr says the thread will not follow the line across pushes
   - `--file-path` and `--line` must be given together; `--end-line`, `--side` or `--allow-unchanged-file` without `--file-path`, a non-positive line, or `--end-line` below `--line` fail with exit `1` before any network call
   - `--dry-run` prints the resolved path, line range, side, iteration and `changeTrackingId`; `--json` adds `threadContext` and `pullRequestThreadContext` (as sent) and `changeTracked`
