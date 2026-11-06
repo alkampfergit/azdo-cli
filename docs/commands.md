@@ -198,6 +198,8 @@ azdo pr comments --exclude-system --max-chars 500   # human comments only, trunc
 azdo pr comments --thread 148              # just one thread (e.g. re-read after editing)
 azdo pr comments --contains '"kind":"plan"' # threads holding a literal substring
 azdo pr comments add --file plan.md        # NEW thread on the PR overview
+azdo pr comment-add --file finding.md --file-path src/Foo/Bar.cs --line 692 --end-line 695
+                                           # NEW thread on lines 692-695 of a changed file (Files tab)
 azdo pr comments edit 148 --file plan.md   # rewrite a comment in place
 azdo pr comments delete 148 --comment-id 3 # delete a comment (irreversible; no prompt)
 azdo pr comments reply 148 "Done."         # reply inside an existing thread
@@ -334,6 +336,15 @@ work from outside a checkout of the target repository.
 - `--status active|fixed|wontFix|closed|byDesign|pending` makes the thread resolvable; omit it for a plain overview comment
 - `--dry-run` resolves the target pull request, prints exactly what would be posted, and exits 0 without writing anything
 - `--json` returns `{ pullRequestId, threadId, commentId, status, content, dryRun }`
+- **Anchored threads.** `--file-path <path> --line <n>` attaches the thread to a file and line, as a reviewer does in the Files tab, instead of the overview:
+  - `--file-path` is repo-relative; backslashes become `/`, a leading `./` is dropped and a leading `/` is added (`src\Foo.cs` → `/src/Foo.cs`)
+  - `--line` / `--end-line` are 1-based and inclusive; `--end-line` defaults to `--line`. The whole of every line in the range is highlighted
+  - `--side right` (default) comments on the pull request's new version; `--side left` on the old version, for deleted lines (a renamed file's old path is matched too)
+  - the thread is placed on the **latest iteration** (compared with iteration 1, the "all changes" view), with the file's `changeTrackingId`, so Azure DevOps moves it with the line across later pushes
+  - a path the pull request does not change fails with exit `3` before anything is posted. `--allow-unchanged-file` posts it anyway, without a `changeTrackingId`: a `Note:` on stderr says the thread will not follow the line across pushes
+  - `--file-path` and `--line` must be given together; `--end-line`, `--side` or `--allow-unchanged-file` without `--file-path`, a non-positive line, or `--end-line` below `--line` fail with exit `1` before any network call
+  - `--dry-run` prints the resolved path, line range, side, iteration and `changeTrackingId`; `--json` adds `threadContext` and `pullRequestThreadContext` (as sent) and `changeTracked`
+  - `azdo pr comments --code-related-only` lists the new thread with its file and line
 
 **`azdo pr comments edit <threadId> [text]`** (alias: `azdo pr comment-edit`)
 - Rewrites an existing comment **in place**, keeping the thread, its id, and its position in the discussion — prefer it over a follow-up comment when correcting your own text
@@ -379,7 +390,7 @@ caller can tell "not permitted" from "not found" without scraping stderr:
 |------|---------|
 | `0` | Success, including a `--dry-run` and an idempotent no-op (`comment-resolve` on an already-resolved thread) |
 | `1` | Validation failure (bad `--pr-number`, `--thread`, `--status`, empty body, both inline text and `--file`, invalid work item id, an unresolvable reviewer identity), network error, or any other unexpected failure |
-| `3` | An addressed resource does not exist: the pull request behind `--pr-number`, the thread behind `--thread` / `<threadId>`, or the comment behind `--comment-id` |
+| `3` | An addressed resource does not exist: the pull request behind `--pr-number`, the thread behind `--thread` / `<threadId>`, the comment behind `--comment-id`, or a `comment-add --file-path` the pull request does not change |
 | `4` | Not permitted: authentication failure or permission denied (for example editing or deleting a comment authored by somebody else, which Azure DevOps rejects) |
 
 Branch **auto-detection** failures (no open PR for the current branch, or several) keep exit `1`:
@@ -802,7 +813,7 @@ The pull request object shared by `pr list`, `pr status`, `pr open` and `pr comm
 | `pr update` / `pr edit` | `{ pullRequestId, title, description, url, noop, updatedFields }` — `updatedFields` ⊆ `["title","description"]`, `[]` on a no-op |
 | `pr abandon` / `pr close` / `pr reactivate` | `{ pullRequestId, title, status, previousStatus, url, noop }` |
 | `pr comments` | `{ branch, pullRequest: PullRequest, threads: [Thread] }` |
-| `pr comments add` / `pr comment-add` | `{ pullRequestId, threadId, commentId, status, content, dryRun }` — `threadId` / `commentId` are `null` on `--dry-run`; `status` is `null` without `--status` |
+| `pr comments add` / `pr comment-add` | `{ pullRequestId, threadId, commentId, status, content, dryRun }` — `threadId` / `commentId` are `null` on `--dry-run`; `status` is `null` without `--status`. With `--file-path` it also carries `threadContext` (`filePath` plus `rightFileStart`/`rightFileEnd` or `leftFileStart`/`leftFileEnd`, each `{ line, offset }`), `pullRequestThreadContext` (`iterationContext`, and `changeTrackingId` when tracked) and `changeTracked` |
 | `pr comments edit` / `pr comment-edit` | `{ pullRequestId, threadId, commentId, previousContent, content, dryRun }` |
 | `pr comments reply` / `pr comment-reply` | `{ pullRequestId, threadId, commentId, content }` |
 | `pr comment-resolve` / `pr comment-reopen` | `{ pullRequestId, threadId, status, noop }` — on a no-op `status` is the thread's actual backend status |

@@ -12,6 +12,8 @@ vi.mock('../../src/services/pr-client.js', async (importOriginal) => {
     getPullRequestThread: vi.fn(),
     getPullRequestThreads: vi.fn(),
     createPullRequestThread: vi.fn(),
+    getLatestPullRequestIterationId: vi.fn(),
+    getPullRequestIterationChanges: vi.fn(),
     updateThreadComment: vi.fn(),
     deleteThreadComment: vi.fn(),
     postThreadComment: vi.fn(),
@@ -39,6 +41,8 @@ vi.mock('../../src/services/context.js', () => ({ resolveContext: vi.fn() }));
 
 import {
   createPullRequestThread,
+  getLatestPullRequestIterationId,
+  getPullRequestIterationChanges,
   getPullRequestById,
   getPullRequestThread,
   getPullRequestThreads,
@@ -147,6 +151,31 @@ describe('pr comments add — nested vs alias option plumbing', () => {
     expect(vi.mocked(detectRepoName)).not.toHaveBeenCalled();
     expect(vi.mocked(createPullRequestThread)).toHaveBeenCalledWith(
       expect.any(Object), 'other-repo', expect.any(Object), 4804, 'text', undefined,
+    );
+  });
+
+  it.each([
+    ['nested', ['pr', 'comments', 'add', 'text', '--pr-number', '4804']],
+    ['alias', ['pr', 'comment-add', 'text', '--pr-number', '4804']],
+  ])('%s form honours the anchor options', async (_form, argv) => {
+    vi.mocked(getLatestPullRequestIterationId).mockResolvedValue(3);
+    vi.mocked(getPullRequestIterationChanges).mockResolvedValue([{ changeTrackingId: 5, item: { path: '/src/a.cs' } }]);
+
+    await runTree([...argv, '--file-path', 'src/a.cs', '--line', '8', '--end-line', '9', '--side', 'right']);
+
+    expect(vi.mocked(createPullRequestThread)).toHaveBeenCalledWith(
+      expect.any(Object), 'repo-name', expect.any(Object), 4804, 'text', undefined,
+      {
+        threadContext: {
+          filePath: '/src/a.cs',
+          rightFileStart: { line: 8, offset: 1 },
+          rightFileEnd: { line: 9, offset: 1000 },
+        },
+        pullRequestThreadContext: {
+          changeTrackingId: 5,
+          iterationContext: { firstComparingIteration: 1, secondComparingIteration: 3 },
+        },
+      },
     );
   });
 });
