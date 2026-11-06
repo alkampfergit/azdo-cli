@@ -11,10 +11,14 @@ import type {
 export const LINE_END_OFFSET = 1000;
 
 // Turns a repo-relative path into the form the threads API expects: forward
-// slashes and one leading `/`. A leading `./` is dropped. Returns null when
-// nothing is left (e.g. `./` or `/`).
+// slashes and one leading `/`. A leading `./` is dropped. Whitespace is kept,
+// because it can be part of a real file name. Returns null for blank input or
+// when nothing is left (e.g. `./` or `/`).
 export function normalizeThreadFilePath(raw: string): string | null {
-  let path = raw.trim().replaceAll('\\', '/');
+  if (raw.trim() === '') {
+    return null;
+  }
+  let path = raw.replaceAll('\\', '/');
   while (path.startsWith('./')) {
     path = path.slice(2);
   }
