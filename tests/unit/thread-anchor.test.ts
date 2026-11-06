@@ -27,13 +27,27 @@ describe('normalizeThreadFilePath', () => {
     ['./src/Foo/Bar.cs', '/src/Foo/Bar.cs'],
     ['.\\src\\Foo.cs', '/src/Foo.cs'],
     ['//src/Foo.cs', '/src/Foo.cs'],
-    ['  README.md ', '/README.md'],
+    ['  README.md ', '/  README.md '],
+    ['src/my file.cs', '/src/my file.cs'],
   ])('normalises %j to %j', (raw, expected) => {
     expect(normalizeThreadFilePath(raw)).toBe(expected);
   });
 
-  it.each(['', './', '/', '  '])('returns null for the empty path %j', (raw) => {
+  it.each(['', './', '/', '  ', '\t\n'])('returns null for the empty path %j', (raw) => {
     expect(normalizeThreadFilePath(raw)).toBeNull();
+  });
+
+  it('keeps two files whose names differ only by whitespace apart', () => {
+    const changes = [
+      { changeTrackingId: 1, item: { path: '/review.ts' }, changeType: 'edit' },
+      { changeTrackingId: 2, item: { path: '/ review.ts' }, changeType: 'add' },
+    ];
+    const spaced = normalizeThreadFilePath(' review.ts');
+    const plain = normalizeThreadFilePath('review.ts');
+    expect(spaced).toBe('/ review.ts');
+    expect(plain).toBe('/review.ts');
+    expect(findChangeTrackingId(changes, spaced ?? '', 'right')).toBe(2);
+    expect(findChangeTrackingId(changes, plain ?? '', 'right')).toBe(1);
   });
 });
 

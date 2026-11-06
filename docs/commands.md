@@ -337,7 +337,7 @@ work from outside a checkout of the target repository.
 - `--dry-run` resolves the target pull request, prints exactly what would be posted, and exits 0 without writing anything
 - `--json` returns `{ pullRequestId, threadId, commentId, status, content, dryRun }`
 - **Anchored threads.** `--file-path <path> --line <n>` attaches the thread to a file and line, as a reviewer does in the Files tab, instead of the overview:
-  - `--file-path` is repo-relative; backslashes become `/`, a leading `./` is dropped and a leading `/` is added (`src\Foo.cs` → `/src/Foo.cs`)
+  - `--file-path` is repo-relative; backslashes become `/`, a leading `./` is dropped and a leading `/` is added (`src\Foo.cs` → `/src/Foo.cs`); whitespace is kept as part of the name, and a blank path is rejected
   - `--line` / `--end-line` are 1-based and inclusive; `--end-line` defaults to `--line`. The whole of every line in the range is highlighted
   - `--side right` (default) comments on the pull request's new version; `--side left` on the old version, for deleted lines (a renamed file's old path is matched first, then the current path)
   - the thread is placed on the **latest iteration**, compared with itself so the left side is the common-commit base the changes are computed against, with the file's `changeTrackingId`, so Azure DevOps moves it with the line across later pushes
