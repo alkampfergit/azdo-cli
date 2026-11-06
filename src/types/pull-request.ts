@@ -235,7 +235,7 @@ export interface AzdoThreadListResponse {
   value: AzdoThread[];
 }
 
-interface CommentPosition {
+export interface CommentPosition {
   line: number;
   offset: number;
 }
@@ -325,6 +325,53 @@ export interface PullRequestThreadCreateRequest {
     commentType: number;
   }>;
   status?: CreatableThreadStatus;
+  threadContext?: ThreadAnchorContext;
+  pullRequestThreadContext?: PullRequestThreadContext;
+}
+
+// Which version of the file an anchored thread points at: `right` is the
+// pull request's new version, `left` the target branch's (deleted lines).
+export type ThreadAnchorSide = 'right' | 'left';
+
+// `threadContext` of an anchored thread: a repo path with a leading `/` and
+// the start/end positions on exactly one side.
+export interface ThreadAnchorContext {
+  filePath: string;
+  rightFileStart?: CommentPosition;
+  rightFileEnd?: CommentPosition;
+  leftFileStart?: CommentPosition;
+  leftFileEnd?: CommentPosition;
+}
+
+// `pullRequestThreadContext` of an anchored thread. `changeTrackingId` lets
+// Azure DevOps move the thread with its line across later pushes; it is
+// absent when the file is not among the pull request's changes.
+export interface PullRequestThreadContext {
+  changeTrackingId?: number;
+  iterationContext: {
+    firstComparingIteration: number;
+    secondComparingIteration: number;
+  };
+}
+
+// GET .../pullRequests/{id}/iterations — only the ids are needed.
+export interface AzdoPullRequestIterationListResponse {
+  value: Array<{ id: number }>;
+}
+
+// One page of GET .../iterations/{id}/changes. `nextSkip` is 0 on the last page.
+export interface AzdoPullRequestIterationChanges {
+  changeEntries?: AzdoPullRequestChange[];
+  nextSkip?: number;
+  nextTop?: number;
+}
+
+export interface AzdoPullRequestChange {
+  changeTrackingId?: number;
+  changeType?: string;
+  item?: { path?: string };
+  // Set on renames: the path the file had before.
+  originalPath?: string;
 }
 
 // Minimal shape of the Projects API response — we only need the GUID to build
