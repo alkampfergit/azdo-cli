@@ -173,7 +173,7 @@ describe('pr comments add — nested vs alias option plumbing', () => {
         },
         pullRequestThreadContext: {
           changeTrackingId: 5,
-          iterationContext: { firstComparingIteration: 1, secondComparingIteration: 3 },
+          iterationContext: { firstComparingIteration: 3, secondComparingIteration: 3 },
         },
       },
     );

@@ -56,16 +56,16 @@ describe('buildThreadAnchorContext', () => {
 });
 
 describe('buildPullRequestThreadContext', () => {
-  it('compares iteration 1 with the latest and carries the tracking id', () => {
+  it('compares the latest iteration with itself and carries the tracking id', () => {
     expect(buildPullRequestThreadContext(4, 7)).toEqual({
       changeTrackingId: 7,
-      iterationContext: { firstComparingIteration: 1, secondComparingIteration: 4 },
+      iterationContext: { firstComparingIteration: 4, secondComparingIteration: 4 },
     });
   });
 
   it('omits changeTrackingId when the file is untracked', () => {
     expect(buildPullRequestThreadContext(4, undefined)).toEqual({
-      iterationContext: { firstComparingIteration: 1, secondComparingIteration: 4 },
+      iterationContext: { firstComparingIteration: 4, secondComparingIteration: 4 },
     });
   });
 });
@@ -85,6 +85,15 @@ describe('findChangeTrackingId', () => {
   it("matches a rename's original path only on the left side", () => {
     expect(findChangeTrackingId(changes, '/src/old-name.cs', 'left')).toBe(2);
     expect(findChangeTrackingId(changes, '/src/old-name.cs', 'right')).toBeUndefined();
+  });
+
+  it('prefers a rename\'s original path on the left when a new file reuses it', () => {
+    const reused = [
+      { changeTrackingId: 5, item: { path: '/src/old-name.cs' }, changeType: 'add' },
+      { changeTrackingId: 6, item: { path: '/src/new-name.cs' }, originalPath: '/src/old-name.cs', changeType: 'rename' },
+    ];
+    expect(findChangeTrackingId(reused, '/src/old-name.cs', 'left')).toBe(6);
+    expect(findChangeTrackingId(reused, '/src/old-name.cs', 'right')).toBe(5);
   });
 
   it('is case-sensitive and returns undefined for an unchanged file', () => {

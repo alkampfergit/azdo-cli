@@ -359,7 +359,7 @@ describe('pr comments add --file-path (anchored threads)', () => {
     },
     pullRequestThreadContext: {
       changeTrackingId: 7,
-      iterationContext: { firstComparingIteration: 1, secondComparingIteration: 4 },
+      iterationContext: { firstComparingIteration: 4, secondComparingIteration: 4 },
     },
   };
 
@@ -398,7 +398,7 @@ describe('pr comments add --file-path (anchored threads)', () => {
         },
         pullRequestThreadContext: {
           changeTrackingId: 9,
-          iterationContext: { firstComparingIteration: 1, secondComparingIteration: 4 },
+          iterationContext: { firstComparingIteration: 4, secondComparingIteration: 4 },
         },
       },
     );
@@ -443,7 +443,7 @@ describe('pr comments add --file-path (anchored threads)', () => {
           rightFileStart: { line: 1, offset: 1 },
           rightFileEnd: { line: 1, offset: 1000 },
         },
-        pullRequestThreadContext: { iterationContext: { firstComparingIteration: 1, secondComparingIteration: 4 } },
+        pullRequestThreadContext: { iterationContext: { firstComparingIteration: 4, secondComparingIteration: 4 } },
       },
     );
     expect(getStdout()).toContain('(right side, iteration 4, no changeTrackingId)');

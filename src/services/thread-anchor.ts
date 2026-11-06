@@ -37,14 +37,15 @@ export function buildThreadAnchorContext(
     : { filePath, leftFileStart: start, leftFileEnd: end };
 }
 
-// `pullRequestThreadContext` comparing the first iteration with the latest,
-// which is the "all changes" view of the Files tab.
+// `pullRequestThreadContext` on the latest iteration compared with itself. With
+// both ends equal, the left side is the common-commit base, the same baseline
+// the iteration changes (and so `changeTrackingId`) are computed against.
 export function buildPullRequestThreadContext(
   iterationId: number,
   changeTrackingId: number | undefined,
 ): PullRequestThreadContext {
   const context: PullRequestThreadContext = {
-    iterationContext: { firstComparingIteration: 1, secondComparingIteration: iterationId },
+    iterationContext: { firstComparingIteration: iterationId, secondComparingIteration: iterationId },
   };
   if (changeTrackingId !== undefined) {
     context.changeTrackingId = changeTrackingId;
@@ -53,15 +54,17 @@ export function buildPullRequestThreadContext(
 }
 
 // Finds the change entry for `filePath` (already normalised) and returns its
-// tracking id. The left side also matches a rename's `originalPath`, because
-// that is the path the old version of the file had.
+// tracking id. The left side matches a rename's `originalPath` first, because
+// that is the path the old version of the file had; a new file may reuse it.
 export function findChangeTrackingId(
   changes: AzdoPullRequestChange[],
   filePath: string,
   side: ThreadAnchorSide,
 ): number | undefined {
+  const byPath = (change: AzdoPullRequestChange): boolean => change.item?.path === filePath;
   const match =
-    changes.find((change) => change.item?.path === filePath) ??
-    (side === 'left' ? changes.find((change) => change.originalPath === filePath) : undefined);
+    side === 'left'
+      ? (changes.find((change) => change.originalPath === filePath) ?? changes.find(byPath))
+      : changes.find(byPath);
   return match?.changeTrackingId;
 }
