@@ -132,10 +132,10 @@ uses `.automata/config.json` and the configured prompts. Do not assume the
 
 ## 4. Running the project from a VM
 
-The repository provides the Dev Container configuration, but not a
-provider-specific VM image or VM lifecycle commands. The usual arrangement is
-to run Hermes and Docker on a Linux VM, keep the repository checkout on that
-VM, and open the checkout inside its Dev Container.
+The recommended layout in this guide is to run Hermes and Docker on a Linux VM,
+keep the repository checkout on that VM, and open the checkout inside its Dev
+Container. Confirm this matches the actual deployment before following the
+setup steps below; this repository does not define a VM provider or image.
 
 ### Create the VM and start the Dev Container
 
@@ -167,74 +167,224 @@ VM, and open the checkout inside its Dev Container.
    devcontainer up --workspace-folder "$HOME/src/azdo-cli"
    ```
 
-   This reads `.devcontainer/devcontainer.json`, runs the post-create setup
-   when needed, and runs the cron startup command when the container starts.
-   The repository scripts expect the container workspace at
-   `/workspaces/azdo-cli` and its configured `node` user. The host checkout can
-   live at `$HOME/src/azdo-cli` because it is mounted into that workspace.
-   Starting the container also enables the Automata cron job, which checks
-   GitHub every five minutes for issues labeled `automated`. Confirm the
-   credentials and `.automata/config.json` before leaving it running.
+   The post-create setup runs when needed; the post-start hook is intended to
+   install the cron entry and start cron. Verify the live hook effects in the
+   container before treating the scheduler as enabled. The repository scripts
+   expect the container workspace at `/workspaces/azdo-cli` and its configured
+   `node` user. The host checkout can live at `$HOME/src/azdo-cli` because it is
+   mounted into that workspace. When healthy, the cron checks GitHub every five
+   minutes for issues labeled `automated`. Confirm the container-side GitHub
+   authentication and `.automata/config.json` before leaving it running.
 
-### Work in the Dev Container
+### Day-to-day Dev Container workflow
 
-- **With VS Code:** install the Remote SSH and Dev Containers extensions on
-  your workstation, connect to the VM using Remote SSH, and open
-  `/home/<vm-user>/src/azdo-cli`. Run **Dev Containers: Reopen in Container**
-  from the Command Palette. The terminal and extensions then work in the
-  container.
-- **From Hermes or an SSH terminal:** run repository commands through the
-  Dev Container CLI so they use the project's configured toolchain:
+The VM host owns Docker and the checkout. The Dev Container supplies the
+project's toolchain and configured user/shell; any credentials must be set up
+separately inside it. The Automata cron runs there too. Start at the host
+checkout path, but run project commands inside the container.
+
+#### 1. Start or reuse the project container
+
+```bash
+cd "$HOME/src/azdo-cli"
+devcontainer read-configuration --workspace-folder "$PWD"
+devcontainer up --workspace-folder "$PWD"
+```
+
+Read the configuration before starting. `devcontainer up` may create the
+container or reuse/start an existing one; keep the returned container ID for
+later lifecycle actions. Do not assume that reusing an already-running
+container replays lifecycle hooks. If startup times out, check whether its
+container or setup process is still active before retrying—do not launch a
+second setup against the same workspace.
+
+#### 2. Verify the command environment before working
+
+```bash
+devcontainer exec --workspace-folder "$HOME/src/azdo-cli" -- \
+  zsh -lic 'whoami && pwd && node --version && npm --version && git status --short --branch'
+```
+
+The command runs as the configured `remoteUser` (`node`) in the container's
+workspace path (currently `/workspaces/azdo-cli`), not the VM's `$HOME/src`
+path. `devcontainer exec` exits with the command's status; treat non-zero as a
+failed probe. For a long interactive session, open a shell with:
+
+```bash
+devcontainer exec --workspace-folder "$HOME/src/azdo-cli" zsh -l
+```
+
+If a tool is missing, verify it inside the container before installing it; a
+host-side `command -v`, package version, or authentication result says nothing
+about container state. If the project's dependencies are absent, install them
+from the lockfile inside the container:
+
+```bash
+devcontainer exec --workspace-folder "$HOME/src/azdo-cli" zsh -lic 'npm ci'
+```
+
+#### 3. Edit files and run project commands
+
+The repository is bind-mounted: edits made in the VM checkout are visible in
+the container and vice versa. Keep Git and project-tool commands inside the
+container so they use the configured runtime and dependencies. For example:
+
+```bash
+devcontainer exec --workspace-folder "$HOME/src/azdo-cli" zsh -lic 'git status --short --branch'
+devcontainer exec --workspace-folder "$HOME/src/azdo-cli" zsh -lic 'npm run test:unit'
+devcontainer exec --workspace-folder "$HOME/src/azdo-cli" zsh -lic 'npm test && npm run lint'
+```
+
+Use `npm run test:unit` for the unit-focused suite. The repository's full test
+and lint gate is `npm test && npm run lint` (see `AGENTS.md`). Integration
+tests may need the separately provisioned environment described in
+`docs/development.md`; do not place credentials in the checkout or print them
+to logs. For source CLI verification, distinguish a locally built entrypoint
+from a globally installed CLI:
+
+```bash
+devcontainer exec --workspace-folder "$HOME/src/azdo-cli" zsh -lic 'npm run build && node dist/index.js --version && node dist/index.js --help'
+devcontainer exec --workspace-folder "$HOME/src/azdo-cli" zsh -lic 'command -v azdo && azdo --version'
+```
+
+The first command tests the build output in this checkout; the second tests
+whatever `azdo` executable is on the container's `PATH`. One does not prove
+the other is installed or current.
+
+#### 4. Check authentication in the environment that uses it
+
+The cron runner executes inside the container, so check its GitHub CLI login
+there:
+
+```bash
+devcontainer exec --workspace-folder "$HOME/src/azdo-cli" zsh -lic 'gh auth status'
+```
+
+If authentication is absent, open an interactive shell in the container so you
+can complete the login prompts. At the resulting shell prompt, run:
+
+```bash
+gh auth login --hostname github.com --git-protocol https --web
+gh auth status
+```
+
+If Git operations need to reuse GitHub CLI credentials, configure that inside
+the same container and verify it with a read-only remote lookup:
+
+```bash
+devcontainer exec --workspace-folder "$HOME/src/azdo-cli" zsh -lic 'gh auth setup-git && git ls-remote origin HEAD'
+```
+
+Do not paste tokens into the guide, shell history, prompts, or logs. If the Dev
+Container is recreated, its local home and authentication may be lost unless
+explicitly persisted, so re-check them.
+
+#### 5. Verify the Automata cron hook after startup
+
+The configured `postStartCommand` installs the cron entry and starts cron, but
+verify its effects in the live container every time it is started or rebuilt:
+
+```bash
+devcontainer exec --workspace-folder "$HOME/src/azdo-cli" zsh -lic \
+  'whoami && pgrep -a -x cron && test -f /etc/cron.d/automata-do-work && test -x /usr/local/bin/automata-do-work-cron && test -d /home/node/.local/state/automata-do-work'
+```
+
+A cron file alone does not prove the daemon is running. If the entry, runner,
+or daemon is missing after startup, run the repository's idempotent start hook
+inside the container, then repeat these checks:
+
+```bash
+devcontainer exec --workspace-folder "$HOME/src/azdo-cli" zsh -lic 'bash .devcontainer/start-do-work-cron.sh'
+```
+
+The scheduled runner fires every five minutes as `node` and appends to
+`/home/node/.local/state/automata-do-work/cron.log`. Wait at least one schedule
+interval after startup, then verify that the log exists and has a recent
+modification time:
+
+```bash
+devcontainer exec --workspace-folder "$HOME/src/azdo-cli" zsh -lic 'stat /home/node/.local/state/automata-do-work/cron.log'
+```
+
+Inspect the log locally, redacting any sensitive output before sharing it.
+Before manually retrying a failed or stuck tick, inspect the cron log, worktree,
+active Automata lock, and processes; do not start a second tick while another
+may be working. Check `automata do-work --help` inside the container before
+using diagnostic flags, since supported options vary by installed version. A
+successful `--check` or dry-run is only a health/selection result; it is not
+proof that a real scheduled tick completed. Verify a fresh log-producing tick
+and its result before reporting the scheduler operational.
+
+#### 6. Use VS Code or Hermes against the same checkout
+
+- **VS Code:** connect to the VM with Remote SSH, open
+  `/home/<vm-user>/src/azdo-cli`, then run **Dev Containers: Reopen in
+  Container**. Terminals and extensions use the container environment.
+- **Hermes or an SSH terminal:** tell the agent to edit the VM-mounted checkout
+  and use `devcontainer exec --workspace-folder "$HOME/src/azdo-cli" ...` for
+  project commands, tests, GitHub authentication, and Automata checks. This
+  makes the execution boundary explicit rather than accidentally using host
+  tools or credentials.
+- **Claude Code or Codex CLI:** verify the executable and its authentication
+  from inside the container before use. Launch it in the attached interactive
+  terminal so prompts and approvals are visible; for example:
 
   ```bash
-  devcontainer exec --workspace-folder "$HOME/src/azdo-cli" zsh -lic 'npm test'
+  devcontainer exec --workspace-folder "$HOME/src/azdo-cli" zsh -lic 'claude --version && claude auth status'
+  devcontainer exec --workspace-folder "$HOME/src/azdo-cli" zsh -lic 'codex --version && codex login status'
+  devcontainer exec --workspace-folder "$HOME/src/azdo-cli" zsh -lic 'claude'
   ```
 
-  Tell Hermes to use the VM checkout for file changes and `devcontainer exec`
-  for commands that need the project environment. The checkout is shared with
-  the container, so edits made through either view appear in both.
-- **After a VM reboot:** start the container again with
-  `devcontainer up --workspace-folder "$HOME/src/azdo-cli"`. Its `postStartCommand`
-  starts the container's cron service. Check the active scheduler before
-  enabling any additional Hermes schedule.
+  For long-running agent work, keep the terminal/process handle and monitor it.
+  If a wrapper times out, inspect the in-container process tree and Git status
+  before retrying; the agent may still be running and editing the shared tree.
+- **After a VM reboot:** run `devcontainer up` again, then repeat the identity,
+  authentication, and cron-hook checks above. Confirm the expected entry, live
+  cron process, runner executable, and a recent successful tick; do not infer
+  scheduler health from the startup command's presence alone.
+
+#### 7. Stop or remove the container safely
+
+Do not stop the container while Automata or another task is active. Check the
+cron process and Automata lock/task processes first. To stop it but preserve the
+container for a later restart, use the exact container ID returned by
+`devcontainer up`. If that ID was not saved, identify the container by this
+repository's workspace label and confirm the matching path before using its ID:
+
+```bash
+docker ps --all --filter "label=devcontainer.local_folder=$(realpath "$HOME/src/azdo-cli")"
+```
+
+Then stop it but keep it for a later restart:
+
+```bash
+docker stop <container-id>
+```
+
+To remove a container (which loses container-local state such as unpersisted
+credentials and installed tools), only when removal is intended:
+
+```bash
+docker rm -f <container-id>
+```
+
+The bind-mounted VM checkout remains on disk, but a recreated container may
+need its tools and authentication set up again. The npm Dev Container CLI does
+not provide `stop`/`down` commands; manage the exact container with Docker.
 
 The host and container are separate environments. Host authentication is not
-automatically available inside the container. Check `gh auth status` in the
-environment that will run the GitHub operation, and authenticate there if
-needed.
+automatically available inside the container. Authenticate and verify from the
+environment that will run the GitHub operation.
 
 Hermes setup, VM creation, SSH access, and Docker installation depend on the
 VM provider and are not configured by this repository.
 
-### Identify the environment before operating it
-
-Open the terminal/session that Hermes has attached to the intended VM, then
-confirm where you are and which identity/environment is active:
-
-```bash
-hostname
-id
-pwd
-cd /path/to/checkout
-git status --short --branch
-command -v automata && automata --version
-gh auth status
-```
-
-Run the Git and Automata checks from the actual checkout. Confirm the current
-branch and a clean worktree before any scheduled or write operation. If the
-checkout is inside a Dev Container, use its configured lifecycle and paths; if
-it is directly on the VM, install/configure the required tools for that VM
-account rather than assuming `.devcontainer/postcreate.sh` has run. Never copy
-credentials into the repository: authenticate in the environment that runs the
-job and follow the platform's approved secret mechanism.
-
-Before enabling automation, establish all of the following with the VM
-operator: VM owner/provider and lifecycle controls; checkout path and Linux
-account; whether Hermes enters the VM directly or through a Dev Container;
-where GitHub credentials are provisioned; and which scheduler is authoritative.
-This repository does not contain those deployment-specific facts, so do not
-infer them from `.devcontainer/devcontainer.json`.
+Before enabling any schedule, confirm with the VM operator which VM and Hermes
+profile own the checkout, the VM account and checkout path, where GitHub
+authentication is provisioned, and which scheduler is authoritative. Check
+`gh auth status` inside the environment that will run the GitHub operation; host
+authentication is not automatically available in the container. Do not infer
+deployment-specific settings from `.devcontainer/devcontainer.json`.
 
 ### Select exactly one scheduler
 

@@ -6,6 +6,6 @@ details for the Hermes-managed VM as they are confirmed.
 
 ## Topics
 
-- [How the automation works](how-automation-works.md) — Dev Container lifecycle,
-  Automata's issue/PR execution and Spec Kit skill routing, VM operating checks,
-  and Hermes cron instructions.
+- [How the automation works](how-automation-works.md) — Dev Container lifecycle
+  and daily use, Automata's issue/PR execution and Spec Kit skill routing, VM
+  operating checks, and Hermes cron instructions.
