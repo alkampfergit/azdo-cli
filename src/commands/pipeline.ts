@@ -121,6 +121,25 @@ function sleep(ms: number): Promise<void> {
   });
 }
 
+// Polls the run until it completes or the deadline passes; the last status read
+// is always reported, so a timeout still says where the run got to.
+async function pollRunUntilDone(
+  context: AzdoContext,
+  cred: AuthCredential,
+  runId: number,
+  timing: { deadline: number; pollMs: number },
+): Promise<PipelineWaitResult> {
+  const status = await getBuildStatus(context, cred, runId);
+  if (status.state === 'completed') {
+    return { id: runId, state: status.state, result: status.result, timedOut: false };
+  }
+  if (Date.now() >= timing.deadline) {
+    return { id: runId, state: status.state, result: status.result, timedOut: true };
+  }
+  await sleep(timing.pollMs);
+  return pollRunUntilDone(context, cred, runId, timing);
+}
+
 // Renders rows as space-padded columns that line up in a monospace terminal
 // (tabs don't align — they jump to fixed tab stops). Columns in `rightAlign`
 // are right-justified (used for numeric ids); a two-space gutter separates
@@ -352,19 +371,10 @@ function createPipelineWaitCommand(): Command {
         const resolved = await resolvePipelineContext(options);
         context = resolved.context;
         const deadline = Date.now() + timeoutSec * 1000;
-        let waitResult: PipelineWaitResult | null = null;
-        for (;;) {
-          const status = await getBuildStatus(resolved.context, resolved.cred, runId);
-          if (status.state === 'completed') {
-            waitResult = { id: runId, state: status.state, result: status.result, timedOut: false };
-            break;
-          }
-          if (Date.now() >= deadline) {
-            waitResult = { id: runId, state: status.state, result: status.result, timedOut: true };
-            break;
-          }
-          await sleep(pollSec * 1000);
-        }
+        const waitResult = await pollRunUntilDone(resolved.context, resolved.cred, runId, {
+          deadline,
+          pollMs: pollSec * 1000,
+        });
 
         applyWaitExitCode(waitResult);
         if (options.json) {

@@ -753,33 +753,37 @@ export async function getWorkItemFieldValue(
   return stringifyFieldValue(value);
 }
 
+// Reads one page of comments and follows the continuation token to the end.
+async function listWorkItemCommentPages(
+  context: AzdoContext,
+  id: number,
+  cred: AuthCredential,
+  continuationToken: string | null,
+): Promise<WorkItemComment[]> {
+  const response = await fetchWithErrors(
+    buildWorkItemCommentsListUrl(context, id, continuationToken ?? undefined).toString(),
+    { headers: authHeaders(cred) },
+  );
+
+  if (!response.ok) {
+    throw httpError(response);
+  }
+
+  const data = (await response.json()) as AzdoCommentListResponse;
+  const comments = (data.comments ?? [])
+    .map((comment) => mapWorkItemComment(comment, id))
+    .filter((comment) => !comment.isDeleted);
+  const next = readContinuationToken(response, data);
+  if (next === null) return comments;
+  return [...comments, ...(await listWorkItemCommentPages(context, id, cred, next))];
+}
+
 export async function listWorkItemComments(
   context: AzdoContext,
   id: number,
   cred: AuthCredential,
 ): Promise<WorkItemCommentsResult> {
-  const comments: WorkItemComment[] = [];
-  let continuationToken: string | null = null;
-
-  do {
-    const response = await fetchWithErrors(
-      buildWorkItemCommentsListUrl(context, id, continuationToken ?? undefined).toString(),
-      { headers: authHeaders(cred) },
-    );
-
-    if (!response.ok) {
-      throw httpError(response);
-    }
-
-    const data = (await response.json()) as AzdoCommentListResponse;
-    comments.push(
-      ...(data.comments ?? [])
-        .map((comment) => mapWorkItemComment(comment, id))
-        .filter((comment) => !comment.isDeleted),
-    );
-    continuationToken = readContinuationToken(response, data);
-  } while (continuationToken !== null);
-
+  const comments = await listWorkItemCommentPages(context, id, cred, null);
   return {
     workItemId: id,
     count: comments.length,

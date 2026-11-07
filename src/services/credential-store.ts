@@ -7,6 +7,7 @@ import { parseCredentialStore } from './credential-store-kind.js';
 import { maskedDisplay } from './auth-masking.js';
 import { DpapiEntry, type SecretEntry } from './dpapi-store.js';
 import type { CredentialStoreKind } from '../types/work-item.js';
+import { asPromise } from '../lib/async.js';
 
 const SERVICE = 'azdo-cli';
 const LEGACY_ACCOUNT = 'pat';
@@ -211,7 +212,7 @@ function serializeCredential(cred: StoredCredential): string {
   return JSON.stringify(cred);
 }
 
-async function maybeMigrateLegacy(targetOrg: string): Promise<string | null> {
+function maybeMigrateLegacy(targetOrg: string): string | null {
   // The pre-multi-org `pat` slot only ever existed in the OS keyring, and
   // switching stores deliberately moves nothing.
   if (activeCredentialStore() === 'dpapi') return null;
@@ -268,15 +269,12 @@ export async function getPat(org: string): Promise<string | null> {
   return null;
 }
 
-export async function getStoredCredential(org: string): Promise<StoredCredential | null> {
-  const entry = entryFor(accountFor(org));
-  const value = wrapUnavailable(() => entry.getPassword());
-  if (value === null) {
-    const migrated = await maybeMigrateLegacy(org);
-    if (migrated === null) return null;
-    return parseStoredValue(migrated);
-  }
-  return parseStoredValue(value);
+export function getStoredCredential(org: string): Promise<StoredCredential | null> {
+  return asPromise(() => {
+    const entry = entryFor(accountFor(org));
+    const value = wrapUnavailable(() => entry.getPassword()) ?? maybeMigrateLegacy(org);
+    return value === null ? null : parseStoredValue(value);
+  });
 }
 
 /**
@@ -285,15 +283,17 @@ export async function getStoredCredential(org: string): Promise<StoredCredential
  * transparent on the read path because legacy bare-PAT entries are also
  * tolerated.
  */
-export async function storePat(org: string, pat: string): Promise<void> {
-  const cred: StoredPatCredential = { kind: 'pat', token: pat };
-  const entry = entryFor(accountFor(org));
-  wrapUnavailable(() => entry.setPassword(serializeCredential(cred)));
-  appendAuthAuditEvent({
-    event: 'auth.store',
-    org,
-    backend: probeBackend(),
-    masked_pat: maskedDisplay(pat),
+export function storePat(org: string, pat: string): Promise<void> {
+  return asPromise(() => {
+    const cred: StoredPatCredential = { kind: 'pat', token: pat };
+    const entry = entryFor(accountFor(org));
+    wrapUnavailable(() => entry.setPassword(serializeCredential(cred)));
+    appendAuthAuditEvent({
+      event: 'auth.store',
+      org,
+      backend: probeBackend(),
+      masked_pat: maskedDisplay(pat),
+    });
   });
 }
 
@@ -308,9 +308,11 @@ export async function storePat(org: string, pat: string): Promise<void> {
  * deliberately emits `oauth-refresh-success` instead — refreshes are
  * not logins.
  */
-export async function storeOAuthCredential(org: string, cred: StoredOAuthCredential): Promise<void> {
-  const entry = entryFor(accountFor(org));
-  wrapUnavailable(() => entry.setPassword(serializeCredential(cred)));
+export function storeOAuthCredential(org: string, cred: StoredOAuthCredential): Promise<void> {
+  return asPromise(() => {
+    const entry = entryFor(accountFor(org));
+    wrapUnavailable(() => entry.setPassword(serializeCredential(cred)));
+  });
 }
 
 export async function deletePat(org: string): Promise<boolean> {
@@ -355,7 +357,11 @@ export async function deletePat(org: string): Promise<boolean> {
   return true;
 }
 
-export async function listOrgsWithStoredPat(): Promise<string[]> {
+export function listOrgsWithStoredPat(): Promise<string[]> {
+  return asPromise(listOrgsWithStoredPatSync);
+}
+
+function listOrgsWithStoredPatSync(): string[] {
   const seen = new Set<string>();
   for (const ev of readAuditEvents()) {
     if (ev.event === 'auth.store' || ev.event === 'oauth-login-success') {

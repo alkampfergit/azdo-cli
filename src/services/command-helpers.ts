@@ -162,8 +162,22 @@ export function handleCommandError(
     return;
   }
   const error = err instanceof Error ? err : new Error(String(err));
-  const msg = error.message;
+  writeCommandError(error, id, context, scope);
 
+  if (exit) {
+    process.exit(1);
+  } else {
+    process.exitCode = 1;
+  }
+}
+
+function writeCommandError(
+  error: Error,
+  id: number | undefined,
+  context: AzdoContext | undefined,
+  scope: 'read' | 'write',
+): void {
+  const msg = error.message;
   const scopeLabel = scope === 'read' ? 'Work Items (read)' : 'Work Items (Read & Write)';
 
   if (isSentinel(msg, 'AUTH_FAILED')) {
@@ -195,12 +209,6 @@ export function handleCommandError(
     process.stderr.write(`Error: Update rejected: ${serverMsg}\n`);
   } else {
     process.stderr.write(`Error: ${msg}\n`);
-  }
-
-  if (exit) {
-    process.exit(1);
-  } else {
-    process.exitCode = 1;
   }
 }
 
