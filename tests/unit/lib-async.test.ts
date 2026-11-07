@@ -38,4 +38,13 @@ describe('asPromise', () => {
     });
     await expect(promise).rejects.toThrow('nope');
   });
+
+  it('rejects with the original value when a non-Error is thrown', async () => {
+    const thrown: unknown = Object.create(null);
+    const promise = asPromise(() => {
+      throw thrown;
+    });
+    expect(promise).toBeInstanceOf(Promise);
+    await expect(promise).rejects.toBe(thrown);
+  });
 });
