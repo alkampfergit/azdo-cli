@@ -15,12 +15,9 @@ export function runSequentially<T>(
 
 /**
  * Runs a synchronous function behind a Promise-returning API: a throw becomes
- * a rejection, exactly as it would inside an `async` function.
+ * a rejection with the original thrown value, as it would inside an `async`
+ * function. `fn` runs on the next microtask, so this never throws itself.
  */
 export function asPromise<T>(fn: () => T): Promise<T> {
-  try {
-    return Promise.resolve(fn());
-  } catch (err) {
-    return Promise.reject(err instanceof Error ? err : new Error(String(err)));
-  }
+  return Promise.resolve().then(fn);
 }
