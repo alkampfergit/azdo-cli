@@ -13,8 +13,9 @@ function stringifyValue(value: unknown): string {
   if (typeof value === 'object') return JSON.stringify(value);
   // Everything left stringifies to something a human can read; `unknown` is
   // narrowed explicitly so no value can silently render as '[object Object]'.
-  if (typeof value === 'symbol' || typeof value === 'function') return value.toString();
-  return String(value);
+  if (typeof value === 'symbol') return value.toString();
+  if (typeof value === 'function') return `[function ${value.name || 'anonymous'}]`;
+  return String(value as number | bigint | boolean);
 }
 
 function formatRichValue(raw: string): string {

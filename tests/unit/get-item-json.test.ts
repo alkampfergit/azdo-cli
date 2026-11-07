@@ -78,7 +78,7 @@ describe('toJsonDocument', () => {
     expect(Object.keys(doc)).toEqual(['id', 'title', 'description', 'state', 'tags', 'assignedTo', 'createdBy', 'createdDate', 'url', 'relations']);
     expect(doc.description).toBe('Hello **world**');
     expect(doc.assignedTo).toEqual({ displayName: 'Alice', uniqueName: 'alice@x.com', id: 'guid-a' });
-    expect((doc.relations as unknown[]).length).toBe(1);
+    expect(doc.relations as unknown[]).toHaveLength(1);
   });
 
   it('uses null / empty values when the item has none', () => {

@@ -18,6 +18,9 @@ import type {
   PullRequestUpdateResult,
   PullRequestWithWorkItems,
   Reviewer,
+  ThreadAnchorContext,
+  ThreadAnchorSide,
+  PullRequestThreadContext,
 } from '../types/pull-request.js';
 import type { AuthCredential, AzdoContext } from '../types/work-item.js';
 import {
@@ -28,6 +31,8 @@ import {
   createPullRequestThread,
   getPullRequestThread,
   getPullRequestThreads,
+  getLatestPullRequestIterationId,
+  getPullRequestIterationChanges,
   getPullRequestChecks,
   getPullRequestPolicyEvaluations,
   getPullRequestBuilds,
@@ -58,6 +63,12 @@ import {
   writeErrorDetail,
 } from '../services/command-helpers.js';
 import { detectRepoName, getCurrentBranch } from '../services/git-remote.js';
+import {
+  buildPullRequestThreadContext,
+  buildThreadAnchorContext,
+  findChangeTrackingId,
+  normalizeThreadFilePath,
+} from '../services/thread-anchor.js';
 
 interface PrCommandOptions {
   org?: string;
@@ -77,6 +88,12 @@ interface PrCommandOptions {
   file?: string;
   status?: string;
   dryRun?: boolean;
+  // `pr comments add` only: anchor the new thread to a file and line range.
+  filePath?: string;
+  line?: string;
+  endLine?: string;
+  side?: string;
+  allowUnchangedFile?: boolean;
   // `pr update` only: the two mutable pull request fields, each available
   // inline or from a file (`-` = stdin).
   title?: string;
@@ -1937,7 +1954,8 @@ const CREATABLE_THREAD_STATUSES: CreatableThreadStatus[] = [
 
 // Flat JSON shape emitted by `azdo pr comments add --json` and its alias. On a
 // dry run `threadId` / `commentId` are null: nothing was created, so there are
-// no server-assigned ids to report.
+// no server-assigned ids to report. The anchor fields are present only when
+// the thread is anchored with `--file-path`.
 interface PrCommentAddResult {
   pullRequestId: number;
   threadId: number | null;
@@ -1945,6 +1963,179 @@ interface PrCommentAddResult {
   status: string | null;
   content: string;
   dryRun: boolean;
+  threadContext?: ThreadAnchorContext;
+  pullRequestThreadContext?: PullRequestThreadContext;
+  changeTracked?: boolean;
+}
+
+// What `--file-path` / `--line` / `--end-line` / `--side` ask for, validated
+// locally before any network call.
+interface CommentAnchorRequest {
+  filePath: string;
+  line: number;
+  endLine: number;
+  side: ThreadAnchorSide;
+  allowUnchangedFile: boolean;
+}
+
+// The request plus what the pull request's latest iteration resolved it to.
+interface ResolvedCommentAnchor {
+  request: CommentAnchorRequest;
+  iterationId: number;
+  changeTrackingId: number | undefined;
+  threadContext: ThreadAnchorContext;
+  pullRequestThreadContext: PullRequestThreadContext;
+}
+
+const THREAD_ANCHOR_SIDES: ThreadAnchorSide[] = ['right', 'left'];
+
+function parseCommentAddStatus(raw: string | undefined): CreatableThreadStatus | undefined | null {
+  if (raw === undefined) {
+    return undefined;
+  }
+  const match = CREATABLE_THREAD_STATUSES.find((candidate) => candidate === raw);
+  if (match === undefined) {
+    writeError(`Invalid --status "${raw}"; expected one of ${CREATABLE_THREAD_STATUSES.join(', ')}.`);
+    return null;
+  }
+  return match;
+}
+
+function parseLineOption(flag: string, raw: string): number | null {
+  const value = parsePositivePrNumber(raw);
+  if (value === null) {
+    writeError(`Invalid ${flag} "${raw}"; expected a positive integer (1-based line number).`);
+  }
+  return value;
+}
+
+// Returns undefined for an overview thread (no anchor options at all), null
+// after writing a validation error, or the validated anchor request.
+function parseCommentAnchorOptions(options: PrCommandOptions): CommentAnchorRequest | undefined | null {
+  if (options.filePath === undefined) {
+    const stray = (
+      [
+        ['--line', options.line],
+        ['--end-line', options.endLine],
+        ['--side', options.side],
+        ['--allow-unchanged-file', options.allowUnchangedFile],
+      ] as const
+    ).find(([, value]) => value !== undefined);
+    if (stray !== undefined) {
+      writeError(`${stray[0]} requires --file-path.`);
+      return null;
+    }
+    return undefined;
+  }
+  if (options.line === undefined) {
+    writeError('--file-path requires --line.');
+    return null;
+  }
+
+  const filePath = normalizeThreadFilePath(options.filePath);
+  if (filePath === null) {
+    writeError(`Invalid --file-path "${options.filePath}"; expected a repository file path.`);
+    return null;
+  }
+  const line = parseLineOption('--line', options.line);
+  if (line === null) {
+    return null;
+  }
+  const endLine = options.endLine === undefined ? line : parseLineOption('--end-line', options.endLine);
+  if (endLine === null) {
+    return null;
+  }
+  if (endLine < line) {
+    writeError(`--end-line (${endLine}) must not be less than --line (${line}).`);
+    return null;
+  }
+  const side = THREAD_ANCHOR_SIDES.find((candidate) => candidate === (options.side ?? 'right'));
+  if (side === undefined) {
+    writeError(`Invalid --side "${options.side}"; expected ${THREAD_ANCHOR_SIDES.join(' or ')}.`);
+    return null;
+  }
+  return { filePath, line, endLine, side, allowUnchangedFile: options.allowUnchangedFile === true };
+}
+
+// Looks up the latest iteration and the file's change tracking id. A file the
+// pull request does not change fails with exit 3 (a named resource that does
+// not exist) unless --allow-unchanged-file is set.
+async function resolveCommentAnchor(
+  target: ResolvedPullRequestTarget,
+  request: CommentAnchorRequest,
+): Promise<ResolvedCommentAnchor | null> {
+  const prId = target.pullRequest.id;
+  const iterationId = await getLatestPullRequestIterationId(target.context, target.repo, target.pat, prId);
+  const changes = await getPullRequestIterationChanges(target.context, target.repo, target.pat, prId, iterationId);
+  const changeTrackingId = findChangeTrackingId(changes, request.filePath, request.side);
+  if (changeTrackingId === undefined && !request.allowUnchangedFile) {
+    writeError(
+      `${request.filePath} is not among the files changed by pull request #${prId} (iteration ${iterationId}). ` +
+        'Check the path, or pass --allow-unchanged-file to post the comment anyway.',
+      3,
+    );
+    return null;
+  }
+  return {
+    request,
+    iterationId,
+    changeTrackingId,
+    threadContext: buildThreadAnchorContext(request.filePath, request.line, request.endLine, request.side),
+    pullRequestThreadContext: buildPullRequestThreadContext(iterationId, changeTrackingId),
+  };
+}
+
+function describeCommentAnchor(anchor: ResolvedCommentAnchor): string {
+  const { filePath, line, endLine, side } = anchor.request;
+  const lines = line === endLine ? `line ${line}` : `lines ${line}-${endLine}`;
+  const tracking =
+    anchor.changeTrackingId === undefined ? 'no changeTrackingId' : `changeTrackingId ${anchor.changeTrackingId}`;
+  return ` at ${filePath} ${lines} (${side} side, iteration ${anchor.iterationId}, ${tracking})`;
+}
+
+// Said on both a dry run and a real post: without a changeTrackingId the
+// thread stays on the line number it was given.
+function warnIfUntracked(anchor: ResolvedCommentAnchor | undefined): void {
+  if (anchor !== undefined && anchor.changeTrackingId === undefined) {
+    process.stderr.write(
+      `Note: ${anchor.request.filePath} is not among the pull request's changed files, so the thread is posted ` +
+        'without a changeTrackingId and will not follow the line across later pushes.\n',
+    );
+  }
+}
+
+function withAnchorFields(result: PrCommentAddResult, anchor: ResolvedCommentAnchor | undefined): PrCommentAddResult {
+  if (anchor === undefined) {
+    return result;
+  }
+  return {
+    ...result,
+    threadContext: anchor.threadContext,
+    pullRequestThreadContext: anchor.pullRequestThreadContext,
+    changeTracked: anchor.changeTrackingId !== undefined,
+  };
+}
+
+function writeCommentAddDryRun(
+  prId: number,
+  body: string,
+  status: CreatableThreadStatus | undefined,
+  anchor: ResolvedCommentAnchor | undefined,
+  json: boolean | undefined,
+): void {
+  if (json) {
+    const dryResult = withAnchorFields(
+      { pullRequestId: prId, threadId: null, commentId: null, status: status ?? null, content: body, dryRun: true },
+      anchor,
+    );
+    process.stdout.write(`${JSON.stringify(dryResult, null, 2)}\n`);
+    return;
+  }
+  const statusSuffix = status === undefined ? '' : ` with status ${status}`;
+  const anchorSuffix = anchor === undefined ? '' : describeCommentAnchor(anchor);
+  process.stdout.write(
+    `Dry run: would post a new comment thread${statusSuffix} on pull request #${prId}${anchorSuffix} (${body.length} chars).\n${body}\n`,
+  );
 }
 
 async function runCommentAdd(
@@ -1959,16 +2150,13 @@ async function runCommentAdd(
       return;
     }
 
-    let status: CreatableThreadStatus | undefined;
-    if (options.status !== undefined) {
-      const match = CREATABLE_THREAD_STATUSES.find((candidate) => candidate === options.status);
-      if (match === undefined) {
-        writeError(
-          `Invalid --status "${options.status}"; expected one of ${CREATABLE_THREAD_STATUSES.join(', ')}.`,
-        );
-        return;
-      }
-      status = match;
+    const status = parseCommentAddStatus(options.status);
+    if (status === null) {
+      return;
+    }
+    const anchorRequest = parseCommentAnchorOptions(options);
+    if (anchorRequest === null) {
+      return;
     }
 
     const target = await resolvePullRequestTarget(options, {
@@ -1980,23 +2168,14 @@ async function runCommentAdd(
       return;
     }
 
+    const anchor = anchorRequest === undefined ? undefined : await resolveCommentAnchor(target, anchorRequest);
+    if (anchor === null) {
+      return;
+    }
+    warnIfUntracked(anchor);
+
     if (options.dryRun === true) {
-      const dryResult: PrCommentAddResult = {
-        pullRequestId: target.pullRequest.id,
-        threadId: null,
-        commentId: null,
-        status: status ?? null,
-        content: body,
-        dryRun: true,
-      };
-      if (options.json) {
-        process.stdout.write(`${JSON.stringify(dryResult, null, 2)}\n`);
-        return;
-      }
-      const statusSuffix = status === undefined ? '' : ` with status ${status}`;
-      process.stdout.write(
-        `Dry run: would post a new comment thread${statusSuffix} on pull request #${target.pullRequest.id} (${body.length} chars).\n${body}\n`,
-      );
+      writeCommentAddDryRun(target.pullRequest.id, body, status, anchor, options.json);
       return;
     }
 
@@ -2007,24 +2186,31 @@ async function runCommentAdd(
       target.pullRequest.id,
       body,
       status,
+      ...(anchor === undefined
+        ? []
+        : [{ threadContext: anchor.threadContext, pullRequestThreadContext: anchor.pullRequestThreadContext }]),
     );
     const created = thread.comments[0];
-    const result: PrCommentAddResult = {
-      pullRequestId: target.pullRequest.id,
-      threadId: thread.id,
-      commentId: created?.id ?? null,
-      status: thread.status,
-      content: created?.content ?? body,
-      dryRun: false,
-    };
+    const result = withAnchorFields(
+      {
+        pullRequestId: target.pullRequest.id,
+        threadId: thread.id,
+        commentId: created?.id ?? null,
+        status: thread.status,
+        content: created?.content ?? body,
+        dryRun: false,
+      },
+      anchor,
+    );
 
     if (options.json) {
       process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
       return;
     }
 
+    const anchorSuffix = anchor === undefined ? '' : describeCommentAnchor(anchor);
     process.stdout.write(
-      `Comment posted to pull request #${target.pullRequest.id} (thread #${thread.id}).\n`,
+      `Comment posted to pull request #${target.pullRequest.id} (thread #${thread.id})${anchorSuffix}.\n`,
     );
   } catch (err) {
     handlePrCommandError(err, context, 'write');
@@ -2041,6 +2227,14 @@ function buildCommentAddCommand(name: string, description: string): Command {
       '--status <status>',
       `thread status (${CREATABLE_THREAD_STATUSES.join(' | ')}); omit for a plain, non-resolvable comment`,
     )
+    .option('--file-path <path>', 'anchor the thread to this repository file (Files tab); requires --line')
+    .option('--line <n>', 'first line of the anchored range (1-based)')
+    .option('--end-line <n>', 'last line of the anchored range (default: --line)')
+    .option('--side <side>', 'right (new version, default) or left (old version, for deleted lines)')
+    .option(
+      '--allow-unchanged-file',
+      'post even when --file-path is not among the pull request\'s changed files (the thread will not follow the line across pushes)',
+    )
     .option('--dry-run', 'resolve the target pull request and print what would be posted, without writing anything')
     .option('--pr-number <N>', PR_NUMBER_HELP)
     .option('--json', 'output JSON')
@@ -2051,13 +2245,13 @@ function buildCommentAddCommand(name: string, description: string): Command {
 }
 
 export function createPrCommentsAddCommand(): Command {
-  return buildCommentAddCommand('add', 'Post a new comment thread on the pull request overview');
+  return buildCommentAddCommand('add', 'Post a new comment thread on the pull request overview, or on a file and line');
 }
 
 export function createPrCommentAddCommand(): Command {
   return buildCommentAddCommand(
     'comment-add',
-    'Post a new comment thread on the pull request overview (alias of "azdo pr comments add")',
+    'Post a new comment thread on the pull request overview, or on a file and line (alias of "azdo pr comments add")',
   );
 }
 
@@ -2495,14 +2689,18 @@ async function attachWorkItemIds(
 ): Promise<PullRequestWithWorkItems[]> {
   const result: PullRequestWithWorkItems[] = new Array(pullRequests.length);
   let next = 0;
+  // Each worker takes the next unclaimed pull request, then recurses until
+  // none are left, so at most WORK_ITEM_LOOKUP_CONCURRENCY calls are in flight.
   const worker = async (): Promise<void> => {
-    while (next < pullRequests.length) {
-      const index = next;
-      next += 1;
-      const pullRequest = pullRequests[index];
-      const workItemIds = await getPullRequestWorkItemIds(context, repo, cred, pullRequest.id);
-      result[index] = { ...pullRequest, workItemIds };
+    if (next >= pullRequests.length) {
+      return;
     }
+    const index = next;
+    next += 1;
+    const pullRequest = pullRequests[index];
+    const workItemIds = await getPullRequestWorkItemIds(context, repo, cred, pullRequest.id);
+    result[index] = { ...pullRequest, workItemIds };
+    await worker();
   };
   await Promise.all(Array.from({ length: Math.min(WORK_ITEM_LOOKUP_CONCURRENCY, pullRequests.length) }, worker));
   return result;

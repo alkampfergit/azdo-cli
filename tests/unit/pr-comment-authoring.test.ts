@@ -26,6 +26,8 @@ vi.mock('../../src/services/pr-client.js', async (importOriginal) => {
     getPullRequestById: vi.fn(),
     getPullRequestThread: vi.fn(),
     createPullRequestThread: vi.fn(),
+    getLatestPullRequestIterationId: vi.fn(),
+    getPullRequestIterationChanges: vi.fn(),
     updateThreadComment: vi.fn(),
     deleteThreadComment: vi.fn(),
   };
@@ -59,6 +61,8 @@ const { readFileSync: realReadFileSync } = await vi.importActual<typeof import('
 
 import {
   createPullRequestThread,
+  getLatestPullRequestIterationId,
+  getPullRequestIterationChanges,
   getPullRequestById,
   getPullRequestThread,
   listPullRequests,
@@ -129,6 +133,11 @@ beforeEach(() => {
     publishedAt: null,
   }));
   vi.mocked(deleteThreadComment).mockResolvedValue(undefined);
+  vi.mocked(getLatestPullRequestIterationId).mockResolvedValue(4);
+  vi.mocked(getPullRequestIterationChanges).mockResolvedValue([
+    { changeTrackingId: 7, item: { path: '/src/Foo/Bar.cs' }, changeType: 'edit' },
+    { changeTrackingId: 9, item: { path: '/src/new.cs' }, originalPath: '/src/old.cs', changeType: 'rename' },
+  ]);
 });
 
 afterEach(() => {
@@ -338,6 +347,179 @@ describe('pr comments add', () => {
 
     expect(vi.mocked(createPullRequestThread)).toHaveBeenCalled();
     expect(getStdout()).toContain('Comment posted to pull request #64 (thread #71936).');
+  });
+});
+
+describe('pr comments add --file-path (anchored threads)', () => {
+  const rightAnchor = {
+    threadContext: {
+      filePath: '/src/Foo/Bar.cs',
+      rightFileStart: { line: 692, offset: 1 },
+      rightFileEnd: { line: 692, offset: 1000 },
+    },
+    pullRequestThreadContext: {
+      changeTrackingId: 7,
+      iterationContext: { firstComparingIteration: 4, secondComparingIteration: 4 },
+    },
+  };
+
+  it('anchors the thread to the latest iteration with the change tracking id', async () => {
+    await runAdd(['finding', '--pr-number', '64', '--file-path', 'src\\Foo\\Bar.cs', '--line', '692']);
+
+    expect(vi.mocked(getLatestPullRequestIterationId)).toHaveBeenCalledWith(
+      expect.any(Object), 'repo-name', expect.any(Object), 64,
+    );
+    expect(vi.mocked(getPullRequestIterationChanges)).toHaveBeenCalledWith(
+      expect.any(Object), 'repo-name', expect.any(Object), 64, 4,
+    );
+    expect(vi.mocked(createPullRequestThread)).toHaveBeenCalledWith(
+      expect.any(Object), 'repo-name', expect.any(Object), 64, 'finding', undefined, rightAnchor,
+    );
+    expect(getStdout()).toContain(
+      'Comment posted to pull request #64 (thread #71936) at /src/Foo/Bar.cs line 692 (right side, iteration 4, changeTrackingId 7).',
+    );
+    expect(getStderr()).toBe('');
+    expect(getExitCode()).toBe(0);
+  });
+
+  it('anchors a left-side range and matches a rename by its original path', async () => {
+    await runAdd([
+      'finding', '--pr-number', '64', '--file-path', './src/old.cs', '--line', '10', '--end-line', '12',
+      '--side', 'left', '--status', 'active',
+    ]);
+
+    expect(vi.mocked(createPullRequestThread)).toHaveBeenCalledWith(
+      expect.any(Object), 'repo-name', expect.any(Object), 64, 'finding', 'active',
+      {
+        threadContext: {
+          filePath: '/src/old.cs',
+          leftFileStart: { line: 10, offset: 1 },
+          leftFileEnd: { line: 12, offset: 1000 },
+        },
+        pullRequestThreadContext: {
+          changeTrackingId: 9,
+          iterationContext: { firstComparingIteration: 4, secondComparingIteration: 4 },
+        },
+      },
+    );
+    expect(getStdout()).toContain('at /src/old.cs lines 10-12 (left side, iteration 4, changeTrackingId 9)');
+  });
+
+  it('returns threadContext, pullRequestThreadContext and changeTracked in --json', async () => {
+    await runAdd(['finding', '--pr-number', '64', '--file-path', 'src/Foo/Bar.cs', '--line', '692', '--json']);
+
+    expect(JSON.parse(getStdout())).toEqual({
+      pullRequestId: 64,
+      threadId: 71936,
+      commentId: 1,
+      status: 'active',
+      content: 'posted body',
+      dryRun: false,
+      ...rightAnchor,
+      changeTracked: true,
+    });
+  });
+
+  it('rejects a path the pull request does not change with exit 3', async () => {
+    await runAdd(['finding', '--pr-number', '64', '--file-path', 'src/Other.cs', '--line', '1']);
+
+    expect(vi.mocked(createPullRequestThread)).not.toHaveBeenCalled();
+    expect(getStderr()).toContain(
+      '/src/Other.cs is not among the files changed by pull request #64 (iteration 4). Check the path, or pass --allow-unchanged-file',
+    );
+    expect(getExitCode()).toBe(3);
+  });
+
+  it('posts an unchanged file with --allow-unchanged-file and says it is not tracked', async () => {
+    await runAdd([
+      'finding', '--pr-number', '64', '--file-path', 'src/Other.cs', '--line', '1', '--allow-unchanged-file',
+    ]);
+
+    expect(vi.mocked(createPullRequestThread)).toHaveBeenCalledWith(
+      expect.any(Object), 'repo-name', expect.any(Object), 64, 'finding', undefined,
+      {
+        threadContext: {
+          filePath: '/src/Other.cs',
+          rightFileStart: { line: 1, offset: 1 },
+          rightFileEnd: { line: 1, offset: 1000 },
+        },
+        pullRequestThreadContext: { iterationContext: { firstComparingIteration: 4, secondComparingIteration: 4 } },
+      },
+    );
+    expect(getStdout()).toContain('(right side, iteration 4, no changeTrackingId)');
+    expect(getStderr()).toContain('will not follow the line across later pushes');
+    expect(getExitCode()).toBe(0);
+  });
+
+  it('--dry-run prints the resolved anchor and the untracked note without posting', async () => {
+    await runAdd([
+      'finding', '--pr-number', '64', '--file-path', 'src/Other.cs', '--line', '3', '--end-line', '5',
+      '--allow-unchanged-file', '--dry-run',
+    ]);
+
+    expect(vi.mocked(createPullRequestThread)).not.toHaveBeenCalled();
+    expect(getStdout()).toContain(
+      'Dry run: would post a new comment thread on pull request #64 at /src/Other.cs lines 3-5 (right side, iteration 4, no changeTrackingId) (7 chars).',
+    );
+    expect(getStderr()).toContain('will not follow the line across later pushes');
+    expect(getExitCode()).toBe(0);
+  });
+
+  it('--dry-run --json carries the anchor and null ids', async () => {
+    await runAdd([
+      'finding', '--pr-number', '64', '--file-path', 'src/Foo/Bar.cs', '--line', '692', '--dry-run', '--json',
+    ]);
+
+    expect(vi.mocked(createPullRequestThread)).not.toHaveBeenCalled();
+    expect(JSON.parse(getStdout())).toEqual({
+      pullRequestId: 64,
+      threadId: null,
+      commentId: null,
+      status: null,
+      content: 'finding',
+      dryRun: true,
+      ...rightAnchor,
+      changeTracked: true,
+    });
+  });
+
+  it.each([
+    [['--line', '5'], '--line requires --file-path.'],
+    [['--end-line', '5'], '--end-line requires --file-path.'],
+    [['--side', 'left'], '--side requires --file-path.'],
+    [['--allow-unchanged-file'], '--allow-unchanged-file requires --file-path.'],
+    [['--file-path', 'src/a.cs'], '--file-path requires --line.'],
+    [['--file-path', './', '--line', '1'], 'Invalid --file-path "./"'],
+    [['--file-path', 'a.cs', '--line', '0'], 'Invalid --line "0"; expected a positive integer'],
+    [['--file-path', 'a.cs', '--line', '2', '--end-line', 'x'], 'Invalid --end-line "x"'],
+    [['--file-path', 'a.cs', '--line', '5', '--end-line', '4'], '--end-line (4) must not be less than --line (5).'],
+    [['--file-path', 'a.cs', '--line', '5', '--side', 'up'], 'Invalid --side "up"; expected right or left.'],
+  ])('rejects %j before any network call', async (args, message) => {
+    await runAdd(['finding', '--pr-number', '64', ...args]);
+
+    expect(getStderr()).toContain(message);
+    expect(getExitCode()).toBe(1);
+    expect(vi.mocked(getPullRequestById)).not.toHaveBeenCalled();
+    expect(vi.mocked(getLatestPullRequestIterationId)).not.toHaveBeenCalled();
+    expect(vi.mocked(createPullRequestThread)).not.toHaveBeenCalled();
+  });
+
+  it('leaves an overview thread untouched: no iteration lookup, no anchor fields', async () => {
+    await runAdd(['body', '--pr-number', '64', '--json']);
+
+    expect(vi.mocked(getLatestPullRequestIterationId)).not.toHaveBeenCalled();
+    expect(vi.mocked(createPullRequestThread).mock.calls[0]).toHaveLength(6);
+    expect(Object.keys(JSON.parse(getStdout()))).toEqual([
+      'pullRequestId', 'threadId', 'commentId', 'status', 'content', 'dryRun',
+    ]);
+  });
+
+  it('the comment-add alias accepts the anchor options', async () => {
+    await runAddAlias(['finding', '--pr-number', '64', '--file-path', 'src/Foo/Bar.cs', '--line', '692']);
+
+    expect(vi.mocked(createPullRequestThread)).toHaveBeenCalledWith(
+      expect.any(Object), 'repo-name', expect.any(Object), 64, 'finding', undefined, rightAnchor,
+    );
   });
 });
 

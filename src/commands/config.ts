@@ -16,6 +16,7 @@ import {
 } from '../services/config-store.js';
 import { offerKeyringToDpapiCopy, type CopyChoice, type DpapiCopyOutcome } from '../services/dpapi-copy.js';
 import type { CliConfig, ConfigValue } from '../types/work-item.js';
+import { runSequentially } from '../lib/async.js';
 
 function formatConfigValue(
   value: ConfigValue,
@@ -367,11 +368,9 @@ export function createConfigCommand(): Command {
       process.stderr.write('Azure DevOps CLI - Configuration Wizard\n');
       process.stderr.write('=======================================\n\n');
 
-      for (const setting of SETTINGS) {
-        // An SSH-session opt-in, not first-run setup — set it explicitly with `config set`.
-        if (setting.key === 'credentialStore') continue;
-        await promptForSetting(cfg, setting, ask);
-      }
+      // credentialStore is an SSH-session opt-in, not first-run setup — set it explicitly with `config set`.
+      const wizardSettings = SETTINGS.filter((setting) => setting.key !== 'credentialStore');
+      await runSequentially(wizardSettings, (setting) => promptForSetting(cfg, setting, ask));
 
       rl.close();
       process.stderr.write('Configuration complete!\n');

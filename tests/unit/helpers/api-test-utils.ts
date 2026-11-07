@@ -8,7 +8,7 @@ export function makeFetchResponse(jsonBody: unknown, status = 200): Response {
     ok: status >= 200 && status < 300,
     status,
     headers: new Headers({ 'content-type': 'application/json' }),
-    json: async () => jsonBody,
+    json: () => Promise.resolve(jsonBody),
   } as unknown as Response;
 }
 
@@ -21,8 +21,8 @@ export function makeErrorResponse(status: number, body = ''): Response {
     ok: false,
     status,
     headers: new Headers({ 'content-type': 'application/json' }),
-    text: async () => body,
-    json: async () => JSON.parse(body) as unknown,
+    text: () => Promise.resolve(body),
+    json: () => Promise.resolve().then(() => JSON.parse(body) as unknown),
     clone: () => response,
   };
   return response as unknown as Response;
@@ -33,9 +33,7 @@ export function makeHtmlResponse(htmlBody = '<!DOCTYPE html><html><body>Sign in<
     ok: status >= 200 && status < 300,
     status,
     headers: new Headers({ 'content-type': 'text/html; charset=utf-8' }),
-    text: async () => htmlBody,
-    json: async () => {
-      throw new SyntaxError(`Unexpected token '<'`);
-    },
+    text: () => Promise.resolve(htmlBody),
+    json: () => Promise.reject(new SyntaxError(`Unexpected token '<'`)),
   } as unknown as Response;
 }

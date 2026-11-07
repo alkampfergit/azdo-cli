@@ -32,6 +32,11 @@ import type {
   PullRequestTemplate,
   ComposedDescription,
   PullRequestThreadCreateRequest,
+  ThreadAnchorContext,
+  PullRequestThreadContext,
+  AzdoPullRequestIterationListResponse,
+  AzdoPullRequestIterationChanges,
+  AzdoPullRequestChange,
   PullRequestUpdateRequest,
   Reviewer,
   ReviewerVoteState,
@@ -811,7 +816,8 @@ export async function getPullRequestThread(
 // `azdo pr comments reply` nor the Azure DevOps `az repos pr` extension can do
 // this — they only append to an existing thread — so this is the transport for
 // `azdo pr comments add`. Passing no status creates a plain, non-resolvable
-// comment, exactly like typing into the Overview tab.
+// comment, exactly like typing into the Overview tab. With `anchor` the thread
+// is attached to a file and line range instead (the Files tab).
 export async function createPullRequestThread(
   context: AzdoContext,
   repo: string,
@@ -819,6 +825,7 @@ export async function createPullRequestThread(
   prId: number,
   content: string,
   status?: CreatableThreadStatus,
+  anchor?: { threadContext: ThreadAnchorContext; pullRequestThreadContext: PullRequestThreadContext },
 ): Promise<ActiveCommentThread> {
   const url = new URL(
     `https://dev.azure.com/${encodeURIComponent(context.org)}/${encodeURIComponent(context.project)}/_apis/git/repositories/${encodeURIComponent(repo)}/pullRequests/${prId}/threads`,
@@ -831,6 +838,10 @@ export async function createPullRequestThread(
   if (status !== undefined) {
     payload.status = status;
   }
+  if (anchor !== undefined) {
+    payload.threadContext = anchor.threadContext;
+    payload.pullRequestThreadContext = anchor.pullRequestThreadContext;
+  }
 
   const response = await fetchWithErrors(url.toString(), {
     method: 'POST',
@@ -842,6 +853,61 @@ export async function createPullRequestThread(
   });
   const data = await readJsonResponse<AzdoThread>(response);
   return toActiveCommentThread(data);
+}
+
+function buildIterationsUrl(context: AzdoContext, repo: string, prId: number, suffix = ''): URL {
+  const url = new URL(
+    `https://dev.azure.com/${encodeURIComponent(context.org)}/${encodeURIComponent(context.project)}/_apis/git/repositories/${encodeURIComponent(repo)}/pullRequests/${prId}/iterations${suffix}`,
+  );
+  url.searchParams.set('api-version', '7.1');
+  return url;
+}
+
+// Highest iteration id of a pull request (GET .../iterations). Every pull
+// request has at least iteration 1, so an empty list is an API anomaly.
+export async function getLatestPullRequestIterationId(
+  context: AzdoContext,
+  repo: string,
+  cred: AuthCredential,
+  prId: number,
+): Promise<number> {
+  const url = buildIterationsUrl(context, repo, prId);
+  const response = await fetchWithErrors(url.toString(), { headers: authHeaders(cred) });
+  const data = await readJsonResponse<AzdoPullRequestIterationListResponse>(response);
+  const ids = (data.value ?? []).map((iteration) => iteration.id);
+  if (ids.length === 0) {
+    throw new Error(`Pull request #${prId} has no iterations.`);
+  }
+  return Math.max(...ids);
+}
+
+// Every change of one iteration against the merge base (GET
+// .../iterations/{id}/changes). The endpoint pages; `nextSkip` is followed
+// until it is 0 or missing so large pull requests are matched completely.
+export async function getPullRequestIterationChanges(
+  context: AzdoContext,
+  repo: string,
+  cred: AuthCredential,
+  prId: number,
+  iterationId: number,
+): Promise<AzdoPullRequestChange[]> {
+  const changes: AzdoPullRequestChange[] = [];
+  let skip = 0;
+  for (;;) {
+    const url = buildIterationsUrl(context, repo, prId, `/${iterationId}/changes`);
+    url.searchParams.set('$top', '2000');
+    if (skip > 0) {
+      url.searchParams.set('$skip', String(skip));
+    }
+    const response = await fetchWithErrors(url.toString(), { headers: authHeaders(cred) });
+    const page = await readJsonResponse<AzdoPullRequestIterationChanges>(response);
+    changes.push(...(page.changeEntries ?? []));
+    const next = page.nextSkip ?? 0;
+    if (next <= skip) {
+      return changes;
+    }
+    skip = next;
+  }
 }
 
 function buildThreadCommentUrl(context: AzdoContext, repo: string, prId: number, threadId: number): URL {

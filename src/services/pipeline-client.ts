@@ -342,26 +342,35 @@ export async function getFailedTests(
   // Failed-outcome results.
   const testRuns = await listTestRuns(context, cred, buildId);
 
-  const failed: FailedTest[] = [];
-  for (const testRun of testRuns) {
-    if (failed.length >= MAX_FAILED_TESTS) break;
-    const resultsUrl = withApiVersion(
-      new URL(`${orgProjectBase(context)}/_apis/test/runs/${testRun.id}/results`),
-    );
-    resultsUrl.searchParams.set('outcomes', 'Failed');
-    resultsUrl.searchParams.set('$top', String(MAX_FAILED_TESTS - failed.length));
-    const resultsResponse = await fetchWithErrors(resultsUrl.toString(), {
-      headers: authHeaders(cred),
+  return collectFailedTests(context, cred, testRuns, 0, []);
+}
+
+// Walks the runs in order and stops asking once MAX_FAILED_TESTS results are in.
+async function collectFailedTests(
+  context: AzdoContext,
+  cred: AuthCredential,
+  testRuns: readonly AzdoTestRun[],
+  index: number,
+  failed: FailedTest[],
+): Promise<FailedTest[]> {
+  const testRun = testRuns[index];
+  if (testRun === undefined || failed.length >= MAX_FAILED_TESTS) return failed;
+  const resultsUrl = withApiVersion(
+    new URL(`${orgProjectBase(context)}/_apis/test/runs/${testRun.id}/results`),
+  );
+  resultsUrl.searchParams.set('outcomes', 'Failed');
+  resultsUrl.searchParams.set('$top', String(MAX_FAILED_TESTS - failed.length));
+  const resultsResponse = await fetchWithErrors(resultsUrl.toString(), {
+    headers: authHeaders(cred),
+  });
+  const resultsData = await readJsonResponse<AzdoTestResultListResponse>(resultsResponse);
+  for (const result of resultsData.value) {
+    failed.push({
+      name: result.testCaseTitle ?? result.automatedTestName ?? '(unnamed test)',
+      errorMessage: result.errorMessage ?? null,
     });
-    const resultsData = await readJsonResponse<AzdoTestResultListResponse>(resultsResponse);
-    for (const result of resultsData.value) {
-      failed.push({
-        name: result.testCaseTitle ?? result.automatedTestName ?? '(unnamed test)',
-        errorMessage: result.errorMessage ?? null,
-      });
-    }
   }
-  return failed;
+  return collectFailedTests(context, cred, testRuns, index + 1, failed);
 }
 
 function secondsBetween(start: string | undefined, finish: string | undefined): number | null {
