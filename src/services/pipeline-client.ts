@@ -342,7 +342,7 @@ export async function getFailedTests(
   // Failed-outcome results.
   const testRuns = await listTestRuns(context, cred, buildId);
 
-  return collectFailedTests(context, cred, testRuns, []);
+  return collectFailedTests(context, cred, testRuns, 0, []);
 }
 
 // Walks the runs in order and stops asking once MAX_FAILED_TESTS results are in.
@@ -350,9 +350,10 @@ async function collectFailedTests(
   context: AzdoContext,
   cred: AuthCredential,
   testRuns: readonly AzdoTestRun[],
+  index: number,
   failed: FailedTest[],
 ): Promise<FailedTest[]> {
-  const [testRun, ...rest] = testRuns;
+  const testRun = testRuns[index];
   if (testRun === undefined || failed.length >= MAX_FAILED_TESTS) return failed;
   const resultsUrl = withApiVersion(
     new URL(`${orgProjectBase(context)}/_apis/test/runs/${testRun.id}/results`),
@@ -363,11 +364,13 @@ async function collectFailedTests(
     headers: authHeaders(cred),
   });
   const resultsData = await readJsonResponse<AzdoTestResultListResponse>(resultsResponse);
-  const page = resultsData.value.map((result) => ({
-    name: result.testCaseTitle ?? result.automatedTestName ?? '(unnamed test)',
-    errorMessage: result.errorMessage ?? null,
-  }));
-  return collectFailedTests(context, cred, rest, [...failed, ...page]);
+  for (const result of resultsData.value) {
+    failed.push({
+      name: result.testCaseTitle ?? result.automatedTestName ?? '(unnamed test)',
+      errorMessage: result.errorMessage ?? null,
+    });
+  }
+  return collectFailedTests(context, cred, testRuns, index + 1, failed);
 }
 
 function secondsBetween(start: string | undefined, finish: string | undefined): number | null {
