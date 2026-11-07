@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { AuthCredential } from '../types/work-item.js';
 import { downloadAttachment } from './azdo-client.js';
+import { runSequentially } from '../lib/async.js';
 
 /** A single image embedded in a work item rich-text field, resolved to an Azure DevOps attachment. */
 export interface EmbeddedImageReference {
@@ -255,10 +256,10 @@ export async function downloadImagesFromFields(
     }
   }
 
+  // One image at a time, in document order: the file names are numbered by position.
   const results: SavedImageResult[] = [];
-  let index = 0;
-  for (const reference of references) {
-    index += 1;
+  await runSequentially(references, async (reference, position) => {
+    const index = position + 1;
     try {
       const bytes = await downloadAttachment(reference.url, credential);
       const processed = await processImageBytes(bytes, options.maxWidth);
@@ -279,7 +280,7 @@ export async function downloadImagesFromFields(
         error: err instanceof Error ? err.message : String(err),
       });
     }
-  }
+  });
 
   return results;
 }

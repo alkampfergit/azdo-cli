@@ -337,22 +337,19 @@ export interface LogoutResult {
 export async function logout(opts: { org?: string; all?: boolean } = {}): Promise<LogoutResult> {
   if (opts.all) {
     const orgs = await listOrgsWithStoredPat();
-    const removed: { org: string; kind: 'pat' | 'oauth' }[] = [];
-    for (const o of orgs) {
-      const cred = await getStoredCredential(o);
-      const ok = await removeStored(o);
-      if (ok && cred !== null) {
-        removed.push({ org: o, kind: cred.kind });
-      }
-    }
-    return { removed };
+    const perOrg = await Promise.all(orgs.map((o) => logoutOrg(o)));
+    return { removed: perOrg.flat() };
   }
   if (!opts.org) {
     throw new Error('logout requires an org or --all');
   }
-  const cred = await getStoredCredential(opts.org);
-  const ok = await removeStored(opts.org);
-  return { removed: ok && cred !== null ? [{ org: opts.org, kind: cred.kind }] : [] };
+  return { removed: await logoutOrg(opts.org) };
+}
+
+async function logoutOrg(org: string): Promise<LogoutResult['removed']> {
+  const cred = await getStoredCredential(org);
+  const ok = await removeStored(org);
+  return ok && cred !== null ? [{ org, kind: cred.kind }] : [];
 }
 
 export interface StatusReportEntry {
@@ -374,10 +371,11 @@ export interface StatusReport {
  */
 export async function status(): Promise<StatusReport> {
   const orgs = await listOrgsWithStoredPat();
+  const creds = await Promise.all(orgs.map((org) => getStoredCredential(org)));
   const out: StatusReportEntry[] = [];
-  for (const org of orgs) {
-    const cred = await getStoredCredential(org);
-    if (cred === null) continue;
+  orgs.forEach((org, i) => {
+    const cred = creds[i];
+    if (cred === null) return;
     if (cred.kind === 'pat') {
       out.push({ org, kind: 'pat', backend: probeBackend() });
     } else {
@@ -390,7 +388,7 @@ export async function status(): Promise<StatusReport> {
         backend: probeBackend(),
       });
     }
-  }
+  });
   return { orgs: out };
 }
 

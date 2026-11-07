@@ -42,26 +42,29 @@ async function defaultAcquireLock(org: string, waitMs = DEFAULT_LOCK_WAIT_MS): P
   const path = lockPath(org);
   mkdirSync(locksDir(), { recursive: true, mode: 0o700 });
 
-  const deadline = Date.now() + waitMs;
-  for (;;) {
-    try {
-      const fd = openSync(path, 'wx');
-      closeSync(fd);
-      return {
-        release: (): void => {
-          try {
-            unlinkSync(path);
-          } catch {
-            /* best-effort */
-          }
-        },
-      };
-    } catch (err) {
-      if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err;
-      if (Date.now() > deadline) return null;
-      await new Promise((r) => setTimeout(r, 100));
-    }
+  return tryAcquireLock(path, Date.now() + waitMs);
+}
+
+// Creates the lock file exclusively, retrying every 100 ms while another process holds it.
+async function tryAcquireLock(path: string, deadline: number): Promise<AcquiredLock | null> {
+  try {
+    const fd = openSync(path, 'wx');
+    closeSync(fd);
+    return {
+      release: (): void => {
+        try {
+          unlinkSync(path);
+        } catch {
+          /* best-effort */
+        }
+      },
+    };
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err;
+    if (Date.now() > deadline) return null;
   }
+  await new Promise((r) => setTimeout(r, 100));
+  return tryAcquireLock(path, deadline);
 }
 
 export function classifyRefreshFailure(error: { error?: string; error_description?: string } | string): CredentialRefreshReason {

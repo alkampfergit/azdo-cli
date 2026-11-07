@@ -184,10 +184,29 @@ These are the results on `develop` when this check was written (SonarCloud analy
   and 74 lines. The SonarCloud density is 0.2% because it divides by the lines of all folders (about 31 600), and
   `tests/` counts in the divisor, but `sonar.cpd.exclusions` is `**/tests/**`, so `tests/` never has duplicated lines.
   The local percentage divides by `src/` only (0.46%), so it is stricter. The limit of 3% is far away in both.
-- **Tests.** SonarCloud does report rule issues in `tests/` (open today: `S7503` x5 and `S5906` x1), but the local rules
+- **Tests.** SonarCloud does report rule issues in `tests/` (`S7503` x5 and `S5906` x1 at that time), but the local rules
   cover `src/` only. Linting `tests/` with the same rules gave 228 findings, mostly `require-await` on async mocks that
   SonarCloud does not flag, so it was left out until the decorators for those rules are re-created. A pull request can
   still get a `tests/` finding that `sonar:local` does not show.
+
+### Re-check of 2026-11-07 (issue #160)
+
+SonarCloud had 86 open issues on `develop`. The local run found all 19 in `src/`, at the same lines, plus the known
+`S6594` extra. All of them are fixed now, along with the ones in `tests/` and `scripts/`. The other 50 were in
+`.specify/scripts/bash/`, the vendored Spec Kit scripts that `specify init` overwrites. `.sonarcloud.properties` now
+excludes `.specify/**` from analysis.
+
+## What the local check does not cover
+
+Run `npm run sonar:local` before you commit. It catches the `src/` findings, but SonarCloud also analyzes these files:
+
+| Files | SonarCloud rules | Local check |
+|---|---|---|
+| `tests/**/*.ts` | TypeScript profile | not linted (see *Tests* above) |
+| `scripts/*.mjs`, `scripts/*.js` | JavaScript profile | not linted |
+| `scripts/*.sh` | Shell rules (`S7688` `[[`, `S131` default case, `S7679` positional parameters) | not checked; follow these rules by hand |
+
+When you change one of these files, check the result on the pull request.
 
 ## Known limits
 

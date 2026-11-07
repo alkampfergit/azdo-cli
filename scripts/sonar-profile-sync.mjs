@@ -73,8 +73,8 @@ async function readProfile() {
   if (!res.ok) throw new Error(`profile export: HTTP ${res.status}`);
   const xml = await res.text();
   const rules = [...xml.matchAll(/<rule>(.*?)<\/rule>/gs)].map(([, body]) => ({
-    repository: body.match(/<repositoryKey>(.*?)<\/repositoryKey>/)[1],
-    key: body.match(/<key>(S\d+)<\/key>/)[1],
+    repository: /<repositoryKey>(.*?)<\/repositoryKey>/.exec(body)[1],
+    key: /<key>(S\d+)<\/key>/.exec(body)[1],
     params: Object.fromEntries(
       [...body.matchAll(/<parameter><key>(.*?)<\/key><value>(.*?)<\/value><\/parameter>/gs)].map(
         ([, k, v]) => [k, v],
@@ -177,26 +177,27 @@ async function mapAll(rules) {
   for (const r of rules.filter((x) => !queue.includes(x))) {
     skipped[r.key] = `${r.repository}: needs the full Sonar engine (taint / architecture analysis)`;
   }
-  await Promise.all(
-    Array.from({ length: 16 }, async () => {
-      for (let rule; (rule = queue.shift()); ) {
-        const result = await mapRule(rule, rule.params);
-        if (result.skipped) {
-          skipped[rule.key] = result.skipped;
+  // 16 workers; each takes the next rule from the shared queue until it is empty.
+  const drain = async () => {
+    const rule = queue.shift();
+    if (!rule) return;
+    const result = await mapRule(rule, rule.params);
+    if (result.skipped) {
+      skipped[rule.key] = result.skipped;
+    } else {
+      const level = HOTSPOT_KEYS.has(rule.key) ? 'warn' : 'error';
+      for (const target of result.targets) {
+        if (enabled[target]) {
+          sonarKeys[target] += `,${rule.key}`;
           continue;
         }
-        const level = HOTSPOT_KEYS.has(rule.key) ? 'warn' : 'error';
-        for (const target of result.targets) {
-          if (enabled[target]) {
-            sonarKeys[target] += `,${rule.key}`;
-            continue;
-          }
-          enabled[target] = [level, ...result.options];
-          sonarKeys[target] = rule.key;
-        }
+        enabled[target] = [level, ...result.options];
+        sonarKeys[target] = rule.key;
       }
-    }),
-  );
+    }
+    await drain();
+  };
+  await Promise.all(Array.from({ length: 16 }, drain));
   return { enabled, sonarKeys, skipped };
 }
 
@@ -224,7 +225,9 @@ function findRule(target) {
 // Keeps, per object option, only the properties the installed rule's schema knows.
 function pruneOptions(target, options) {
   const schema = findRule(target)?.meta?.schema;
-  const schemas = Array.isArray(schema) ? schema : schema ? [schema] : [];
+  let schemas = [];
+  if (Array.isArray(schema)) schemas = schema;
+  else if (schema) schemas = [schema];
   return options.map((option, i) => {
     const known = schemas[i]?.properties;
     if (!known || typeof option !== 'object' || option === null || Array.isArray(option)) return option;
