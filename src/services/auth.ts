@@ -337,13 +337,24 @@ export interface LogoutResult {
 export async function logout(opts: { org?: string; all?: boolean } = {}): Promise<LogoutResult> {
   if (opts.all) {
     const orgs = await listOrgsWithStoredPat();
-    const perOrg = await Promise.all(orgs.map((o) => logoutOrg(o)));
-    return { removed: perOrg.flat() };
+    return { removed: await logoutOrgsInOrder(orgs, 0, []) };
   }
   if (!opts.org) {
     throw new Error('logout requires an org or --all');
   }
   return { removed: await logoutOrg(opts.org) };
+}
+
+// Logs out one org at a time, so a failure stops before the later orgs are touched.
+async function logoutOrgsInOrder(
+  orgs: readonly string[],
+  index: number,
+  removed: LogoutResult['removed'],
+): Promise<LogoutResult['removed']> {
+  const org = orgs[index];
+  if (org === undefined) return removed;
+  removed.push(...(await logoutOrg(org)));
+  return logoutOrgsInOrder(orgs, index + 1, removed);
 }
 
 async function logoutOrg(org: string): Promise<LogoutResult['removed']> {
