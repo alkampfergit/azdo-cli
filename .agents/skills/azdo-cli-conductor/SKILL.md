@@ -1,5 +1,5 @@
 ---
-name: azdo-cli-agent-issue
+name: azdo-cli-conductor
 description: Ask the azdo-cli issue agent to implement, monitor, review, and preview-publish a feature or fix.
 ---
 
