@@ -34,6 +34,11 @@ export function createProgram(): Command {
 
   program.option("--no-update-check", "Skip the check for a newer published version");
   program.option("--trace <filepath>", "Append redacted HTTP request/response trace to a file (owner-read-only permissions)");
+  // Handled before parsing by runGetSkill (see index.ts); declared here so it is listed in --help.
+  program.option(
+    "--get-skill",
+    "Print the agent skill (SKILL.md) for Claude Code, Codex or Copilot; add --out <dir> to write the skill folder, or --all to print every file as one document",
+  );
 
   program.addCommand(createGetItemCommand());
   program.addCommand(createListItemsCommand());

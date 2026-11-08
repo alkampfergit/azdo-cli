@@ -768,6 +768,13 @@ The check is best-effort and never blocks or fails your command:
 - **Opt-out** with the global `--no-update-check` flag, e.g.
   `azdo --no-update-check get-item 1234`.
 
+## Agent skill
+
+`azdo --get-skill` (also `azdo --help --get-skill`) prints the agent skill — a `SKILL.md` for
+Claude Code, Codex or GitHub Copilot — and nothing else. `azdo --get-skill --out <dir>` writes the
+skill folder (`SKILL.md` plus `references/`), and `azdo --get-skill --all` prints every file as one
+document. See [agent-skill.md](agent-skill.md).
+
 ## JSON output contracts
 
 Commands that produce structured data accept `--json` and write **one JSON document to stdout**;

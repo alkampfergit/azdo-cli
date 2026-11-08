@@ -9,4 +9,6 @@ export default defineConfig({
   },
   external: ["commander"],
   clean: true,
+  // The agent skill (skills/azdo/) is inlined so it always matches the installed version.
+  loader: { ".md": "text" },
 });

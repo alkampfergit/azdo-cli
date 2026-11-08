@@ -14,7 +14,8 @@
     "docs/changelogs",
     "src",
     "tests",
-    "scripts"
+    "scripts",
+    "skills"
   ],
   "excludeFiles": [
     "AGENTS.md",
