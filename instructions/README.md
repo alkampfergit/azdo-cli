@@ -8,4 +8,5 @@ details for the Hermes-managed VM as they are confirmed.
 
 - [How the automation works](how-automation-works.md) — Dev Container lifecycle
   and daily use, Automata's issue/PR execution and Spec Kit skill routing, VM
-  operating checks, and Hermes cron instructions.
+  operating checks, Hermes cron instructions, giving an agent SSH access
+  without sharing a password, and preparing a Proxmox VM for Hermes.

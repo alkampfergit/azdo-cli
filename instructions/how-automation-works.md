@@ -139,8 +139,9 @@ setup steps below; this repository does not define a VM provider or image.
 
 ### Create the VM and start the Dev Container
 
-1. Create a Linux VM with SSH access. Install and start Docker Engine on the
-   VM, and make sure the account that will run Hermes can use Docker.
+1. Create a Linux VM with SSH access (on Proxmox, see §7; for agent SSH
+   access, see §6). Install and start Docker Engine on the VM, and make sure
+   the account that will run Hermes can use Docker.
 2. Install Hermes for that account and complete its setup so it can use a
    model and run terminal commands:
 
@@ -456,6 +457,205 @@ The repository does not specify which Hermes profile, gateway host, VM backend,
 VM account, or Hermes job ID is used for this project. Obtain those from the
 VM operator before managing the production schedule. Use `hermes --help` and
 `hermes cron --help` on the installed version to confirm supported commands.
+
+## 6. Giving an agent SSH access without sharing a password
+
+Use this when an agent (Hermes, Claude Code, Codex) must run commands on a
+Proxmox host or a VM that only accepts password authentication. Placeholders
+such as `<host>` and `<user>` stand for your own values.
+
+### The problem
+
+An agent's shell has no TTY. `ssh` reads passwords from `/dev/tty`, so the
+prompt receives an empty string and fails immediately. It looks like a wrong
+password, but the agent never had a chance to supply one. The usual workarounds
+are worse:
+
+| Option | Why not |
+|---|---|
+| Paste the password in chat | It stays in the transcript and logs |
+| `sshpass -p` or `expect` | The secret must be readable by the agent and shows in `ps` |
+| Install a key first | Right end state, but installing it needs a shell |
+
+### Technique: one authenticated socket, shared
+
+OpenSSH can expose an authenticated connection as a file (a control socket).
+You authenticate once in a real terminal; the agent reuses that connection and
+never sees a credential.
+
+```bash
+# YOU, once, in a real terminal (-f backgrounds after the password prompt)
+mkdir -p ~/.ssh/cm && chmod 700 ~/.ssh/cm
+/usr/bin/ssh -M -N -f -S ~/.ssh/cm/<name> -o ControlPersist=8h <user>@<host>
+
+# THE AGENT, as often as needed
+/usr/bin/ssh -o BatchMode=yes -S ~/.ssh/cm/<name> <user>@<host> '<command>'
+
+# YOU, to check or revoke
+/usr/bin/ssh -O check -S ~/.ssh/cm/<name> <user>@<host>
+/usr/bin/ssh -O exit  -S ~/.ssh/cm/<name> <user>@<host>
+```
+
+- `-M` makes this connection the master, `-S` is the socket path, `-N` runs no
+  command, and `-f` backgrounds it after authentication.
+- `ControlPersist=8h` ends access on its own after the last use plus 8 hours.
+- `BatchMode=yes` makes a dead socket fail at once instead of prompting.
+
+### Revocation and limits
+
+- **Instant:** `-O exit` closes the master, and the agent's next command fails.
+  Deleting the socket file is not revocation, because the master keeps running.
+- **Unilateral:** the agent cannot reconnect, because it holds no password.
+- **Natural boundary:** commands that need a TTY (`qm terminal`, `htop`,
+  interactive logins) are refused. The agent should report the gap, not guess.
+- **It removes the credential, not the authority.** If the master connected as
+  root, the agent is root. Prefer a narrower account.
+- **Any process running as your user can use the socket** (mode 0600), which is
+  the same trust boundary as your private key.
+- **The socket outlives the chat session.** Ending the conversation does not
+  close it.
+- **Gotchas:** remove a stale socket with `rm -f` and reopen it. `MaxSessions`
+  defaults to 10, which matters for parallel bursts. Not every SSH server
+  supports multiplexing, so verify. On macOS use `/usr/bin/ssh`, because
+  Homebrew's `ssh` can be blocked from the LAN by Local Network privacy and
+  fails with a misleading `No route to host`.
+
+### It is a bootstrap, not a destination
+
+| Situation | Better tool |
+|---|---|
+| Ongoing automation | Dedicated keypair, `authorized_keys` with `restrict,from=...,command=...` |
+| Untrusted agent | A bastion with session recording and a scoped account |
+| One-off admin with an agent | This technique |
+| Password-only host | This technique, then install a key |
+
+For a VM you create yourself, use a key from the start: generate a per-VM key
+(`ssh-keygen -t ed25519 -f ~/.ssh/<vm>_ed25519 -N "" -C <vm>`) and put the
+public key in the cloud-init user-data. It authorizes nothing else.
+
+Handle secrets by file, not by chat:
+
+- Never type a password to the agent. Generate any password hash locally and
+  supply only the hash.
+- Make a cloud-init snippet that contains a hash mode `0600`; a world-readable
+  hash can be cracked offline.
+- Let the human write secrets into files. The agent should only verify their
+  shape and never print values.
+
+## 7. Preparing a Proxmox VM for Hermes
+
+Hermes is a Python agent that talks to a chat platform (Slack here) and drives
+devcontainers. Node is needed only for the devcontainer CLI and the model CLI,
+not for Hermes itself. This section describes one proven layout; adapt names,
+sizes and versions to your environment.
+
+### 1. VM and base OS
+
+Create the VM from a Debian cloud image with cloud-init. A workable sizing is
+4 cores, 6-7 GB RAM with ballooning, and a 200 GB thin-provisioned disk with
+`discard=on`. Enable the QEMU guest agent (`--agent enabled=1`) and a serial
+console (`--vga serial0`). Use cloud-init to set the user, the SSH public key
+and Docker. Expect Docker Engine and Compose to be present afterwards.
+
+### 2. Toolchain (as the admin user)
+
+| Step | Detail |
+|---|---|
+| Node LTS | Resolve the version from `nodejs.org/dist/index.json`, download the tarball, verify it with `sha256sum -c SHASUMS256.txt` (keep the upstream filename), then untar into `/usr/local` |
+| devcontainer CLI | `npm install -g @devcontainers/cli` |
+| Model CLI | For example `npm install -g @openai/codex`, if Hermes drives Codex |
+| Smoke test | Run `devcontainer up` on a sample repo and prove the bind mount writes through to the host |
+| ripgrep | `apt install ripgrep` (Hermes warns without it) |
+| Disk hygiene | A systemd timer (weekly, `Persistent=true`) running `docker system prune -af --filter until=336h` and `docker volume prune -f`. Set it up before Hermes, or the disk fills silently |
+
+### 3. Service account
+
+```bash
+useradd -r -m -d /srv/hermes -s /bin/bash hermes
+usermod -aG docker hermes          # needed for devcontainers
+chmod 0700 /srv/hermes             # it will hold live OAuth tokens
+chown -R hermes:hermes /srv/work   # workspace for checkouts
+passwd -S hermes                   # should show L (locked): no password login
+install -d -m 0750 -o root -g hermes /etc/hermes
+```
+
+Run commands as that account with `sudo -u hermes -H ...`. Membership of the
+`docker` group is effectively root on the VM; accept that trade-off knowingly.
+
+### 4. Model login (needs a human)
+
+- If the provider uses device-code login (for example Codex with a ChatGPT
+  account), enable it in the account's security settings first. It may be off
+  by default and the resulting error is unhelpful.
+- Run `sudo -u hermes -H codex login --device-auth` and approve the code in a
+  browser.
+- Fallback: an SSH tunnel (`-L 1455:localhost:1455`), then `codex login`.
+
+### 5. Install Hermes (as the service account)
+
+- Download and read the installer; do not `curl | bash` it. Upload the reviewed
+  copy to the VM and verify it by checksum.
+- Run it as the service account, from a directory that account owns:
+
+  ```bash
+  sudo -u hermes -H bash -c "cd /srv/hermes && bash /tmp/hermes-install.sh --skip-setup"
+  ```
+
+  Running it from another user's mode-0700 home failed, because `uv` probes the
+  current directory for a `.venv`. That was a working-directory problem, not a
+  corrupt install.
+- Configuration lives in `~/.hermes/config.yaml`. Secrets live in
+  `~/.hermes/.env`, written by `hermes setup`. Do not hand-write a systemd unit
+  or env file.
+
+### 6. Chat app (human steps)
+
+- Generate the Slack manifest on the VM; Hermes can emit one for its own
+  version.
+- In the Slack app console, create the app from that manifest and collect the
+  app-level token (`connections:write`), the bot token and the signing secret.
+- Create a private control channel, invite the bot, and note the channel ID and
+  the allowed member IDs.
+- Enter secrets with `hermes setup gateway`. Never paste them into chat.
+
+### 7. Run Hermes as a system service
+
+```bash
+sudo hermes gateway install --system --run-as-user hermes --start-on-login --start-now
+hermes gateway status
+journalctl -u hermes-gateway -f
+```
+
+- **Why `--system`:** without it Hermes installs a systemd `--user` unit, which
+  fails for a service account with no login session ("Failed to connect to user
+  scope bus"). The alternative is `loginctl enable-linger hermes`.
+- To read the journal without `sudo`, add your user to the `systemd-journal`
+  group.
+- A wrapper at `/usr/local/bin/hermes` may run `sudo -u hermes` for normal users
+  and set `HERMES_HOME` for root.
+- **End-to-end proof:** `hermes -z "Reply with exactly: MODEL_OK"` should return
+  `MODEL_OK`, and a real chat message should produce a reply in the journal.
+
+### 8. Security posture
+
+- **Anyone who can message the bot can cause code execution on the VM.** A
+  `devcontainer.json` in a repository is arbitrary code by design. The gates
+  are the allowed-user list and the home channel; add a repository or
+  organization allowlist if you can.
+- **Isolate the network.** Prefer an isolated bridge with outbound-only access
+  and an egress allowlist, and verify every required host is reachable. Do not
+  dual-home the VM as an isolation toggle.
+- **Keep a console escape hatch** (`qm terminal`, serial). A locked account
+  makes the console unusable, so keep a console login path available.
+- **Back up the VM** (for example a Proxmox Backup Server job) and set
+  `prune-backups`; `keep-all` eventually fills the disk.
+
+### Known quirks
+
+- Duplicate chat replies may appear; a logged warning points to a known
+  upstream issue.
+- Warnings about optional plugins without credentials are harmless.
+- `codex exec` blocks on stdin. Close it or redirect `</dev/null`.
 
 ## Source files
 
