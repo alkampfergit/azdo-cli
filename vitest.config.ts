@@ -16,6 +16,8 @@ export default defineConfig({
         test: {
           name: 'integration',
           include: ['tests/integration/**/*.test.ts'],
+          // Skip the live suites when the dev container proxy has no PAT yet.
+          globalSetup: ['tests/integration/global-setup.ts'],
         },
       },
     ],

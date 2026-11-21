@@ -198,6 +198,39 @@ describe('getWorkItem', () => {
     }
   });
 
+  it('routes legacy visualstudio.com attachment URLs to the modern organization path', () => {
+    const previous = process.env.AZDO_API_BASE_URL;
+    process.env.AZDO_API_BASE_URL = 'http://caddy:8080/azdo';
+    try {
+      expect(
+        routeAzureDevOpsApiUrl('https://myorg.visualstudio.com/DefaultCollection/proj/_apis/wit/attachments/abc?fileName=a.png'),
+      ).toBe('http://caddy:8080/azdo/myorg/proj/_apis/wit/attachments/abc?fileName=a.png');
+      expect(routeAzureDevOpsApiUrl('https://myorg.visualstudio.com/proj/_apis/wit/attachments/abc')).toBe(
+        'http://caddy:8080/azdo/myorg/proj/_apis/wit/attachments/abc',
+      );
+    } finally {
+      if (previous === undefined) delete process.env.AZDO_API_BASE_URL;
+      else process.env.AZDO_API_BASE_URL = previous;
+    }
+  });
+
+  it.each(['caddy:8080/azdo', 'ftp://caddy/azdo', 'not a url'])(
+    'rejects AZDO_API_BASE_URL %j with a configuration error naming the variable',
+    async (bad) => {
+      const previous = process.env.AZDO_API_BASE_URL;
+      process.env.AZDO_API_BASE_URL = bad;
+      try {
+        expect(() => routeAzureDevOpsApiUrl('https://dev.azure.com/o/_apis/x')).toThrow(/INVALID_CONFIG: AZDO_API_BASE_URL/);
+        // Not reported as a network failure, and never sent.
+        await expect(getWorkItem(ctx, 1, pat)).rejects.toThrow(/INVALID_CONFIG/);
+        expect(fetch).not.toHaveBeenCalled();
+      } finally {
+        if (previous === undefined) delete process.env.AZDO_API_BASE_URL;
+        else process.env.AZDO_API_BASE_URL = previous;
+      }
+    },
+  );
+
   it('URL-encodes organization and project in API URL', async () => {
     vi.mocked(fetch).mockResolvedValue(makeWorkItemResponse({}));
 

@@ -20,13 +20,19 @@ services:
       - caddy
 
   caddy:
-    build: ./caddy
+    # The Caddyfile is baked into the image (not mounted from the workspace,
+    # which the app container can write), so the app cannot alter the routing
+    # or expose the PAT. After editing it, rebuild: `docker compose up -d --build caddy`.
+    build:
+      context: .
+      dockerfile: caddy/Dockerfile
     volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - azdo-proxy:/run/azdo
-      - azure-config:/home/caddy/.azure
+    tmpfs:
+      # Azure CLI state: memory only, so an account-wide token never reaches
+      # disk or survives the container. Only the limited-scope PAT is persisted.
+      - /home/caddy/.azure:uid=10001,gid=10001,mode=0700
 
 volumes:
   azdo-node-modules:
   azdo-proxy:
-  azure-config:
