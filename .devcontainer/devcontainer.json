@@ -1,6 +1,9 @@
 {
     "name": "Node.js CLI Development",
-    "image": "mcr.microsoft.com/devcontainers/typescript-node:22",
+    "dockerComposeFile": "docker-compose.yml",
+    "service": "app",
+    "runServices": ["app", "caddy"],
+    "workspaceFolder": "/workspaces/azdo-cli",
     "customizations": {
         "vscode": {
             "extensions": [

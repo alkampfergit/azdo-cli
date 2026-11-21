@@ -161,6 +161,23 @@ describe('getWorkItem', () => {
     );
   });
 
+  it('routes Azure DevOps API requests through the configured API base URL', async () => {
+    const previous = process.env.AZDO_API_BASE_URL;
+    process.env.AZDO_API_BASE_URL = 'http://caddy:8080/azdo';
+    try {
+      vi.mocked(fetch).mockResolvedValue(makeWorkItemResponse({}));
+      await getWorkItem(ctx, 99, pat);
+
+      expect(fetch).toHaveBeenCalledWith(
+        'http://caddy:8080/azdo/testorg/testproject/_apis/wit/workitems/99?api-version=7.1&%24expand=relations',
+        expect.any(Object),
+      );
+    } finally {
+      if (previous === undefined) delete process.env.AZDO_API_BASE_URL;
+      else process.env.AZDO_API_BASE_URL = previous;
+    }
+  });
+
   it('URL-encodes organization and project in API URL', async () => {
     vi.mocked(fetch).mockResolvedValue(makeWorkItemResponse({}));
 

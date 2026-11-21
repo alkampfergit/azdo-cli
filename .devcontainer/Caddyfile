@@ -1,0 +1,17 @@
+{
+	auto_https off
+}
+
+:8080 {
+	@azure_devops_api path_regexp ^/azdo/[^/]+(/[^/]+)?/_apis(/|$)
+	handle @azure_devops_api {
+		uri strip_prefix /azdo
+		reverse_proxy https://dev.azure.com {
+			header_up Host dev.azure.com
+			header_up Authorization "Basic {env.AZDO_PROXY_AUTH}"
+		}
+	}
+
+	# Do not turn Caddy into a general-purpose egress proxy.
+	respond 404
+}

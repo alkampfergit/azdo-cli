@@ -36,6 +36,23 @@ const DEFAULT_FIELDS: readonly string[] = [
   'System.IterationPath',
 ];
 
+/** Route Azure DevOps REST API requests through an optional local proxy. */
+export function routeAzureDevOpsApiUrl(url: string): string {
+  const proxyBase = process.env.AZDO_API_BASE_URL?.trim();
+  if (!proxyBase) return url;
+
+  const original = new URL(url);
+  if (original.hostname !== 'dev.azure.com' || !original.pathname.includes('/_apis/')) return url;
+
+  const base = new URL(proxyBase);
+  const basePath = base.pathname.replace(/\/$/, '');
+  original.protocol = base.protocol;
+  original.hostname = base.hostname;
+  original.port = base.port;
+  original.pathname = `${basePath}${original.pathname}`;
+  return original.toString();
+}
+
 export function authHeaders(credentialOrPat: AuthCredential | string): Record<string, string> {
   if (typeof credentialOrPat === 'string') {
     const token = Buffer.from(`:${credentialOrPat}`).toString('base64');
@@ -51,7 +68,7 @@ export function authHeaders(credentialOrPat: AuthCredential | string): Record<st
 export async function fetchRaw(url: string, init: RequestInit): Promise<{ status: number; body: string }> {
   let response: Response;
   try {
-    response = await fetch(url, init);
+    response = await fetch(routeAzureDevOpsApiUrl(url), init);
   } catch (err) {
     throw new Error(`NETWORK_ERROR: ${err instanceof Error ? err.message : String(err)}`, { cause: err });
   }
@@ -214,7 +231,7 @@ async function traceResponse(url: string, init: RequestInit, response: Response)
 export async function fetchWithErrors(url: string, init: RequestInit): Promise<Response> {
   let response: Response;
   try {
-    response = await fetch(url, init);
+    response = await fetch(routeAzureDevOpsApiUrl(url), init);
   } catch (err) {
     throw new Error('NETWORK_ERROR', { cause: err });
   }

@@ -22,6 +22,7 @@ import {
   type UsableCredential,
 } from '../types/credential.js';
 import type { OAuthFlow } from '../types/audit.js';
+import { routeAzureDevOpsApiUrl } from './azdo-client.js';
 
 export { maskedDisplay, normalizePat } from './auth-masking.js';
 
@@ -90,7 +91,7 @@ function patFromEnvFile(envFile: string): string | null {
 
   const contents = readFileSync(envFile, 'utf8');
   for (const line of contents.split('\n')) {
-    const match = line.match(/^AZDO_PAT\s*=([^\n\r]+)$/);
+    const match = /^AZDO_PAT\s*=([^\n\r]+)$/.exec(line);
     if (match === null) continue;
     const value = match[1].trim().replace(/^["']|["']$/g, '');
     if (value.length > 0) return value;
@@ -200,7 +201,7 @@ export interface ValidatePatResult {
 export async function validatePatAgainstAzdo(pat: string, org: string): Promise<ValidatePatResult> {
   const url = `https://dev.azure.com/${encodeURIComponent(org)}/_apis/projects?$top=1&api-version=7.1`;
   const auth = Buffer.from(`:${pat}`).toString('base64');
-  const response = await fetch(url, {
+  const response = await fetch(routeAzureDevOpsApiUrl(url), {
     headers: {
       Authorization: `Basic ${auth}`,
       Accept: 'application/json',

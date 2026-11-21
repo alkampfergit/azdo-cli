@@ -1,0 +1,27 @@
+services:
+  app:
+    image: mcr.microsoft.com/devcontainers/typescript-node:22
+    command: sleep infinity
+    volumes:
+      - ..:/workspaces/azdo-cli:cached
+    environment:
+      # Only a placeholder reaches the app. Caddy replaces Authorization with
+      # the PAT read from the Compose secret.
+      AZDO_PAT: devcontainer-proxy
+      AZDO_API_BASE_URL: http://caddy:8080/azdo
+
+  caddy:
+    image: caddy:2.10-alpine
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - >-
+        export AZDO_PROXY_AUTH="$$(printf ':%s' "$$(cat /run/secrets/azdo_pat)" | base64 | tr -d '\n')";
+        exec caddy run --config /etc/caddy/Caddyfile --adapter caddyfile
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+    secrets:
+      - azdo_pat
+
+secrets:
+  azdo_pat:
+    file: ${AZDO_PAT_FILE:?Set AZDO_PAT_FILE to a host file containing the Azure DevOps PAT}
