@@ -161,6 +161,7 @@ azdo relations list 1000 --json             # JSON: { workItemId, relations: [..
 | Authentication (OAuth & PAT) | [docs/authentication.md](docs/authentication.md) |
 | Linux credential store setup | [docs/linux-credential-store.md](docs/linux-credential-store.md) |
 | Full command reference — every command, alias and option, credential resolution order, and the `--json` output contracts | [docs/commands.md](docs/commands.md) |
+| Agent skill for Claude Code, Codex and GitHub Copilot (`azdo --get-skill`) | [docs/agent-skill.md](docs/agent-skill.md) |
 | Development setup | [docs/development.md](docs/development.md) |
 | Project operations and automation (Dev Container, VM, Hermes) | [instructions/README.md](instructions/README.md) |
 

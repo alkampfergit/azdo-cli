@@ -1,7 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { execFileSync } from "node:child_process";
 import { resolve } from "node:path";
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 
 const CLI_PATH = resolve(import.meta.dirname, "../../dist/index.js");
 const { version: PKG_VERSION } = JSON.parse(
@@ -79,5 +80,55 @@ describe("azdo CLI", () => {
     expect(stderr).toContain("unknown option");
     expect(stderr).toContain("Usage:");
     expect(exitCode).toBe(1);
+  });
+
+  describe("--get-skill", () => {
+    const skillFile = (path: string): string =>
+      readFileSync(resolve(import.meta.dirname, "../../skills/azdo", path), "utf-8");
+
+    it.each([[["--help", "--get-skill"]], [["--get-skill", "--help"]], [["--get-skill"]]])(
+      "%j prints SKILL.md and nothing else",
+      (args) => {
+        const { stdout, stderr, exitCode } = run(args);
+        expect(stdout).toBe(skillFile("SKILL.md"));
+        expect(stderr).toBe("");
+        expect(exitCode).toBe(0);
+      },
+    );
+
+    it("--all prints every file as one document without the front matter", () => {
+      const { stdout, exitCode } = run(["--get-skill", "--all"]);
+      expect(exitCode).toBe(0);
+      expect(stdout.startsWith("---")).toBe(false);
+      expect(stdout).toContain("# azdo — Azure DevOps from the command line");
+      expect(stdout).toContain("<!-- azdo skill: references/pull-requests.md -->");
+      expect(stdout).toContain(skillFile("references/pipelines.md"));
+    });
+
+    it("--out writes the skill folder and lists the files written", () => {
+      const dir = mkdtempSync(resolve(tmpdir(), "azdo-skill-"));
+      try {
+        const { stdout, exitCode } = run(["--get-skill", "--out", dir]);
+        expect(exitCode).toBe(0);
+        expect(stdout.trim().split("\n")).toHaveLength(6);
+        expect(readFileSync(resolve(dir, "SKILL.md"), "utf-8")).toBe(skillFile("SKILL.md"));
+        expect(readFileSync(resolve(dir, "references/work-items.md"), "utf-8")).toBe(
+          skillFile("references/work-items.md"),
+        );
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    });
+
+    it("--out with --all is rejected", () => {
+      const { stdout, stderr, exitCode } = run(["--get-skill", "--out", tmpdir(), "--all"]);
+      expect(stdout).toBe("");
+      expect(stderr).toContain("--out and --all cannot be used together");
+      expect(exitCode).toBe(1);
+    });
+
+    it("--help lists --get-skill", () => {
+      expect(run(["--help"]).stdout).toContain("--get-skill");
+    });
   });
 });

@@ -1,4 +1,5 @@
 import { createProgram } from "./program.js";
+import { runGetSkill } from "./commands/get-skill.js";
 
 // Standard CLI behaviour for `azdo … | head`: when the downstream reader
 // closes the pipe early, swallow EPIPE and exit cleanly instead of dumping
@@ -12,10 +13,12 @@ function exitOnEpipe(err: NodeJS.ErrnoException): void {
 process.stdout.on("error", exitOnEpipe);
 process.stderr.on("error", exitOnEpipe);
 
-const program = createProgram();
+if (!runGetSkill(process.argv.slice(2))) {
+  const program = createProgram();
 
-await program.parseAsync();
+  await program.parseAsync();
 
-if (process.argv.length <= 2) {
-  program.help();
+  if (process.argv.length <= 2) {
+    program.help();
+  }
 }

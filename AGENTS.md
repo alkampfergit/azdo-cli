@@ -111,3 +111,5 @@ The stack additions of each feature are in [docs/feature-notes.md](docs/feature-
 ## Recent Changes
 
 The full log of earlier changes, with the design notes, is in [docs/feature-notes.md](docs/feature-notes.md). Spec Kit adds a one-line entry here for each new feature.
+
+- 062-agent-skill: `azdo --get-skill [--out <dir> | --all]` prints the agent skill in `skills/azdo/` (inlined at build); keep it in step with commands — `tests/unit/agent-skill.test.ts` fails on any command or option it names that no longer exists.
