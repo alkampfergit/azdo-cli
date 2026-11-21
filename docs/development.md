@@ -71,13 +71,16 @@ purpose, is forwarded unchanged.
 After the container is created, fetch the PAT once. The command runs inside the
 `caddy` container, reads the same Key Vault secret as `scripts/get-secret.sh`,
 keeps only `AZDO_PAT`, and reloads Caddy. It starts a device-code `az login`
-the first time (the login is kept in a volume) and never prints the PAT:
+each time and always runs `az logout` when it ends, because the Azure token
+cache is a credential for your whole account while the PAT is limited to its
+scopes. It never prints the PAT. The stored PAT survives container restarts, so
+you only need to run it again when the PAT in the vault changes or expires:
 
 ```bash
 docker compose -p azdo-cli_devcontainer exec caddy fetch-pat.sh
 ```
 
-Run it again after the PAT in the vault changes. Then run the integration tests
+Then run the integration tests
 in the `app` container as usual (`npm run test:integration`); they need no
 `.env` and no PAT. The Compose project name is `azdo-cli_devcontainer`.
 
