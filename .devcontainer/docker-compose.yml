@@ -25,7 +25,8 @@ services:
   caddy:
     # The Caddyfile is baked into the image (not mounted from the workspace,
     # which the app container can write), so the app cannot alter the routing
-    # X
+    # or expose the PAT. After editing it, rebuild:
+    # docker compose -p azdo-cli_devcontainer -f .devcontainer/docker-compose.yml up -d --build --no-deps caddy
     build:
       context: .
       dockerfile: caddy/Dockerfile
