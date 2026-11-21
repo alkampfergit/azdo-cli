@@ -1,6 +1,6 @@
 #!/bin/sh
 # Run inside the caddy container:
-#   docker compose exec caddy fetch-pat.sh
+#   docker compose -p azdo-cli_devcontainer -f .devcontainer/docker-compose.yml exec caddy fetch-pat.sh
 # Reads the integration-test .env secret from Key Vault (same vault/secret as
 # scripts/get-secret.sh), keeps only AZDO_PAT, stores it as the Basic
 # credential Caddy injects, and reloads Caddy. The PAT is never printed.

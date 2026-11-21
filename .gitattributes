@@ -3,3 +3,4 @@
 
 # Shell scripts run on Linux (dev container, CI): never check them out with CRLF.
 *.sh text eol=lf
+*.zsh text eol=lf

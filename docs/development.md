@@ -84,7 +84,7 @@ so it is never written to disk or kept across container recreation. It never pri
 you only need to run it again when the PAT in the vault changes or expires:
 
 ```bash
-docker compose -p azdo-cli_devcontainer exec caddy fetch-pat.sh
+docker compose -p azdo-cli_devcontainer -f .devcontainer/docker-compose.yml exec caddy fetch-pat.sh
 ```
 
 Then run the integration tests
