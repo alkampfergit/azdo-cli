@@ -47,6 +47,47 @@ If you need an unreleased spec-kit change, install it yourself with the git
 source; do not put the git source back in the bootstrap script without also
 dropping `--no-build`.
 
+## Dev container: two containers and a Caddy proxy
+
+The dev container is a Compose project with two services:
+
+- `app`: the workspace you work in. It never holds a real PAT. Its environment
+  has the placeholder `AZDO_PAT=devcontainer-proxy`,
+  `AZDO_API_BASE_URL=http://caddy:8080/azdo`, and the non-secret test settings
+  `AZDO_REPO` and `AZDO_PR_ID`. `node_modules` lives in a named volume, so the
+  host's native binaries are never shared with the container.
+- `caddy`: a proxy built from `.devcontainer/caddy/Dockerfile` (Caddy plus the
+  Azure CLI). It holds the real PAT and forwards Azure DevOps REST calls to
+  `dev.azure.com` and `vssps.dev.azure.com`.
+
+`AZDO_API_BASE_URL` makes `azdo` rewrite `https://dev.azure.com/<org>/…/_apis/…`
+to `${AZDO_API_BASE_URL}/<org>/…/_apis/…` (and `vssps.dev.azure.com` to
+`${AZDO_API_BASE_URL}/_vssps/<org>/_apis/…`). Unset, nothing changes. Caddy only
+forwards `_apis` paths and answers 404 to everything else, so it is not a
+general egress proxy. When the app sends the placeholder PAT, Caddy swaps in the
+real one; any other credential, such as the invalid PATs the tests send on
+purpose, is forwarded unchanged.
+
+After the container is created, fetch the PAT once. The command runs inside the
+`caddy` container, reads the same Key Vault secret as `scripts/get-secret.sh`,
+keeps only `AZDO_PAT`, and reloads Caddy. It starts a device-code `az login`
+the first time (the login is kept in a volume) and never prints the PAT:
+
+```bash
+docker compose -p azdo-cli_devcontainer exec caddy fetch-pat.sh
+```
+
+Run it again after the PAT in the vault changes. Then run the integration tests
+in the `app` container as usual (`npm run test:integration`); they need no
+`.env` and no PAT. The Compose project name is `azdo-cli_devcontainer`.
+
+Without VS Code, the `@devcontainers/cli` npm package drives the same setup:
+
+```bash
+npx @devcontainers/cli up --workspace-folder .                           # create / start
+npx @devcontainers/cli exec --workspace-folder . npm run test:integration
+```
+
 ## Integration test environment
 
 Integration tests hit a real Azure DevOps instance. Create a `.env` file **one directory above the repo root** (e.g. `/workspaces/.env` when the repo lives at `/workspaces/azdo-cli`) with the following variables:

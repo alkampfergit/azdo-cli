@@ -36,20 +36,28 @@ const DEFAULT_FIELDS: readonly string[] = [
   'System.IterationPath',
 ];
 
+/** Routable API hosts, with the path prefix that tells the proxy which host to call. */
+const ROUTED_API_HOSTS: Readonly<Record<string, string>> = {
+  'dev.azure.com': '',
+  // "_vssps" cannot be an organization name, so it never clashes with /<org>/.
+  'vssps.dev.azure.com': '/_vssps',
+};
+
 /** Route Azure DevOps REST API requests through an optional local proxy. */
 export function routeAzureDevOpsApiUrl(url: string): string {
   const proxyBase = process.env.AZDO_API_BASE_URL?.trim();
   if (!proxyBase) return url;
 
   const original = new URL(url);
-  if (original.hostname !== 'dev.azure.com' || !original.pathname.includes('/_apis/')) return url;
+  const hostPrefix = ROUTED_API_HOSTS[original.hostname];
+  if (hostPrefix === undefined || !original.pathname.includes('/_apis/')) return url;
 
   const base = new URL(proxyBase);
   const basePath = base.pathname.replace(/\/$/, '');
   original.protocol = base.protocol;
   original.hostname = base.hostname;
   original.port = base.port;
-  original.pathname = `${basePath}${original.pathname}`;
+  original.pathname = `${basePath}${hostPrefix}${original.pathname}`;
   return original.toString();
 }
 

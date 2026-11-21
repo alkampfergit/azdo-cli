@@ -5,6 +5,7 @@ import {
   getOrgFieldNames,
   getWorkItem,
   listWorkItemComments,
+  routeAzureDevOpsApiUrl,
   updateWorkItem,
 } from '../../src/services/azdo-client.js';
 import { testContext as ctx, testPat as pat, makeFetchResponse, makeErrorResponse, makeHtmlResponse } from './helpers/api-test-utils.js';
@@ -171,6 +172,25 @@ describe('getWorkItem', () => {
       expect(fetch).toHaveBeenCalledWith(
         'http://caddy:8080/azdo/testorg/testproject/_apis/wit/workitems/99?api-version=7.1&%24expand=relations',
         expect.any(Object),
+      );
+    } finally {
+      if (previous === undefined) delete process.env.AZDO_API_BASE_URL;
+      else process.env.AZDO_API_BASE_URL = previous;
+    }
+  });
+
+  it('routes vssps identity requests under the _vssps prefix and leaves other hosts alone', () => {
+    const previous = process.env.AZDO_API_BASE_URL;
+    process.env.AZDO_API_BASE_URL = 'http://caddy:8080/azdo/';
+    try {
+      expect(
+        routeAzureDevOpsApiUrl('https://vssps.dev.azure.com/testorg/_apis/identities?filterValue=a%40b.c'),
+      ).toBe('http://caddy:8080/azdo/_vssps/testorg/_apis/identities?filterValue=a%40b.c');
+      expect(routeAzureDevOpsApiUrl('https://example.com/testorg/_apis/x')).toBe(
+        'https://example.com/testorg/_apis/x',
+      );
+      expect(routeAzureDevOpsApiUrl('https://dev.azure.com/testorg/_git/repo')).toBe(
+        'https://dev.azure.com/testorg/_git/repo',
       );
     } finally {
       if (previous === undefined) delete process.env.AZDO_API_BASE_URL;

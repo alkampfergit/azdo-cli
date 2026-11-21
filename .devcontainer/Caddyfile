@@ -3,12 +3,29 @@
 }
 
 :8080 {
+	# The app container sends this placeholder PAT (":devcontainer-proxy" in
+	# Basic auth). Only then does Caddy swap in the real PAT, written by
+	# fetch-pat.sh (empty until fetched). Any other credential, such as the
+	# deliberately invalid PATs the tests send, is forwarded unchanged.
+	@placeholder_pat header Authorization "Basic OmRldmNvbnRhaW5lci1wcm94eQ=="
+
+	# Identity lookups live on a separate host. Must come before the generic
+	# handler, which would read "_vssps" as an organization.
+	@vssps_api path_regexp ^/azdo/_vssps/[^/]+/_apis(/|$)
+	handle @vssps_api {
+		uri strip_prefix /azdo/_vssps
+		request_header @placeholder_pat Authorization "Basic {file./run/azdo/proxy-auth}"
+		reverse_proxy https://vssps.dev.azure.com {
+			header_up Host vssps.dev.azure.com
+		}
+	}
+
 	@azure_devops_api path_regexp ^/azdo/[^/]+(/[^/]+)?/_apis(/|$)
 	handle @azure_devops_api {
 		uri strip_prefix /azdo
+		request_header @placeholder_pat Authorization "Basic {file./run/azdo/proxy-auth}"
 		reverse_proxy https://dev.azure.com {
 			header_up Host dev.azure.com
-			header_up Authorization "Basic {env.AZDO_PROXY_AUTH}"
 		}
 	}
 

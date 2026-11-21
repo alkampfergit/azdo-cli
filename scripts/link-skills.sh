@@ -18,6 +18,13 @@ if [[ ! -d "$SRC_DIR" ]]; then
     exit 0
 fi
 
+# On a Windows checkout without symlink support git writes the tracked
+# .claude/skills symlink as a plain file; there is nothing to link into.
+if [[ -f "$DEST_DIR" ]]; then
+    echo "link-skills: $DEST_DIR is a plain file (symlinks unsupported on this checkout); skipping."
+    exit 0
+fi
+
 mkdir -p "$DEST_DIR"
 
 linked=0

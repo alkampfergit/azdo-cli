@@ -4,24 +4,29 @@ services:
     command: sleep infinity
     volumes:
       - ..:/workspaces/azdo-cli:cached
+      # Linux-native dependencies; the host checkout's node_modules (e.g. from
+      # Windows) has the wrong native binaries and must not be shared.
+      - azdo-node-modules:/workspaces/azdo-cli/node_modules
     environment:
       # Only a placeholder reaches the app. Caddy replaces Authorization with
-      # the PAT read from the Compose secret.
+      # the PAT it fetched from Key Vault (see caddy/fetch-pat.sh).
       AZDO_PAT: devcontainer-proxy
       AZDO_API_BASE_URL: http://caddy:8080/azdo
+      # Not secret: the reference repository and pull request the integration
+      # tests use (the other test variables have defaults in the test helpers).
+      AZDO_REPO: azdocli
+      AZDO_PR_ID: "64"
+    depends_on:
+      - caddy
 
   caddy:
-    image: caddy:2.10-alpine
-    entrypoint: ["/bin/sh", "-c"]
-    command:
-      - >-
-        export AZDO_PROXY_AUTH="$$(printf ':%s' "$$(cat /run/secrets/azdo_pat)" | base64 | tr -d '\n')";
-        exec caddy run --config /etc/caddy/Caddyfile --adapter caddyfile
+    build: ./caddy
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
-    secrets:
-      - azdo_pat
+      - azdo-proxy:/run/azdo
+      - azure-config:/root/.azure
 
-secrets:
-  azdo_pat:
-    file: ${AZDO_PAT_FILE:?Set AZDO_PAT_FILE to a host file containing the Azure DevOps PAT}
+volumes:
+  azdo-node-modules:
+  azdo-proxy:
+  azure-config:
