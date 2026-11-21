@@ -24,7 +24,7 @@ services:
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - azdo-proxy:/run/azdo
-      - azure-config:/root/.azure
+      - azure-config:/home/caddy/.azure
 
 volumes:
   azdo-node-modules:
