@@ -13,14 +13,14 @@ export default async function setup(): Promise<void> {
   const org = (process.env.AZDO_ORG ?? 'gianmariaricci').trim();
   const pat = process.env.AZDO_PAT ?? process.env.AZDO_PATH ?? '';
   // Throws INVALID_CONFIG for a malformed AZDO_API_BASE_URL: fail loudly.
-  const url = routeAzureDevOpsApiUrl(
-    `https://dev.azure.com/${encodeURIComponent(org)}/_apis/projects?$top=1&api-version=7.1`,
-  );
+  const projectsUrl = `https://dev.azure.com/${encodeURIComponent(org)}/_apis/projects?$top=1&api-version=7.1`;
+  const url = routeAzureDevOpsApiUrl(projectsUrl);
 
+  const basicToken = Buffer.from(`:${pat}`).toString('base64');
   let status = 0;
   try {
     const response = await fetch(url, {
-      headers: { Authorization: `Basic ${Buffer.from(`:${pat}`).toString('base64')}` },
+      headers: { Authorization: `Basic ${basicToken}` },
       redirect: 'manual',
     });
     status = response.status;
@@ -29,8 +29,9 @@ export default async function setup(): Promise<void> {
   }
 
   if (status !== 200) {
+    const reason = status === 0 ? 'unreachable' : 'HTTP ' + status;
     console.warn(
-      `[integration] AZDO_API_BASE_URL is set but the proxy did not authenticate (${status === 0 ? 'unreachable' : `HTTP ${status}`}); ` +
+      `[integration] AZDO_API_BASE_URL is set but the proxy did not authenticate (${reason}); ` +
         'skipping live tests. Run fetch-pat.sh in the caddy container (docs/development.md).',
     );
     process.env.AZDO_PAT = '';
