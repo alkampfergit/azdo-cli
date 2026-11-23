@@ -8,11 +8,9 @@ const NOT_AUTHENTICATED = new Set([200, 203, 302, 401, 403]);
 /**
  * In the dev container the tests carry only a placeholder PAT and Caddy adds
  * the real one. Until `fetch-pat.sh` has stored it, every live request would
- * fail with an authentication error, so probe once and, when the proxy cannot
- * authenticate or is unreachable, blank the PAT: the suites then skip like
- * they do without credentials (`SKIP_AZDO`). Any other answer (a proxy 404,
- * an upstream 5xx) is a real problem and fails the run. A no-op when
- * AZDO_API_BASE_URL is unset.
+ * fail with an authentication error, so probe once and fail if the proxy
+ * cannot authenticate or is unreachable. A no-op when AZDO_API_BASE_URL is
+ * unset.
  */
 export default async function setup(): Promise<void> {
   if (!process.env.AZDO_API_BASE_URL?.trim()) return;
@@ -25,30 +23,26 @@ export default async function setup(): Promise<void> {
   const url = routeAzureDevOpsApiUrl(fieldsUrl);
   const basicToken = Buffer.from(`:${AZDO_PAT}`).toString('base64');
 
-  let status = 0;
-  let contentType = '';
+  let response: Response;
   try {
-    const response = await fetch(url, {
+    response = await fetch(url, {
       headers: { Authorization: `Basic ${basicToken}`, Accept: 'application/json' },
       redirect: 'manual',
     });
-    status = response.status;
-    contentType = response.headers.get('content-type') ?? '';
-  } catch {
-    // proxy unreachable: status stays 0
+  } catch (error) {
+    throw new Error(`[integration] proxy readiness probe failed: proxy unreachable at ${url}`, { cause: error });
   }
 
+  const status = response.status;
+  const contentType = response.headers.get('content-type') ?? '';
   if (status === 200 && contentType.includes('application/json')) return;
 
-  if (status !== 0 && !NOT_AUTHENTICATED.has(status)) {
+  if (!NOT_AUTHENTICATED.has(status)) {
     throw new Error(`[integration] proxy readiness probe failed unexpectedly: HTTP ${status} from ${url}`);
   }
 
-  const reason = status === 0 ? 'unreachable' : 'HTTP ' + status;
-  console.warn(
-    `[integration] AZDO_API_BASE_URL is set but the proxy did not authenticate (${reason}); ` +
-      'skipping live tests. Run fetch-pat.sh in the caddy container (docs/development.md).',
+  throw new Error(
+    `[integration] proxy did not authenticate (HTTP ${status}); ` +
+      'check the Caddy PAT and run fetch-pat.sh in the caddy container (docs/development.md).',
   );
-  process.env.AZDO_PAT = '';
-  delete process.env.AZDO_PATH;
 }

@@ -90,8 +90,8 @@ docker compose -p azdo-cli_devcontainer -f .devcontainer/docker-compose.yml exec
 Then run the integration tests
 in the `app` container as usual (`npm run test:integration`); they need no
 `.env` and no PAT. If the proxy has no PAT yet, a start-up probe
-(`tests/integration/global-setup.ts`) prints a warning and the live suites skip
-instead of failing with authentication errors. `scripts/cleanup-test-items.zsh`
+(`tests/integration/global-setup.ts`) fails the test run with an authentication
+error. An unreachable proxy also fails the run. `scripts/cleanup-test-items.zsh`
 also honours `AZDO_API_BASE_URL`. The Compose project name is `azdo-cli_devcontainer`.
 
 Without VS Code, the `@devcontainers/cli` npm package drives the same setup:
