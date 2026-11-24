@@ -1,4 +1,11 @@
-import { defineConfig } from 'vitest/config';
+import { configDefaults, defineConfig } from 'vitest/config';
+
+// Integration tests that never call Azure DevOps.
+const LOCAL_INTEGRATION_TESTS = [
+  'tests/integration/auth.integration.test.ts',
+  'tests/integration/config-org.test.ts',
+  'tests/integration/credential-store.test.ts',
+];
 
 export default defineConfig({
   test: {
@@ -14,9 +21,19 @@ export default defineConfig({
       },
       {
         test: {
+          // Config and credential-store tests: no Azure DevOps access, so no
+          // proxy probe.
+          name: 'integration-local',
+          include: LOCAL_INTEGRATION_TESTS,
+        },
+      },
+      {
+        test: {
           name: 'integration',
           include: ['tests/integration/**/*.test.ts'],
-          // Fail early when the dev container proxy cannot authenticate.
+          exclude: [...configDefaults.exclude, ...LOCAL_INTEGRATION_TESTS],
+          // Probe the dev container proxy once: skip the live suites (or fail,
+          // with AZDO_REQUIRE_PROXY=1) when it cannot authenticate.
           globalSetup: ['tests/integration/global-setup.ts'],
         },
       },
