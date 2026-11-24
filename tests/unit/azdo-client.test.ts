@@ -5,6 +5,7 @@ import {
   getOrgFieldNames,
   getWorkItem,
   listWorkItemComments,
+  routeAzureDevOpsApiUrl,
   updateWorkItem,
 } from '../../src/services/azdo-client.js';
 import { testContext as ctx, testPat as pat, makeFetchResponse, makeErrorResponse, makeHtmlResponse } from './helpers/api-test-utils.js';
@@ -160,6 +161,75 @@ describe('getWorkItem', () => {
       expect.any(Object),
     );
   });
+
+  it('routes Azure DevOps API requests through the configured API base URL', async () => {
+    const previous = process.env.AZDO_API_BASE_URL;
+    process.env.AZDO_API_BASE_URL = 'http://caddy:8080/azdo';
+    try {
+      vi.mocked(fetch).mockResolvedValue(makeWorkItemResponse({}));
+      await getWorkItem(ctx, 99, pat);
+
+      expect(fetch).toHaveBeenCalledWith(
+        'http://caddy:8080/azdo/testorg/testproject/_apis/wit/workitems/99?api-version=7.1&%24expand=relations',
+        expect.any(Object),
+      );
+    } finally {
+      if (previous === undefined) delete process.env.AZDO_API_BASE_URL;
+      else process.env.AZDO_API_BASE_URL = previous;
+    }
+  });
+
+  it('routes vssps identity requests under the _vssps prefix and leaves other hosts alone', () => {
+    const previous = process.env.AZDO_API_BASE_URL;
+    process.env.AZDO_API_BASE_URL = 'http://caddy:8080/azdo/';
+    try {
+      expect(
+        routeAzureDevOpsApiUrl('https://vssps.dev.azure.com/testorg/_apis/identities?filterValue=a%40b.c'),
+      ).toBe('http://caddy:8080/azdo/_vssps/testorg/_apis/identities?filterValue=a%40b.c');
+      expect(routeAzureDevOpsApiUrl('https://example.com/testorg/_apis/x')).toBe(
+        'https://example.com/testorg/_apis/x',
+      );
+      expect(routeAzureDevOpsApiUrl('https://dev.azure.com/testorg/_git/repo')).toBe(
+        'https://dev.azure.com/testorg/_git/repo',
+      );
+    } finally {
+      if (previous === undefined) delete process.env.AZDO_API_BASE_URL;
+      else process.env.AZDO_API_BASE_URL = previous;
+    }
+  });
+
+  it('routes legacy visualstudio.com attachment URLs to the modern organization path', () => {
+    const previous = process.env.AZDO_API_BASE_URL;
+    process.env.AZDO_API_BASE_URL = 'http://caddy:8080/azdo';
+    try {
+      expect(
+        routeAzureDevOpsApiUrl('https://myorg.visualstudio.com/DefaultCollection/proj/_apis/wit/attachments/abc?fileName=a.png'),
+      ).toBe('http://caddy:8080/azdo/myorg/proj/_apis/wit/attachments/abc?fileName=a.png');
+      expect(routeAzureDevOpsApiUrl('https://myorg.visualstudio.com/proj/_apis/wit/attachments/abc')).toBe(
+        'http://caddy:8080/azdo/myorg/proj/_apis/wit/attachments/abc',
+      );
+    } finally {
+      if (previous === undefined) delete process.env.AZDO_API_BASE_URL;
+      else process.env.AZDO_API_BASE_URL = previous;
+    }
+  });
+
+  it.each(['caddy:8080/azdo', 'ftp://caddy/azdo', 'not a url'])(
+    'rejects AZDO_API_BASE_URL %j with a configuration error naming the variable',
+    async (bad) => {
+      const previous = process.env.AZDO_API_BASE_URL;
+      process.env.AZDO_API_BASE_URL = bad;
+      try {
+        expect(() => routeAzureDevOpsApiUrl('https://dev.azure.com/o/_apis/x')).toThrow(/INVALID_CONFIG: AZDO_API_BASE_URL/);
+        // Not reported as a network failure, and never sent.
+        await expect(getWorkItem(ctx, 1, pat)).rejects.toThrow(/INVALID_CONFIG/);
+        expect(fetch).not.toHaveBeenCalled();
+      } finally {
+        if (previous === undefined) delete process.env.AZDO_API_BASE_URL;
+        else process.env.AZDO_API_BASE_URL = previous;
+      }
+    },
+  );
 
   it('URL-encodes organization and project in API URL', async () => {
     vi.mocked(fetch).mockResolvedValue(makeWorkItemResponse({}));

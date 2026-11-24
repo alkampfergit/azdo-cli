@@ -1,0 +1,42 @@
+services:
+  app:
+    image: mcr.microsoft.com/devcontainers/typescript-node:22
+    command: sleep infinity
+    volumes:
+      - ..:/workspaces/azdo-cli:cached
+      # Linux-native dependencies; the host checkout's node_modules (e.g. from
+      # Windows) has the wrong native binaries and must not be shared.
+      - azdo-node-modules:/workspaces/azdo-cli/node_modules
+    environment:
+      # Only a placeholder reaches the app. Caddy replaces Authorization with
+      # the PAT it fetched from Key Vault (see caddy/fetch-pat.sh).
+      AZDO_PAT: devcontainer-proxy
+      AZDO_API_BASE_URL: http://caddy:8080/azdo
+      # Not secret: the reference repository and pull request the integration
+      # tests use (the other test variables have defaults in the test helpers).
+      # Same values the integration helpers default to; the cleanup script has none.
+      AZDO_ORG: gianmariaricci
+      AZDO_PROJECT: azdocli
+      AZDO_REPO: azdocli
+      AZDO_PR_ID: "64"
+    depends_on:
+      - caddy
+
+  caddy:
+    # The Caddyfile is baked into the image (not mounted from the workspace,
+    # which the app container can write), so the app cannot alter the routing
+    # or expose the PAT. After editing it, rebuild:
+    # docker compose -p azdo-cli_devcontainer -f .devcontainer/docker-compose.yml up -d --build --no-deps caddy
+    build:
+      context: .
+      dockerfile: caddy/Dockerfile
+    volumes:
+      - azdo-proxy:/run/azdo
+    tmpfs:
+      # Azure CLI state: memory only, so an account-wide token never reaches
+      # disk or survives the container. Only the limited-scope PAT is persisted.
+      - /home/caddy/.azure:uid=10001,gid=10001,mode=0700
+
+volumes:
+  azdo-node-modules:
+  azdo-proxy:

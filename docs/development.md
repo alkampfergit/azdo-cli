@@ -47,6 +47,64 @@ If you need an unreleased spec-kit change, install it yourself with the git
 source; do not put the git source back in the bootstrap script without also
 dropping `--no-build`.
 
+## Dev container: two containers and a Caddy proxy
+
+The dev container is a Compose project with two services:
+
+- `app`: the workspace you work in. It never holds a real PAT. Its environment
+  has the placeholder `AZDO_PAT=devcontainer-proxy`,
+  `AZDO_API_BASE_URL=http://caddy:8080/azdo`, and the non-secret test settings
+  `AZDO_REPO` and `AZDO_PR_ID`. `node_modules` lives in a named volume, so the
+  host's native binaries are never shared with the container.
+- `caddy`: a proxy built from `.devcontainer/caddy/Dockerfile` (Caddy plus the
+  Azure CLI), running as an unprivileged user. It holds the real PAT and
+  forwards Azure DevOps REST calls to `dev.azure.com`, `vssps.dev.azure.com`
+  and legacy `<org>.visualstudio.com` attachment URLs. The Caddyfile is baked
+  into the image, not mounted from the workspace: the `app` container can write
+  the workspace, and a mounted config could be edited to expose the PAT on the
+  next reload. After changing `.devcontainer/Caddyfile` or the scripts, rebuild:
+  `docker compose -p azdo-cli_devcontainer -f .devcontainer/docker-compose.yml up -d --build --no-deps caddy`.
+
+`AZDO_API_BASE_URL` makes `azdo` rewrite `https://dev.azure.com/<org>/…/_apis/…`
+to `${AZDO_API_BASE_URL}/<org>/…/_apis/…` (and `vssps.dev.azure.com` to
+`${AZDO_API_BASE_URL}/_vssps/<org>/_apis/…`). Unset, nothing changes; a value
+that is not an absolute http(s) URL stops with `INVALID_CONFIG: AZDO_API_BASE_URL …`. Caddy only
+forwards `_apis` paths and answers 404 to everything else, so it is not a
+general egress proxy. When the app sends the placeholder PAT, Caddy swaps in the
+real one; any other credential, such as the invalid PATs the tests send on
+purpose, is forwarded unchanged.
+
+After the container is created, fetch the PAT once. The command runs inside the
+`caddy` container, reads the same Key Vault secret as `scripts/get-secret.sh`,
+keeps only `AZDO_PAT`, and reloads Caddy. It starts a device-code `az login`
+each time and always runs `az logout` when it ends (also on SIGTERM, SIGINT or
+SIGHUP), because the Azure token cache is a credential for your whole account
+while the PAT is limited to its scopes. The Azure CLI state lives on a `tmpfs`,
+so it is never written to disk or kept across container recreation. It never prints the PAT. The stored PAT survives container restarts, so
+you only need to run it again when the PAT in the vault changes or expires:
+
+```bash
+docker compose -p azdo-cli_devcontainer -f .devcontainer/docker-compose.yml exec caddy fetch-pat.sh
+```
+
+Then run the integration tests
+in the `app` container as usual (`npm run test:integration`); they need no
+`.env` and no PAT. If the proxy has no PAT yet, a start-up probe
+(`tests/integration/global-setup.ts`) prints a warning and the live suites skip,
+and the same happens when the proxy is unreachable, so `npm test` works without
+vault access. Set `AZDO_REQUIRE_PROXY=1` to make both cases fail the run
+instead. Any other proxy error always fails it. The config and
+credential-store tests need no Azure DevOps access and run in their own vitest
+project (`integration-local`) without the probe. `scripts/cleanup-test-items.zsh`
+also honours `AZDO_API_BASE_URL`. The Compose project name is `azdo-cli_devcontainer`.
+
+Without VS Code, the `@devcontainers/cli` npm package drives the same setup:
+
+```bash
+npx @devcontainers/cli up --workspace-folder .                           # create / start
+npx @devcontainers/cli exec --workspace-folder . npm run test:integration
+```
+
 ## Integration test environment
 
 Integration tests hit a real Azure DevOps instance. Create a `.env` file **one directory above the repo root** (e.g. `/workspaces/.env` when the repo lives at `/workspaces/azdo-cli`) with the following variables:

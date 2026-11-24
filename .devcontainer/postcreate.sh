@@ -19,6 +19,14 @@ echo "Installing system dependencies..."
 sudo apt-get update
 sudo apt-get install -y git-flow
 
+# node_modules is a named Docker volume (see docker-compose.yml) so the host's
+# native binaries are never shared with the container. A new volume is owned by
+# root; hand it to the node user, then install the Linux dependencies. A failure
+# here must not abort the rest of the setup.
+echo "Installing npm dependencies..."
+sudo chown node:node "$PWD/node_modules" 2>/dev/null || true
+npm ci --ignore-scripts || echo "WARNING: npm ci failed; run it manually before building or testing."
+
 # Setup git aliases
 echo "Configuring git aliases..."
 bash .devcontainer/setup-git-aliases.sh

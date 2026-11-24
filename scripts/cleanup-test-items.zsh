@@ -46,7 +46,11 @@ if [[ -z "$PAT" || -z "$ORG" || -z "$PROJECT" ]]; then
   exit 1
 fi
 
-BASE_URL="https://dev.azure.com/${ORG}/${PROJECT}/_apis/wit"
+# In the dev container AZDO_API_BASE_URL points at the Caddy proxy (which adds the
+# real PAT); elsewhere requests go straight to Azure DevOps.
+API_ROOT="${AZDO_API_BASE_URL:-https://dev.azure.com}"
+API_ROOT="${API_ROOT%/}"
+BASE_URL="${API_ROOT}/${ORG}/${PROJECT}/_apis/wit"
 AUTH=$(printf ":%s" "$PAT" | base64 -w0)
 
 # ── Query work items with [azdo-cli-test] in the title ──────────────────────

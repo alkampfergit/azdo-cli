@@ -36,6 +36,65 @@ const DEFAULT_FIELDS: readonly string[] = [
   'System.IterationPath',
 ];
 
+/** Routable API hosts, with the path prefix that tells the proxy which host to call. */
+const ROUTED_API_HOSTS: ReadonlyMap<string, string> = new Map([
+  ['dev.azure.com', ''],
+  // "_vssps" cannot be an organization name, so it never clashes with /<org>/.
+  ['vssps.dev.azure.com', '/_vssps'],
+]);
+
+const LEGACY_ORG_HOST = /^([a-z0-9][a-z0-9-]*)\.visualstudio\.com$/i;
+
+/** The configured proxy base, `null` when unset; a bad value is a configuration error. */
+function readApiBase(): URL | null {
+  const raw = process.env.AZDO_API_BASE_URL?.trim();
+  if (!raw) return null;
+  let base: URL;
+  try {
+    base = new URL(raw);
+  } catch (err) {
+    throw new Error(`INVALID_CONFIG: AZDO_API_BASE_URL must be an absolute http(s) URL, got "${raw}"`, { cause: err });
+  }
+  if (base.protocol !== 'http:' && base.protocol !== 'https:') {
+    throw new Error(`INVALID_CONFIG: AZDO_API_BASE_URL must be an absolute http(s) URL, got "${raw}"`);
+  }
+  return base;
+}
+
+/**
+ * Map an API URL to the proxy path of its modern host, or `null` when the host
+ * is not proxied. Legacy `{org}.visualstudio.com[/DefaultCollection]` URLs are
+ * normalized to the modern `/{org}/...` path first.
+ */
+function proxiedPath(original: URL): { prefix: string; pathname: string } | null {
+  const prefix = ROUTED_API_HOSTS.get(original.hostname);
+  if (prefix !== undefined) return { prefix, pathname: original.pathname };
+  const legacy = LEGACY_ORG_HOST.exec(original.hostname);
+  if (legacy === null) return null;
+  const pathname = original.pathname.replace(/^\/DefaultCollection(?=\/)/i, '');
+  return { prefix: '', pathname: `/${legacy[1]}${pathname}` };
+}
+
+/**
+ * Route Azure DevOps REST API requests through an optional local proxy
+ * (`AZDO_API_BASE_URL`). Throws `INVALID_CONFIG` when that variable is not an
+ * absolute http(s) URL, so callers must route outside any network-error catch.
+ */
+export function routeAzureDevOpsApiUrl(url: string): string {
+  const base = readApiBase();
+  if (base === null) return url;
+
+  const original = new URL(url);
+  const target = proxiedPath(original);
+  if (!target?.pathname.includes('/_apis/')) return url;
+
+  original.protocol = base.protocol;
+  original.hostname = base.hostname;
+  original.port = base.port;
+  original.pathname = `${base.pathname.replace(/\/$/, '')}${target.prefix}${target.pathname}`;
+  return original.toString();
+}
+
 export function authHeaders(credentialOrPat: AuthCredential | string): Record<string, string> {
   if (typeof credentialOrPat === 'string') {
     const token = Buffer.from(`:${credentialOrPat}`).toString('base64');
@@ -49,9 +108,10 @@ export function authHeaders(credentialOrPat: AuthCredential | string): Record<st
 }
 
 export async function fetchRaw(url: string, init: RequestInit): Promise<{ status: number; body: string }> {
+  const routedUrl = routeAzureDevOpsApiUrl(url);
   let response: Response;
   try {
-    response = await fetch(url, init);
+    response = await fetch(routedUrl, init);
   } catch (err) {
     throw new Error(`NETWORK_ERROR: ${err instanceof Error ? err.message : String(err)}`, { cause: err });
   }
@@ -212,9 +272,10 @@ async function traceResponse(url: string, init: RequestInit, response: Response)
 }
 
 export async function fetchWithErrors(url: string, init: RequestInit): Promise<Response> {
+  const routedUrl = routeAzureDevOpsApiUrl(url);
   let response: Response;
   try {
-    response = await fetch(url, init);
+    response = await fetch(routedUrl, init);
   } catch (err) {
     throw new Error('NETWORK_ERROR', { cause: err });
   }
